@@ -169,7 +169,10 @@ describe('public entry rendered interactions', () => {
   it('matches actual workbench navigation and guards empty demand', async () => {
     const { hallWorkbenchTabs } = await import('../src/constants/hallWorkbenchNavigation.js')
     expect(hallWorkbenchTabs.map(tab => tab.label)).to.deep.equal(['办事', '事项', '资料', '我的'])
-    expect(source('src/components/world/JuyiHall.vue')).to.include('const workbenchPrimaryTabs = hallWorkbenchTabs')
+    const hall = source('src/components/world/JuyiHall.vue')
+    for (const tab of hallWorkbenchTabs) {
+      expect(hall).to.include(`{ panel: '${tab.panel}', label: '${tab.label}', icon: '${tab.icon}' }`)
+    }
     const router = await routerAt('/demo')
     const wrapper = mount(Demo, { global: { plugins: [router], stubs: { 'var-icon': true } } })
     try {
