@@ -23,8 +23,8 @@ __pycache__/
 *.py[cod]
 
 # Private credentials, host state and local-only history
-.env
 .env.*
+!.env.production
 !.env.example
 *.key
 *.pem
