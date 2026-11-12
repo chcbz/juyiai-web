@@ -85,7 +85,6 @@ describe('conversation HTML/Markdown preview', () => {
     const Media = component('../src/components/juyiting/HallMessageMedia.vue', {
       '../outputs/RichDocumentPreview.vue': Rich,
       '../../utils/richDocumentPreview.js': { richDocumentKind },
-      '../../utils/outputDownload.js': { saveOutputBlob: () => {} },
       '../workspace/PdfDocumentPreview.vue': { render: () => null },
       '../../composables/useHttp.js': { createApi: () => ({ execute: async request => { calls.push(request); return new Blob(['<h1>财务小工具</h1><script>alert(1)</script>'], { type: mime }) } }) },
       '../../composables/juyiting/hallMessageParts.js': { conversationAssetContentPath, safeAssetPreviewKind }
