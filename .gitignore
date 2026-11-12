@@ -36,3 +36,6 @@ __pycache__/
 node_modules/
 __pycache__/
 *.py[cod]
+
+# Local dependency symlinks as well as directories
+/node_modules
