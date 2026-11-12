@@ -22,9 +22,9 @@
         <RichDocumentPreview v-else-if="previewBlob && documentKind" :text="previewText" :kind="documentKind" :title="part.filename" />
         <pre v-else-if="previewBlob && mediaKind === 'text'" class="asset-text-preview" v-text="previewText"></pre>
         <PdfDocumentPreview v-else-if="previewBlob && mediaKind === 'pdf'" :blob="previewBlob" />
-        <p v-else>{{ loading ? '正在读取…' : '此格式暂不支持在线预览。' }}</p>
+        <p v-else>{{ loading ? '正在读取…' : '此格式暂不支持在线预览，可下载原文件查看。' }}</p>
         <p v-if="error" role="alert">{{ error }}</p>
-        <footer v-if="!previewBlob && (mediaKind !== 'file' || documentKind)"><button type="button" :disabled="loading" @click="loadPreview">重试预览</button></footer>
+        <footer><button v-if="!previewBlob && (mediaKind !== 'file' || documentKind)" type="button" :disabled="loading" @click="loadPreview">重试预览</button><button v-if="part.assetId" type="button" :disabled="downloading" @click="downloadFile">{{ downloading ? '正在下载…' : '下载文件' }}</button></footer>
       </dialog>
     </Teleport>
   </div>
@@ -34,6 +34,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
 import { richDocumentKind } from '../../utils/richDocumentPreview.js'
 import PdfDocumentPreview from '../workspace/PdfDocumentPreview.vue'
+import { saveOutputBlob } from '../../utils/outputDownload.js'
 import { createApi } from '../../composables/useHttp.js'
 import { conversationAssetContentPath, safeAssetPreviewKind } from '../../composables/juyiting/hallMessageParts.js'
 
@@ -47,6 +48,9 @@ const previewUrl = ref('')
 const previewBlob = ref(null)
 const previewText = ref('')
 const loading = ref(false)
+const downloading = ref(false)
+let downloadController = null
+let downloadGeneration = 0
 const error = ref('')
 const expanded = ref(false)
 const previewDialog = ref(null)
@@ -71,6 +75,10 @@ let controller = null
 let requestGeneration = 0
 const discard = () => {
   requestGeneration++
+  downloadGeneration++
+  downloadController?.abort()
+  downloadController = null
+  downloading.value = false
   controller?.abort()
   controller = null
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
@@ -81,11 +89,29 @@ const discard = () => {
   loading.value = false
   error.value = ''
 }
-const getBlob = async signal => {
+const getBlob = async (signal, download = false) => {
   const url = conversationAssetContentPath({ conversationId: props.conversationId, assetId: props.part.assetId })
-  const response = await api.execute({ url, method: 'GET', responseType: 'blob', autoLoading: false, needAuth: true, signal })
+  const response = await api.execute({ url: download ? `${url}?download=true` : url, method: 'GET', responseType: 'blob', autoLoading: false, needAuth: true, signal })
   if (!(response instanceof Blob)) throw new Error('无法读取会话资产。')
   return response
+}
+const downloadFile = async () => {
+  if (downloading.value || !props.part.assetId) return
+  const generation = downloadGeneration
+  const pending = new AbortController()
+  downloadController = pending
+  downloading.value = true
+  error.value = ''
+  const current = () => !pending.signal.aborted && generation === downloadGeneration
+  try {
+    const blob = await getBlob(pending.signal, true)
+    if (!current()) return
+    await saveOutputBlob({ blob, item: { name: props.part.filename || 'output' }, signal: pending.signal, isCurrent: current })
+  } catch (cause) {
+    if (current()) error.value = cause?.message || '下载失败，请重试。'
+  } finally {
+    if (generation === downloadGeneration) { downloading.value = false; downloadController = null }
+  }
 }
 const loadPreview = async () => {
   if (previewBlob.value || loading.value || (mediaKind.value === 'file' && !documentKind.value)) return

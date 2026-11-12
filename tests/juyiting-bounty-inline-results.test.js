@@ -32,9 +32,9 @@ const noRender = { render: () => null }
 const directory = () => ({ items: Vue.ref([]), links: Vue.ref([]), pendingWrites: Vue.ref([]), loading: Vue.ref(false), error: Vue.ref(''),
   actionState: Vue.ref('idle'), writeNotice: Vue.ref(''), refresh: async () => true, load: async () => true,
   dispose: () => {}, retryWrite: () => {} })
-const createComponents = api => {
+const createComponents = (api, saveOutputBlob = () => {}) => {
   const deps = { ...historyWindowHelpers, richDocumentKind, RichDocumentPreview: noRender, projectHallTask, PdfDocumentPreview: { props: ['blob'], template: '<section class="pdf-preview-stub" />' }, ...discussionTurnHelpers, useHallExecutionAbandonment, ...outputCatalog, ...discussionContract, bountyDeliberationPresentation, useHallSkillResults, skillResultDataText, skillResultStatus, inlineSkillResults,
-    revisionProgressPending, conversationAssetContentPath, safeMediaKind, safeAssetPreviewKind, revisionOf, createApi: () => api, saveOutputBlob: () => {},
+    revisionProgressPending, conversationAssetContentPath, safeMediaKind, safeAssetPreviewKind, revisionOf, createApi: () => api, saveOutputBlob,
     useHallConversationArchive: () => ({ statusFor: () => ({}), save: () => {}, check: () => {} }),
     marked: Object.assign(value => value, { setOptions: () => {} }), DOMPurify: { sanitize: value => value },
     usePersonalWorkspace: directory, usePersonalWorkspaceConversationLinks: directory, usePersonalWorkspaceTaskLinks: directory,
@@ -289,7 +289,7 @@ describe('scoped bounty output actions live on the actual message cards', () => 
     } finally { wrapper.unmount() }
   })
   for (const [kind, mime] of [['image', 'image/png'], ['audio', 'audio/wav'], ['file', 'application/octet-stream']]) {
-    it(`discussion ${kind} preview has no download action or misleading download guidance`, async () => {
+    it(`discussion ${kind} preview confines original-file download to the independent dialog`, async () => {
       const calls = []
       const components = createComponents({ execute: async request => { calls.push(request); return new Blob(['content'], { type: mime }) } })
       const wrapper = mount(components.HallMessageMedia, { attachTo: document.body,
@@ -300,9 +300,9 @@ describe('scoped bounty output actions live on the actual message cards', () => 
         await trigger.trigger('click'); await settle()
         const dialog = document.querySelector('[aria-label="会话资料预览"]')
         expect(dialog).not.to.equal(null)
-        expect(dialog.textContent).not.to.include('下载')
+        expect(dialog.textContent).to.include('下载文件')
         expect(dialog.querySelector('.media-preview-download, a[download]')).to.equal(null)
-        expect(dialog.querySelector('footer')).to.equal(null)
+        expect(dialog.querySelector('footer').textContent).to.include('下载文件')
         if (kind === 'image') expect(dialog.querySelector('img').src).to.include('blob:inline-test')
         if (kind === 'audio') expect(dialog.querySelector('audio').getAttribute('controlslist')).to.equal('nodownload')
         if (kind === 'file') {
@@ -328,10 +328,10 @@ describe('scoped bounty output actions live on the actual message cards', () => 
       await wrapper.get('.media-actions button').trigger('click'); await settle()
       const dialog = document.querySelector('[aria-label="会话资料预览"]')
       expect(dialog.querySelector('[role="alert"]').textContent).to.include('媒体读取失败')
-      expect(dialog.querySelector('footer').textContent).to.equal('重试预览')
+      expect(dialog.querySelector('footer').textContent).to.include('重试预览')
       fail = false; dialog.querySelector('footer button').click(); await settle()
       expect(dialog.querySelector('audio')).not.to.equal(null)
-      expect(dialog.querySelector('footer')).to.equal(null)
+      expect(dialog.querySelector('footer').textContent).to.include('下载文件')
       await wrapper.setProps({ identityKey: 'owner-b' }); await settle()
       expect(document.querySelector('[aria-label="会话资料预览"]')).to.equal(null)
       expect(wrapper.find('audio').exists()).to.equal(false)
@@ -449,4 +449,52 @@ describe('discussion retest confirmed defects', () => {
       expect(dialog.textContent).to.include('文件信息不一致')
     } finally { wrapper.unmount() }
   })
+})
+
+
+describe('conversation original-file download in independent preview', () => {
+  const mime = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  const props = () => ({ part: part(1, { kind: 'file', mime, filename: '读书会演示.pptx' }), conversationId: 'conversation-1', identityKey: 'owner-a' })
+  it('downloads unsupported-preview PPTX via authenticated scoped attachment and existing safe saver', async () => {
+    const calls = [], saved = []
+    const components = createComponents({ execute: async request => { calls.push(request); return new Blob(['pptx'], { type: 'application/octet-stream' }) } }, options => saved.push(options))
+    const wrapper = mount(components.HallMessageMedia, { attachTo: document.body, props: props() })
+    try {
+      expect(wrapper.find('.media-actions').text()).not.to.include('下载')
+      await wrapper.get('.media-actions button').trigger('click'); await settle()
+      const dialog = document.querySelector('[aria-label="会话资料预览"]')
+      expect(dialog.textContent).to.include('可下载原文件查看')
+      dialog.querySelector('footer button').click(); await settle()
+      expect(calls).to.have.length(1)
+      expect(calls[0]).to.include({ url: '/conversations/conversation-1/assets/asset-1/content?download=true', needAuth: true, responseType: 'blob' })
+      expect(saved).to.have.length(1); expect(saved[0].item.name).to.equal('读书会演示.pptx')
+      expect(await saved[0].blob.text()).to.equal('pptx')
+    } finally { wrapper.unmount() }
+  })
+  it('blocks duplicate clicks, reports failure and allows an explicit retry', async () => {
+    let reject, calls = 0
+    const components = createComponents({ execute: () => { calls++; return new Promise((_, fail) => { reject = fail }) } })
+    const wrapper = mount(components.HallMessageMedia, { attachTo: document.body, props: props() })
+    try {
+      await wrapper.get('.media-actions button').trigger('click'); await settle()
+      const button = document.querySelector('[aria-label="会话资料预览"] footer button')
+      button.click(); button.click(); await settle(); expect(calls).to.equal(1); expect(button.disabled).to.equal(true)
+      reject(new Error('下载连接失败')); await settle()
+      expect(document.querySelector('[aria-label="会话资料预览"]').textContent).to.include('下载连接失败')
+      expect(button.disabled).to.equal(false); button.click(); await settle(); expect(calls).to.equal(2)
+    } finally { wrapper.unmount() }
+  })
+  for (const change of [{ identityKey: 'owner-b' }, { conversationId: 'conversation-2' }, { part: part(2, { kind: 'file', mime }) }]) {
+    it('cancels stale download after scope/version change '+Object.keys(change)[0], async () => {
+      let resolve, signal; const saved = []
+      const components = createComponents({ execute: request => { signal = request.signal; return new Promise(done => { resolve = done }) } }, options => saved.push(options))
+      const wrapper = mount(components.HallMessageMedia, { attachTo: document.body, props: props() })
+      try {
+        await wrapper.get('.media-actions button').trigger('click'); await settle()
+        document.querySelector('[aria-label="会话资料预览"] footer button').click(); await settle()
+        await wrapper.setProps(change); await settle(); expect(signal.aborted).to.equal(true)
+        resolve(new Blob(['old'])); await settle(); expect(saved).to.have.length(0)
+      } finally { wrapper.unmount() }
+    })
+  }
 })
