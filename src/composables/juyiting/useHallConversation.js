@@ -304,7 +304,7 @@ export const useHallConversation = ({
     if (senderName) return senderName
     if (message.sender === 'USER') return '用户'
     if (message.sender === 'SYSTEM') return '传令牌'
-    return '聚义厅'
+    return '聚义'
   }
 
   const stopHallReplyStreaming = () => {
@@ -695,7 +695,7 @@ export const useHallConversation = ({
       eventStreamRecovering.value = false
       return
     }
-    log.warn('聚义厅实时消息连接中断', error)
+    log.warn('聚义实时消息连接中断', error)
     hallEventReconnectFailures += 1
     eventStreamRecovering.value = true
     scheduleHallEventReconnect(generation)
@@ -783,7 +783,7 @@ export const useHallConversation = ({
             void authoritativeResync(id, 'resync_required', { clearCursor: false })
           }
         },
-        onInvalid: reason => { log.warn('聚义厅事件帧无效', reason); void authoritativeResync(id, reason) }
+        onInvalid: reason => { log.warn('聚义事件帧无效', reason); void authoritativeResync(id, reason) }
       })
       while (true) {
         const { done, value } = await reader.read()
@@ -991,7 +991,7 @@ export const useHallConversation = ({
     const failContentLoad = error => {
       if (!isCurrentContentLoad()) return
       contentFailed = true
-      if (error?.name !== 'AbortError') log.warn('加载聚义厅会话内容失败', error)
+      if (error?.name !== 'AbortError') log.warn('加载聚义会话内容失败', error)
       if ((isSelectedLoad || restoreRequest) && error?.name !== 'AbortError') {
         messages.value = []
         conversationLoadError.value = '这段旧话暂不可取，请重试。'
@@ -1120,7 +1120,7 @@ export const useHallConversation = ({
       conversationId.value = id
       return loadHallConversationContent(id, { loadGeneration, scope: expectedScope })
     } catch (error) {
-      if (error?.name !== 'AbortError' && isCurrentLoad()) log.warn('加载聚义厅会话失败', error)
+      if (error?.name !== 'AbortError' && isCurrentLoad()) log.warn('加载聚义会话失败', error)
       return false
     }
   }
@@ -1204,7 +1204,7 @@ export const useHallConversation = ({
         return conversationHistory.value
       } catch (error) {
         if (error?.name !== 'AbortError' && isCurrentHistoryLoad()) {
-          log.warn('加载聚义厅话头记录失败', error)
+          log.warn('加载聚义话头记录失败', error)
           conversationHistoryError.value = '旧话头暂不可取，请稍后重试。'
         }
         return []
@@ -1255,7 +1255,7 @@ export const useHallConversation = ({
       return true
     } catch (error) {
       if (error?.name !== 'AbortError' && !disposed && generation === lifecycleGeneration && sameScope(expectedScope)) {
-        log.warn('删除聚义厅话头失败', error)
+        log.warn('删除聚义话头失败', error)
         showToast('删除话头未成，请稍后重试')
       }
       return false
@@ -1593,7 +1593,7 @@ export const useHallConversation = ({
       abortIfStale(sendGuard)
     } catch (error) {
       if (error?.name === 'AbortError') return false
-      log.warn('聚义厅协议确认失败', error)
+      log.warn('聚义协议确认失败', error)
       deliberationStatus.value = '消息未发送，请稍后重试'
       showToast(deliberationStatus.value)
       return false
@@ -1735,7 +1735,7 @@ export const useHallConversation = ({
       if (session.terminalConfirmed) return guardCurrent(sendGuard) && !session.transportFailed
       if (error?.name === 'AbortError' || !isCurrentReplyTurn()) return false
       session.transportFailed = true
-      log.error('聚义厅消息发送失败', error)
+      log.error('聚义消息发送失败', error)
       recordObservation('network_unknown', request)
       isStreaming.value = false
       isAwaitingReply.value = false
@@ -2077,7 +2077,7 @@ export const useHallConversation = ({
         }
         return true
       } catch (error) {
-        if (error?.name !== 'AbortError' && guardCurrent(guard)) log.warn('聚义厅权威恢复失败', { reason, error })
+        if (error?.name !== 'AbortError' && guardCurrent(guard)) log.warn('聚义权威恢复失败', { reason, error })
         return false
       } finally {
         if (guardCurrent(guard)) authoritativeResyncPromise = null
@@ -2201,7 +2201,7 @@ export const useHallConversation = ({
       return true
     } catch (error) {
       if (error?.name === 'AbortError' || !current()) return false
-      log.warn('取消聚义厅回话失败', error)
+      log.warn('取消聚义回话失败', error)
       const status = error?.status ?? error?.response?.status
       if (status === 409 || error?.code === 'CHAT_REQUEST_CONFLICT') return await reconcile()
       job.unknown = !status || status >= 500

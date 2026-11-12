@@ -3,7 +3,7 @@
     <div v-if="!readOnlyPreview && !unifiedShell" class="stage-header">
       <div class="stage-heading">
         <div class="eyebrow">梁山泊传令中枢</div>
-        <h1>聚义厅</h1>
+        <h1>聚义</h1>
       </div>
       <div data-tour="landscape-tools" class="stage-tools">
         <HallAccountEntry
@@ -108,7 +108,7 @@
         'is-virtual-landscape': virtualLandscape
       }"
       :tabindex="stageInputLocked ? -1 : 0"
-      :aria-label="readOnlyPreview ? '聚义厅地图只读预览' : '聚义厅 melonJS 场景，可使用加减号缩放，0 复位'"
+      :aria-label="readOnlyPreview ? '聚义地图只读预览' : '聚义 melonJS 场景，可使用加减号缩放，0 复位'"
       @keydown="handleSceneKeydown"
       @wheel="scheduleReturnRefresh"
       @pointerup="scheduleReturnRefresh"
@@ -121,10 +121,10 @@
         role="status"
       >
         <span class="scene-spinner" aria-hidden="true"></span>
-        <span>聚义厅地图加载中…</span>
+        <span>聚义地图加载中…</span>
       </div>
       <div v-if="!readOnlyPreview && sceneError" class="scene-error" role="status">
-        <strong>聚义厅场景暂不可用</strong>
+        <strong>聚义场景暂不可用</strong>
         <span>{{ sceneError }}</span>
         <button type="button" :disabled="isSceneMounting" @click="retryScene">
           {{ isSceneMounting ? '重试中' : '重试' }}
@@ -517,7 +517,7 @@ const failSceneMount = (attemptId, error) => {
   cancelStageWork()
   melonReady.value = false
   isSceneMounting.value = false
-  sceneError.value = error?.message || '聚义厅场景暂不可用，请重试'
+  sceneError.value = error?.message || '聚义场景暂不可用，请重试'
   emit('scene-state-change', 'error')
   emit('scene-error', error)
   mapLifecycleState.value = 'destroying'

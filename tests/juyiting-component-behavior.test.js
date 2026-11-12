@@ -632,7 +632,7 @@ describe('JuyiHall component behavior', () => {
     try {
       const wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
       await Vue.nextTick()
-      expect(wrapper.text()).to.include('聚义厅地图加载中…')
+      expect(wrapper.text()).to.include('聚义地图加载中…')
       expect(timers[0].delay).to.equal(15000)
       expect(lockCalls).to.deep.include([true, 'loading'])
 
@@ -1084,7 +1084,7 @@ describe('JuyiHall component behavior', () => {
     const board = wrapper.find('.hall-board')
 
     expect(wrapper.find('.melon-layer').exists()).to.equal(true)
-    expect(board.attributes('aria-label')).to.equal('聚义厅 melonJS 场景，可使用加减号缩放，0 复位')
+    expect(board.attributes('aria-label')).to.equal('聚义 melonJS 场景，可使用加减号缩放，0 复位')
     expect(board.attributes('tabindex')).to.equal('0')
     expect(wrapper.find('.map-world').exists()).to.equal(false)
     expect(wrapper.find('.hall-room').exists()).to.equal(false)
@@ -1525,7 +1525,7 @@ describe('JuyiHall component behavior', () => {
       await Promise.resolve()
       await Vue.nextTick()
 
-      expect(wrapper.find('.scene-error').text()).to.include('聚义厅场景暂不可用')
+      expect(wrapper.find('.scene-error').text()).to.include('聚义场景暂不可用')
       expect(wrapper.find('.map-world').exists()).to.equal(false)
       expect(wrapper.find('.hall-room').exists()).to.equal(false)
 
@@ -3121,7 +3121,7 @@ describe('lightweight workbench real panel navigation', () => {
       expect(state.navigationPresentation.showHallReturn).to.equal(true)
       expect(state.navigationPresentation.showHallClose).to.equal(false)
       const rootOverlay = wrapper.find('.panel-overlay').element
-      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义厅')
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义')
       await wrapper.find('.panel-return').trigger('click')
       expect(state.activePanel).to.equal('')
       await state.handlePanelAfterLeave(rootOverlay)
@@ -3260,8 +3260,8 @@ describe('lightweight workbench real panel navigation', () => {
       expect(document.activeElement).to.equal(taskTab.element)
       await wrapper.find('.hall-header-tools [aria-label="查看消息"]').trigger('click'); await Vue.nextTick()
       expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['messages'])
-      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义厅')
-      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义厅')
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义')
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义')
       expect(wrapper.find('.panel-close').exists()).to.equal(false)
       await wrapper.find('.hall-header-tools > button:first-child').trigger('click'); await Vue.nextTick()
       expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['agents'])

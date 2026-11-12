@@ -974,7 +974,7 @@ const hostOps = Object.freeze({
     else if (key === 'title') hostRequire(['打开百宝箱', '歇下声响', '开起声响', '请求横屏全景', '回主厅'].includes(next), `title value contract: ${next}`)
     else if (key === 'disabled') hostStrictEqual(typeof next, 'boolean', 'disabled value type')
     else if (key === 'tabindex') hostStrictEqual(next, '0', 'tabindex value')
-    else if (key === 'aria-label') hostRequire(['打开百宝箱', '聚义厅 melonJS 场景，可使用加减号缩放，0 复位', '回主厅'].includes(next), `aria-label value contract: ${next}`)
+    else if (key === 'aria-label') hostRequire(['打开百宝箱', '聚义 melonJS 场景，可使用加减号缩放，0 复位', '回主厅'].includes(next), `aria-label value contract: ${next}`)
     else if (key === 'aria-hidden') hostStrictEqual(next, 'true', 'aria-hidden value')
     else if (key === 'role') hostStrictEqual(next, 'status', 'role value')
     else if (key === 'type') hostStrictEqual(next, 'button', 'type value')

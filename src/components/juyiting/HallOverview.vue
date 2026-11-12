@@ -2,7 +2,7 @@
   <section class="hall-overview" :class="{ 'is-messages': messagesOnly }" :aria-label="messagesOnly ? '消息' : '办事概览'">
     <template v-if="!messagesOnly">
       <header class="overview-hero">
-        <p class="overview-eyebrow">聚义厅 · 轻量工作台</p>
+        <p class="overview-eyebrow">聚义 · 轻量工作台</p>
         <h2>今天，想办成什么事？</h2>
         <p>说说你的目标，让好汉协助你完成。</p>
       </header>
@@ -55,7 +55,7 @@
     </section>
     <section v-if="!messagesOnly" class="overview-resource" aria-label="资料入口"><var-icon class="overview-resource-icon" name="file-document-outline" aria-hidden="true" /><div><strong>资料留在这里，下次不用重找</strong><p>引用已有资料，查看固定版本的成果。</p></div><button type="button" @click="emit('open-workspace')">查看资料</button></section>
     </div><aside v-if="!messagesOnly" class="overview-aside" aria-label="快捷入口">
-      <button class="overview-map-link" type="button" @click="emit('set-home-mode', 'map')"><span aria-hidden="true">聚义厅</span>厅中实景 · 去梁山走一走</button>
+      <button class="overview-map-link" type="button" @click="emit('set-home-mode', 'map')"><span aria-hidden="true">聚义</span>厅中实景 · 去梁山走一走</button>
       <section class="overview-aside-card"><h3>待我处理</h3><p v-if="model.state.value === 'loading'">正在核对待处理事项…</p><p v-else-if="model.sections.value.needsAction.status !== 'complete'">待处理列表可能不完整，请在事项页核对。</p>
         <p v-if="!attentionItems.length">{{ model.sections.value.needsAction.status === 'complete' ? '当前没有需要处理的事项。' : '当前没有已确认的待处理项。' }}</p>
         <button v-for="item in attentionItems" :key="`${item.ref.sourceType}:${item.ref.sourceId}`" type="button" :disabled="!canOpenHallItem(item) || Boolean(model.openingRef.value)" @click="openItem(item)"><span>{{ item.title || '未命名事项' }}<small>{{ statusText(item) }}</small></span><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>

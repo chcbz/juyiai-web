@@ -135,7 +135,7 @@ describe('JUYITING-HELP-20261109 shared feedback boundary', () => {
       await w.find('form').trigger('submit'); await settle()
       expect(calls).to.have.length(1)
       expect(calls[0][0]).to.equal('/message/create')
-      expect(Object.fromEntries(calls[0][1].entries())).to.deep.equal({ resourceId: 'help-center', jiacn: 'user-a', title: '聚义厅使用帮助：使用问题', content: '找不到成果', name: '', phone: '', email: 'a@example.com' })
+      expect(Object.fromEntries(calls[0][1].entries())).to.deep.equal({ resourceId: 'help-center', jiacn: 'user-a', title: '聚义使用帮助：使用问题', content: '找不到成果', name: '', phone: '', email: 'a@example.com' })
       expect(calls[0][2].signal).to.be.instanceOf(AbortSignal)
       expect(w.text()).to.include('反馈已提交')
       expect(w.find('textarea').element.value).to.equal('')

@@ -23,17 +23,27 @@ const renderTitle = title => {
 
 describe('Browser tab product title', () => {
   it('uses the product name instead of the starter kit name', () => {
-    expect(appTitle).to.equal('聚义厅 · AI 协作工作台')
+    expect(appTitle).to.equal('聚义 · AI 协作工作台')
+  })
+
+  it('keeps public metadata, install name and key screens on the current brand', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8'))
+    expect(manifest.short_name).to.equal('聚义')
+    for (const file of ['index.html', 'public/manifest.webmanifest', 'public/reset-cache.html', 'src/components/world/JuyiHall.vue', 'src/components/juyiting/HallMinePage.vue', 'src/components/juyiting/HallHelpCenter.vue', 'src/components/juyiting/HallOverview.vue', 'src/components/UserProfile.vue', 'src/components/OAuthCallback.vue', 'src/i18n/application.yml']) {
+      const text = readFileSync(new URL('../' + file, import.meta.url), 'utf8')
+      expect(text, file).to.include('聚义')
+      expect(text, file).not.to.include('聚义厅')
+    }
   })
 
   it('does not repeat the hall or full product name', () => {
-    for (const title of ['聚义厅', appTitle, '', undefined]) {
+    for (const title of ['聚义', appTitle, '', undefined]) {
       expect(renderTitle(title)).to.equal(appTitle)
     }
   })
 
   it('keeps individual pages identifiable and resets on navigation', () => {
     expect(renderTitle('好汉名册')).to.equal('好汉名册 - ' + appTitle)
-    expect(renderTitle('聚义厅')).to.equal(appTitle)
+    expect(renderTitle('聚义')).to.equal(appTitle)
   })
 })

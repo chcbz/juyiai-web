@@ -60,7 +60,7 @@
           <div class="scene-backdrop">
             <div class="lantern lantern-left"></div>
             <div class="lantern lantern-right"></div>
-            <div class="hall-plaque">聚义厅</div>
+            <div class="hall-plaque">聚义</div>
             <div class="banner banner-left">议事</div>
             <div class="banner banner-right">悬赏</div>
           </div>

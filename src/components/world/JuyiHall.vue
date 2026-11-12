@@ -1,7 +1,7 @@
 <template>
   <div ref="hallRootRef" class="juyi-page" tabindex="-1" :style="hallViewportStyle" :class="{ 'is-immersive-map': isImmersiveMap, 'is-panel-open': isPanelSessionActive, 'is-virtual-landscape': isVirtualLandscape, 'has-workbench-dock': showWorkbenchDock && (Boolean(activePanel) || !renderedPanel), 'is-keyboard-active': hallKeyboardActive, [`experience-${experienceMode}`]: true, [`home-${homeMode}`]: true }">
     <aside v-show="isOverviewHome" class="hall-workbench-sidebar" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null" aria-label="工作台侧栏">
-      <button class="workbench-brand" type="button" @click="openWorkbenchPage('overview')"><span class="workbench-seal">聚</span><span>聚义厅<small>一起，把事情办成。</small></span></button>
+      <button class="workbench-brand" type="button" @click="openWorkbenchPage('overview')"><span class="workbench-seal">聚</span><span>聚义<small>一起，把事情办成。</small></span></button>
       <p class="workbench-nav-caption">我的工作空间</p>
       <nav class="workbench-side-nav" aria-label="工作台主导航">
         <button v-for="tab in workbenchPrimaryTabs" :key="tab.panel" type="button" :data-workbench-tab="tab.panel" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)"><var-icon :name="tab.icon" /><span>{{ tab.label }}</span></button>
@@ -16,8 +16,8 @@
     </aside>
     <header v-show="!isImmersiveMap" class="hall-app-header" :inert="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? 'true' : null">
       <nav v-if="isOverviewHome" class="workbench-breadcrumb" aria-label="当前位置"><button type="button" @click="openWorkbenchPage('overview')">我的工作空间</button><var-icon name="chevron-right" aria-hidden="true" /><strong>{{ workbenchCurrentLabel }}</strong></nav>
-      <button v-else class="hall-brand" type="button" @click="setHomeMode('overview')"><span class="hall-seal">聚</span><span>聚义厅<small>梁山好汉 · 共成其事</small></span></button>
-      <nav class="hall-main-nav" aria-label="聚义厅主导航">
+      <button v-else class="hall-brand" type="button" @click="setHomeMode('overview')"><span class="hall-seal">聚</span><span>聚义<small>梁山好汉 · 共成其事</small></span></button>
+      <nav class="hall-main-nav" aria-label="聚义主导航">
         <button v-for="tab in workbenchMobileTabs" :key="tab.panel" type="button" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)">{{ tab.label }}</button>
       </nav>
       <div class="hall-header-tools">
@@ -35,7 +35,7 @@
       </nav>
     </header>
     <div v-show="!isImmersiveMap" class="hall-mode-toolbar" :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive ? 'true' : null">
-      <div class="hall-mode-switch" aria-label="聚义厅视图"><button type="button" :aria-pressed="homeMode === 'map'" @click="setHomeMode('map')">厅中实景</button><button type="button" :aria-pressed="homeMode === 'overview'" @click="setHomeMode('overview')">办事概览</button></div>
+      <div class="hall-mode-switch" aria-label="聚义视图"><button type="button" :aria-pressed="homeMode === 'map'" @click="setHomeMode('map')">厅中实景</button><button type="button" :aria-pressed="homeMode === 'overview'" @click="setHomeMode('overview')">办事概览</button></div>
       <span class="hall-mode-hint">地图入口与办事入口，通向同一件事</span>
       <div class="hall-scene-tools">
         <button type="button" @click="openPanel('library')">典籍阁</button>
@@ -248,10 +248,10 @@
               v-if="navigationPresentation.showHallReturn || (renderedPanel === 'agents' && agentPanelRef?.canGoBack)"
               class="panel-return hall-tool"
               type="button"
-              :aria-label="renderedPanel === 'agents' && agentPanelRef?.canGoBack ? '返回名册' : navigationPresentation.showRootReturn ? '返回聚义厅' : '返回上一层'"
+              :aria-label="renderedPanel === 'agents' && agentPanelRef?.canGoBack ? '返回名册' : navigationPresentation.showRootReturn ? '返回聚义' : '返回上一层'"
               :disabled="voiceInteractionLocked"
               @click="handleHallReturn"
-             :title="renderedPanel === 'agents' && agentPanelRef?.canGoBack ? '返回名册' : navigationPresentation.showRootReturn ? '返回聚义厅' : '返回上一层'"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
+             :title="renderedPanel === 'agents' && agentPanelRef?.canGoBack ? '返回名册' : navigationPresentation.showRootReturn ? '返回聚义' : '返回上一层'"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
             <span :id="panelTitleId">{{ activePanelTitle }}</span>
             <button
               v-if="taskWorkspaceEnabled && renderedPanel === 'tasks' && !formalTaskRef && taskWorkspaceSubject"
@@ -3165,7 +3165,7 @@ const handleUnbindPersona = async (persona) => {
 }
 
 onMounted(async () => {
-  globalStore.setTitle('聚义厅')
+  globalStore.setTitle('聚义')
   globalStore.setShowBack(false)
   globalStore.setShowAppBar(false)
   globalStore.setShowMore(false)

@@ -92,7 +92,7 @@ const errorMessage = error => {
   if (error?.status === 404 && error?.code === 'HALL_RESOURCE_NOT_FOUND') return '尚未查到原交办请求；它仍可能稍后被服务端确认，请继续核对，勿重复交办。'
   if ([401, 403, 404].includes(error?.status)) return '当前身份或事项已不可访问，请返回后重新打开。'
   if (error?.status === 412 || error?.code === 'HALL_DRAFT_REVISION_CHANGED') return '草稿已有更新，本次修改未保存。重新载入会替换当前输入，请先复制需要保留的内容。'
-  if (error?.code === 'HALL_SUBMISSION_KIND_UNAVAILABLE') return '该草稿类型当前不能由聚义厅交办；正式张榜或返工请继续使用原正式入口。'
+  if (error?.code === 'HALL_SUBMISSION_KIND_UNAVAILABLE') return '该草稿类型当前不能由聚义交办；正式张榜或返工请继续使用原正式入口。'
   if (error?.status === 409) return '交办请求与已有请求不一致，请刷新后核对。'
   if (error?.status === 422) return '所选来源、固定版本或当前交办类型不可用；未创建执行。'
   if (error?.status === 503) return '交办存储暂不可用；请核对原请求，不要重复交办。'

@@ -1,7 +1,7 @@
 <template>
-  <section class="hall-live-map-preview" aria-label="聚义厅地图只读预览">
+  <section class="hall-live-map-preview" aria-label="聚义地图只读预览">
     <div class="preview-frame" :style="{ aspectRatio }">
-      <div ref="mapSlot" class="preview-map-slot" aria-label="聚义厅地图只读预览" inert>
+      <div ref="mapSlot" class="preview-map-slot" aria-label="聚义地图只读预览" inert>
         <slot />
       </div>
 

@@ -73,7 +73,7 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
       await settle()
       expect(wrapper.get('.overview-start-copy > p').text()).to.equal('可添加参考资料。点击“开始办事”先保存需求，确认承办后再交给好汉。')
       expect(wrapper.text()).not.to.include('免费')
-      expect(wrapper.text()).not.to.include('聚义厅 · 内测')
+      expect(wrapper.text()).not.to.include('聚义 · 内测')
       const all = wrapper.findAll('.overview-list-heading button').find(button => button.text() === '查看全部事项')
       await all.trigger('click')
       expect(wrapper.emitted('open-board')).to.have.length(1)

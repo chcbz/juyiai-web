@@ -189,7 +189,7 @@ const props = defineProps({
   isAwaitingReply: { type: Boolean, default: false },
   isStreaming: { type: Boolean, default: false },
   mentionLabel: { type: Function, required: true },
-  placeholder: { type: String, default: '向聚义厅传话，或 @某位好汉' },
+  placeholder: { type: String, default: '向聚义传话，或 @某位好汉' },
   selectedAgent: { type: Object, default: null },
   targetText: { type: String, default: '众好汉' },
   maxLength: { type: Number, default: 1200 },

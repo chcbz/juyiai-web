@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "聚义厅 Agent 协作台",
-  "short_name": "聚义厅",
+  "name": "聚义 Agent 协作台",
+  "short_name": "聚义",
   "description": "把研究、内容和项目协作交给会分工的 Agent 小队",
   "start_url": "/",
   "scope": "/",
@@ -75,14 +75,14 @@
       "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "聚义厅访客体验：选择任务并查看 Agent 协作流程"
+      "label": "聚义访客体验：选择任务并查看 Agent 协作流程"
     },
     {
       "src": "/pwa/screenshot-demo-narrow-750x1334.png",
       "sizes": "750x1334",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "聚义厅移动端访客体验"
+      "label": "聚义移动端访客体验"
     }
   ]
 }

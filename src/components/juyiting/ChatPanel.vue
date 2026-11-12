@@ -448,7 +448,7 @@ const props = defineProps({
   messagePageLoading: { type: Boolean, default: false },
   messagePageError: { type: String, default: '' },
   pendingAgentName: { type: String, default: '' },
-  placeholder: { type: String, default: '向聚义厅传话，或 @某位好汉' },
+  placeholder: { type: String, default: '向聚义传话，或 @某位好汉' },
   selectedAgent: { type: Object, default: null },
   selectedTask: { type: Object, default: null },
   senderText: { type: Function, required: true },
@@ -493,7 +493,7 @@ const historyButtonRef = ref(null)
 const historyRef = ref(null)
 const composerRef = ref(null)
 const materialPickerOpen = ref(false)
-const pendingAuthor = '聚义厅'
+const pendingAuthor = '聚义'
 const materialIdentityKey = computed(() => `${props.identityEpoch}\u0000${props.identityScope}`)
 const taskId = computed(() => String(props.selectedTask?.id || '').trim())
 const serverTaskCompleted = computed(() => props.discussionVariant === 'bounty' &&

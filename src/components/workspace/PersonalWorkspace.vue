@@ -1,7 +1,7 @@
 <template>
   <main ref="workspaceRoot" class="personal-workspace" :class="{ 'is-hall-treasure': embedded, 'is-compact-hall': embedded && compact, 'is-progress-view': activeModal === 'delivery' && showDeliveryProgress }">
     <header v-if="!embedded" class="workspace-header">
-      <div><p class="workspace-eyebrow">聚义厅 · 内堂收纳</p><h1>百宝箱</h1><p>打开一件事，再专心办完它。</p></div>
+      <div><p class="workspace-eyebrow">聚义 · 内堂收纳</p><h1>百宝箱</h1><p>打开一件事，再专心办完它。</p></div>
       <p class="workspace-header-note">资料只在你明确提交时，才会授权给所选 Agent。</p>
     </header>
 

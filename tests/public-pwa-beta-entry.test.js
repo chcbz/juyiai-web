@@ -106,7 +106,7 @@ describe('public PWA beta entry packet', () => {
     expect(index).to.include('<link rel="canonical" href="https://kit.chaoyoufan.cn/">')
     expect(index).to.include('<meta property="og:image" content="https://kit.chaoyoufan.cn/pwa/og-juyiting-1200x630.png">')
     expect(index).to.include('<meta name="twitter:card" content="summary_large_image">')
-    expect(index).to.include('<meta name="twitter:image:alt" content="聚义厅 AI Agent 协作台首页">')
+    expect(index).to.include('<meta name="twitter:image:alt" content="聚义 AI Agent 协作台首页">')
     expect(index).to.include('<meta property="og:image:width" content="1200">')
     expect(index).to.include('<meta property="og:image:height" content="630">')
     expect(existsSync('public/pwa/og-juyiting-1200x630.png')).to.equal(true)

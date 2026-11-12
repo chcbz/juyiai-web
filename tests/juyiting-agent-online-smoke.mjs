@@ -126,7 +126,7 @@ async function main() {
         conversationId: `public-beta-smoke-${Date.now()}`,
         taskId: `task-${Date.now()}`,
         targetAgentIds: [agentId],
-        instruction: '请确认你已收到聚义厅公测在线派发验证。',
+        instruction: '请确认你已收到聚义公测在线派发验证。',
         reason: 'public beta online agent smoke',
         autonomyLevel: 'assist',
         requiresApproval: false
@@ -145,7 +145,7 @@ async function main() {
       throw new Error(`direct message missing task_briefing action: ${directMessage}`)
     }
 
-    console.log(`聚义厅在线 Agent 派发 smoke 验证通过: ${agentId}`)
+    console.log(`聚义在线 Agent 派发 smoke 验证通过: ${agentId}`)
   } finally {
     ws.close()
   }

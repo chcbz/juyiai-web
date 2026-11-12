@@ -45,7 +45,7 @@ const isSendButtonDisabled = computed(() => props.isLoading || !inputMessage.val
 
 const placeholderText = computed(() => {
   if (props.conversationType === 'juyiting') {
-    return '各位兄弟，有何高见？在聚义厅中议定...'
+    return '各位兄弟，有何高见？在聚义中议定...'
   }
   return '给我发消息'
 })

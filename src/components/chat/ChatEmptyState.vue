@@ -1,6 +1,6 @@
 <template>
   <div class="chat-empty-state">
-    <p v-if="isJuyiting">聚义厅中，各位兄弟齐聚，有何高见尽管道来！</p>
+    <p v-if="isJuyiting">聚义中，各位兄弟齐聚，有何高见尽管道来！</p>
     <p v-else>开始与JiA智能助手对话吧！</p>
     <ChatCapabilities />
     <p class="chat-empty-hint">{{ randomPhrase }}</p>

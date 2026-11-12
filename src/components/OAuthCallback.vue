@@ -1,6 +1,6 @@
 <template>
   <main class="oauth-callback">
-    <header class="oauth-brand"><span class="oauth-brand__seal" aria-hidden="true">聚</span><span>聚义厅<small>安全登录</small></span></header>
+    <header class="oauth-brand"><span class="oauth-brand__seal" aria-hidden="true">聚</span><span>聚义<small>安全登录</small></span></header>
     <div class="oauth-main">
       <section class="oauth-callback__card" role="status" aria-live="polite" aria-labelledby="oauth-title" aria-describedby="oauth-description" :aria-busy="processing">
         <div class="oauth-emblem" aria-hidden="true">
@@ -20,7 +20,7 @@
         </div>
       </section>
     </div>
-    <footer class="oauth-footer">聚义厅 · 一起，把事情办成。</footer>
+    <footer class="oauth-footer">聚义 · 一起，把事情办成。</footer>
   </main>
 </template>
 

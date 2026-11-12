@@ -104,7 +104,7 @@ describe('Juyi Hall navigation presentation', () => {
     expect(source).to.include('v-if="navigationPresentation.showHallReturn ||')
     expect(source).to.include('v-if="navigationPresentation.showHallClose &&')
     expect(source).to.include('@click="handleHallReturn"')
-    expect(source).to.include("navigationPresentation.showRootReturn ? '返回聚义厅' : '返回上一层'")
+    expect(source).to.include("navigationPresentation.showRootReturn ? '返回聚义' : '返回上一层'")
     expect(source).to.include(":aria-label=\"renderedPanel === 'agents' && agentPanelRef?.canGoBack ? '返回名册'")
     expect(source).not.to.include('← 名册')
     expect(source).to.include('.panel-title .panel-return')

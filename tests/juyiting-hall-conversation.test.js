@@ -1238,7 +1238,7 @@ describe('useHallConversation history selection', () => {
           options.onSuccess(({ items: [
             scopedConversation('1002', { title: '厅前旧议', updateTime: 1782000000000 }),
             scopedConversation('1003', { conversationScopeType: 'task_thread', conversationScopeKey: 'task:2', title: '保留任务线' }),
-            scopedConversation('1004', { conversationType: 'normal', title: '非聚义厅' })
+            scopedConversation('1004', { conversationType: 'normal', title: '非聚义' })
           ], nextCursor: null, hasMore: false }))
         }
       }

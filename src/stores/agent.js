@@ -99,7 +99,7 @@ const DEMO_TASKS = [
   },
   {
     id: 'task-verify-hall',
-    title: '验证聚义厅页面状态联动',
+    title: '验证聚义页面状态联动',
     description: '模拟在线、忙碌、离线和异常状态，确认卡片、详情和任务榜同步。',
     status: 'pending',
     priority: 'medium',

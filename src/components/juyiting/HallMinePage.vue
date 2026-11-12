@@ -1,6 +1,6 @@
 <template>
   <section class="hall-mine-page" aria-label="我的">
-    <header><p>聚义厅 · 我的</p><h2>常用入口与设置</h2><span>查看好汉、典籍和常用入口。</span></header>
+    <header><p>聚义 · 我的</p><h2>常用入口与设置</h2><span>查看好汉、典籍和常用入口。</span></header>
     <div class="mine-grid">
       <button type="button" @click="$emit('open', 'agents')"><var-icon name="account-circle-outline" /><span><strong>好汉名册</strong><small>查看好汉的能力与当前状态</small></span></button>
       <button type="button" @click="$emit('open', 'library')"><var-icon name="notebook" /><span><strong>典籍阁</strong><small>阅读典籍、案卷与个人进度</small></span></button>

@@ -1,8 +1,8 @@
 <template>
-  <main class="hall-portrait-home" :class="{ 'is-unified-shell': unifiedShell, 'is-overview-home': homeMode === 'overview', 'is-compact-overview': compact && homeMode === 'overview' }" aria-label="聚义厅掌上首页">
+  <main class="hall-portrait-home" :class="{ 'is-unified-shell': unifiedShell, 'is-overview-home': homeMode === 'overview', 'is-compact-overview': compact && homeMode === 'overview' }" aria-label="聚义掌上首页">
     <header v-if="!unifiedShell" class="portrait-header">
       <div>
-        <p class="portrait-eyebrow">聚义厅 · 掌上调度</p>
+        <p class="portrait-eyebrow">聚义 · 掌上调度</p>
         <h1>{{ homeMode === 'overview' ? '办事概览' : '厅中动静' }}</h1>
       </div>
       <div class="portrait-header-actions">
@@ -38,7 +38,7 @@
       data-tour="portrait-preview"
       class="portrait-scene"
       :class="{ 'has-live-preview': livePreviewEnabled }"
-      aria-label="聚义厅实景窗口"
+      aria-label="聚义实景窗口"
     >
       <HallLiveMapPreview
         v-if="livePreviewEnabled"

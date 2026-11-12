@@ -2,13 +2,13 @@
   <div class="user-profile">
     <header class="profile-page-header">
       <div class="profile-page-heading">
-        <p class="profile-eyebrow">聚义厅 · 我的</p>
+        <p class="profile-eyebrow">聚义 · 我的</p>
         <h1>个人中心</h1>
         <p class="profile-intro">管好钱袋，安心办事。</p>
       </div>
       <button class="return-to-hall" type="button" @click="returnToHall">
         <var-icon name="chevron-left" aria-hidden="true" />
-        <span>返回聚义厅</span>
+        <span>返回聚义</span>
       </button>
     </header>
 

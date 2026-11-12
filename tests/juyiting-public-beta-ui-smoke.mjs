@@ -1164,7 +1164,7 @@ export const runUiSmoke = async (options = {}) => {
     const pageUrl = new URL('/juyiting?transition=none&scene-debug=1', config.targets.frontend)
     await cdp.send('Page.navigate', { url: pageUrl.href })
     await waitForExpression(runtime, cdp, 'Boolean(document.querySelector(".juyi-page"))')
-    await waitForExpression(runtime, cdp, '(document.body.innerText || "").includes("聚义厅")')
+    await waitForExpression(runtime, cdp, '(document.body.innerText || "").includes("聚义")')
     await waitForExpression(runtime, cdp, 'Boolean(document.querySelector(".hall-board.is-melon-ready .melon-layer canvas"))')
     await waitForExpression(runtime, cdp, 'Boolean(document.querySelector(".hall-board.is-melon-ready .melon-layer canvas"))')
     try {
@@ -1501,7 +1501,7 @@ export const runUiSmoke = async (options = {}) => {
   if (runError) throw runError
   if (cleanupErrors.length) throw cleanupFailure(cleanupErrors, 'UI smoke cleanup was incomplete')
 
-  console.log('聚义厅 UI smoke 验证通过')
+  console.log('聚义 UI smoke 验证通过')
   console.log(JSON.stringify({
     targets: config.targetOrigins,
     finalUrl: redactUrl(finalUrl)

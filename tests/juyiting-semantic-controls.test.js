@@ -75,7 +75,7 @@ describe('OAuth callback real App shell', () => {
     const meta = new Function(`return (${callback[1]})`)()
     expect(meta.publicEntry).to.equal(true)
     const route = Vue.reactive({ meta: {} })
-    const store = Vue.reactive({ showAppBar: true, showSideMenu: false, showBack: false, showMore: true, title: '聚义厅' })
+    const store = Vue.reactive({ showAppBar: true, showSideMenu: false, showBack: false, showMore: true, title: '聚义' })
     const { descriptor } = parseSfc(source('App.vue'))
     const imports = {
       vue: { ...Vue, defineAsyncComponent: () => ({ template: '<aside class="test-side-menu" />' }) },

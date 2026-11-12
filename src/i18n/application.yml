@@ -228,7 +228,7 @@ en:
     empty: No orders
 zh-CN:
   juyiting:
-    title: 聚义厅
+    title: 聚义
     subtitle: 统筹 Agent、分配悬赏任务，并查看厅内状态事件
     agent: Agent
     agent_list: Agent 列表
@@ -276,7 +276,7 @@ zh-CN:
     task_running: 执行中
     task_done: 已完成
     task_failed: 失败
-    hall_chat: 聚义厅会话
+    hall_chat: 聚义会话
     chat_subtitle: 会话入口携带 conversationType=juyiting
     open_chat: 进入会话
     no_current_task: 暂无当前任务

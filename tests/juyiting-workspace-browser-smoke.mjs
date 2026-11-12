@@ -190,7 +190,7 @@ async function run () {
   // Landscape Hall entry: map and roster remain independently requested, and task material uses the fixed version picker.
   await setViewport(844, 390)
   await cdp.send('Page.navigate', { url: `${appOrigin}/juyiting` })
-  await waitForExpression(cdp, visibleText('聚义厅'), 30_000)
+  await waitForExpression(cdp, visibleText('聚义'), 30_000)
   await waitForExpression(cdp, `document.querySelectorAll('[data-portrait-action="tasks"]').length > 0`, 30_000)
   await evaluate(cdp, `document.querySelector('[data-portrait-action="tasks"]').click()`)
   await waitForExpression(cdp, visibleText('制作项目汇报'), 20_000)

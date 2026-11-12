@@ -40,7 +40,7 @@ function syncCurrentComposer(panel) {
   body.classList.add('has-supported-voice');
   for (const [selector,key] of [['.chat-panel','chat'],['.hall-chat-composer','composer'],['.panel-toolbar','chat'],['.composer-input-area','composer'],['.composer-actions','composer'],['.composer-inline-voice','composer']]) $$(selector,panel).forEach(node=>scoped(node,'data-v-baseline-'+key));
   if (locked) { $('.composer-textarea',panel).disabled=true;sendButton.disabled=true;$('.voice-start',panel).disabled=true; }
-  if (['waiting','streaming'].includes(state.baselineScenario)) $('.hall-messages',panel).insertAdjacentHTML('beforeend',`<div class="hall-message SYSTEM is-pending" role="status">${state.baselineScenario==='streaming'?'宋江 · 正在回复…：正在整理活动方案…':'聚义厅 · 正在整理回报…'}</div>`);
+  if (['waiting','streaming'].includes(state.baselineScenario)) $('.hall-messages',panel).insertAdjacentHTML('beforeend',`<div class="hall-message SYSTEM is-pending" role="status">${state.baselineScenario==='streaming'?'宋江 · 正在回复…：正在整理活动方案…':'聚义 · 正在整理回报…'}</div>`);
   if(state.baselineScenario==='error') toolbar.insertAdjacentHTML('afterend',`<div class="conversation-load-error" role="alert">话头读取失败（演示） ${button('重试','ui-refresh')}</div>`);
   if(state.baselineScenario==='recording') showVoiceStatus('recording');
   if(state.baselineScenario==='voice-review') showVoiceStatus('review');
@@ -65,7 +65,7 @@ function supplementalRoot() {
 }
 function card(title,text,action,extra='') {return `<article class="baseline-card"><h3>${esc(title)}</h3><p>${esc(text)}</p>${action?button('打开','ui-go',`data-page="${action}" ${extra}`):''}</article>`;}
 function renderSupplement() {
-  document.title=labels[page]+' · 聚义厅界面基准 2026-10-06（离线示例）';
+  document.title=labels[page]+' · 聚义界面基准 2026-10-06（离线示例）';
   $('.workbench-message-action')?.setAttribute('data-prototype-page','messages');
   $$('.workbench-account-action,.workbench-sidebar-account').forEach(e=>e.dataset.prototypePage='account');
   $('.workbench-map-entry')?.setAttribute('data-prototype-page','map');
@@ -81,7 +81,7 @@ function renderSupplement() {
     if(page==='map')root.innerHTML+=`<div class="baseline-map"><img src="shared/static/liangshan-hall-physical-bg-v1-ZLsp6lX5.png" alt="当前项目梁山厅堂静态美术；非实时地图"><div class="baseline-map-actions">${button('点将册','ui-go','data-page="agents"')}${button('悬赏榜','ui-go','data-page="tasks"')}${button('厅前公议','ui-go','data-page="public"')}${button('典籍阁','ui-go','data-page="library"')}</div></div><p class="mmd-muted">地图仅冻结现有美术与功能入口；不运行 melonJS，不模拟实时坐标、物理遮挡或联网 Agent。</p>`;
     if(page==='file'){const a=asset(state.fileId||'ref-brief');root.innerHTML+=`<h3>${esc(a?.name)}</h3><div class="baseline-tabs">${button('预览','preview',`data-id="${a?.id}"`)}${button('下载','download',`data-id="${a?.id}"`)}${button('返回资料','ui-go','data-page="workspace"')}</div><p>版本 1 · 当前示例版本</p><div class="baseline-card">${button('重命名','ui-rename')}${button(state.fileRecycled?'恢复':'移到回收站','ui-recycle')}</div>`;}
     if(page==='reader')root.innerHTML+=`<div class="baseline-tabs">${button('目录','ui-toc')}${button('书签','ui-bookmarks')}${button('手札','ui-notes')}${button('返回书架','ui-go','data-page="library"')}</div><article class="baseline-reader"><h3>水浒传 · 第一回（节选示意）</h3><p>此处为阅读排版样本，不复制真实典籍内容。段落、目录、续读、书签与手札以现有阅读器为来源。</p><p>后续界面优化应核对字号、行高、段落间距与短屏下的独立滚动，不以此示意页替代真实章节进度验证。</p></article>`;
-    if(page==='account')root.innerHTML+=`<p>现有“个人中心”入口跳转到聚义厅外的账号模块。</p><p>本基准不扩展该模块，不模拟账号凭据、授权或隐私设置写入。</p>${button('返回我的','ui-go','data-page="mine"')}`;
+    if(page==='account')root.innerHTML+=`<p>现有“个人中心”入口跳转到聚义外的账号模块。</p><p>本基准不扩展该模块，不模拟账号凭据、授权或隐私设置写入。</p>${button('返回我的','ui-go','data-page="mine"')}`;
     if(page==='help')root.innerHTML+=`<ol><li>在办事页描述需求，资料可选。</li><li>在点将册显式选择好汉，进入议事。</li><li>文字、资料与语音草稿通过同一个输入框处理。</li><li>议事中查看成果，事项详情中验收。</li></ol>${button('开始体验','ui-go','data-page="home"')}`;
   }
   // Stable provenance is visible without introducing a new top-level navigation system.

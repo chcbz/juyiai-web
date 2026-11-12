@@ -282,7 +282,7 @@ const startConversationEventStream = async () => {
     }
   } catch (error) {
     if (error.name !== 'AbortError' && !chatDisposed && generation === chatLifecycleGeneration) {
-      log.warn('聚义厅会话事件流中断:', error)
+      log.warn('聚义会话事件流中断:', error)
       conversationEventReconnectTimer = window.setTimeout(() => {
         if (chatDisposed || generation !== chatLifecycleGeneration) return
         activeEventConversationId = ''
@@ -486,7 +486,7 @@ const processBotResponse = (data) => {
     globalStore.setTitle(data.t)
     loadConversations()
   } else if (data.senderType && data.content) {
-    // 处理带 sender 元数据的消息（聚义厅 agent 消息等）
+    // 处理带 sender 元数据的消息（聚义 agent 消息等）
     const sender = senderForMessage(data)
     const { isSelf, senderName } = senderNameForMessage(data, sender, globalStore.getJiacn)
     const msg = {
@@ -770,7 +770,7 @@ watch(
   }
 )
 
-// 监听路由查询参数变化（处理从聚义厅跳转过来的情况）
+// 监听路由查询参数变化（处理从聚义跳转过来的情况）
 watch(
   () => route.query.conversationType,
   (newType) => {

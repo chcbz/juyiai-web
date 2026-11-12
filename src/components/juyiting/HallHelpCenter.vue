@@ -1,9 +1,9 @@
 <template>
-  <section ref="scrollRoot" class="hall-help-center" aria-label="聚义厅使用指南">
+  <section ref="scrollRoot" class="hall-help-center" aria-label="聚义使用指南">
     <div class="help-content">
       <template v-if="screen === 'home'">
         <header class="help-intro">
-          <p class="eyebrow">聚义厅 · 使用指南</p>
+          <p class="eyebrow">聚义 · 使用指南</p>
           <h1 ref="heading" tabindex="-1">让每一件事，都有章可循。</h1>
           <p>从第一次办事，到找到一份成果。</p>
         </header>
@@ -19,7 +19,7 @@
         <section v-if="!query.trim() && !category" class="help-start">
           <div>
             <p class="eyebrow">快速开始</p>
-            <h2>第一次使用聚义厅？</h2>
+            <h2>第一次使用聚义？</h2>
             <p>提出需求 → 确认承办 → 跟进事项 → 查看成果</p>
             <div class="help-actions">
               <button type="button" class="primary" @click="readArticle('start')">阅读入门指南</button>
@@ -115,7 +115,7 @@
             <button type="submit" class="primary" :disabled="!canSubmit">{{ submitting ? '正在提交…' : '提交反馈' }}</button>
           </fieldset>
           <p v-if="feedbackError" role="alert" class="help-note">{{ feedbackError }}</p>
-          <p v-else-if="feedbackStatus === 'success'" role="status" class="help-note">反馈已提交，感谢你帮助我们完善聚义厅。</p>
+          <p v-else-if="feedbackStatus === 'success'" role="status" class="help-note">反馈已提交，感谢你帮助我们完善聚义。</p>
         </form>
       </section>
     </div>
@@ -160,11 +160,11 @@ const open = next => {
 }
 const readArticle = id => { selected.value = id; open('article') }
 const openFeedback = () => {
-  if (!form.title) form.title = `聚义厅使用帮助：${screen.value === 'article' ? selectedArticle.value.title : '使用问题'}`.slice(0, 50)
+  if (!form.title) form.title = `聚义使用帮助：${screen.value === 'article' ? selectedArticle.value.title : '使用问题'}`.slice(0, 50)
   open('feedback')
 }
 const submitFeedback = async () => {
-  if (!form.title) form.title = '聚义厅使用帮助：使用问题'
+  if (!form.title) form.title = '聚义使用帮助：使用问题'
   const title = form.title
   if (await submit()) form.title = title
 }
