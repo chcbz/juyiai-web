@@ -10,6 +10,21 @@
     <p v-if="rent.error.value" role="alert">{{ rent.error.value }}</p>
     <p v-if="rent.wallet.value">钱袋可用：{{ money(rent.wallet.value.available.amountMinor) }}；已预留：{{ money(rent.wallet.value.held.amountMinor) }}</p>
 
+    <section v-if="rent.setupEnabled.value && !lookup?.managed && !receipt" class="hosting-quote" aria-label="接入目标准备">
+      <template v-if="!rent.state.value.setup">
+        <h4>先登记接入目标（不付款）</h4>
+        <p>粘贴接入端生成的公开登记材料；不要粘贴原令牌。平台托管材料由运维提供，自行部署材料在自己的机器生成。</p>
+        <label>登记材料 JSON<textarea v-model="setupInput" rows="4" aria-label="接入登记材料" /></label>
+        <button type="button" :disabled="!rent.canInitial.value" @click="registerSetup">登记目标</button>
+      </template>
+      <template v-else>
+        <h4>目标已登记，等待Runtime接入</h4>
+        <p>将以下公开授权元数据导入接入端一次。后续控制权限自动领取，不需要固定IP或手动建立隧道。</p>
+        <textarea :value="JSON.stringify(rent.state.value.setup.authorization, null, 2)" rows="6" readonly aria-label="接入授权元数据" />
+        <p>Runtime仅准备隔离目录并实测技能清单；确认报价前不预留租金、不启动付费Agent。</p>
+      </template>
+    </section>
+
     <section v-if="receipt" class="hosting-receipt" role="status">
       <strong>{{ receiptTitle }}</strong>
       <p v-if="receipt.status === 'FUNDS_RESERVED'">租金已预留，尚未完成安顿。请查看下方租约进度。</p>
@@ -39,7 +54,7 @@
     </section>
 
     <section v-if="rent.state.value.operation" class="hosting-recovery" role="status">
-      <strong>操作结果待确认</strong>
+      <strong>{{ rent.state.value.waitingInventory ? '等待目标技能清单' : '操作结果待确认' }}</strong>
       <p>请先查询本次操作结果，不要重复付款。</p>
       <button type="button" :disabled="rent.busy.value || !rent.ready.value" @click="acceptedAction(rent.retryUnknown)">查询结果</button>
     </section>
@@ -62,7 +77,7 @@
 
     <div class="hosting-actions">
       <button v-if="!rent.ready.value" type="button" :disabled="rent.busy.value" @click="openPersona">重新核对租金预览</button>
-      <button v-if="rent.canInitial.value && !quote" type="button" @click="rent.previewInitial">查看安顿报价（未确认不付款）</button>
+      <button v-if="rent.canInitial.value && !quote && (!rent.setupEnabled.value || rent.state.value.setup)" type="button" @click="rent.previewInitial">查看安顿报价（未确认不付款）</button>
       <button v-if="rent.canRenew.value && !quote" type="button" @click="rent.previewRenewal">手动续租 · 先看报价</button>
       <button v-if="rent.canReprovision.value && !quote" type="button" @click="acceptedAction(rent.reprovision)">免费重整接应（不续租，不延长到期日）</button>
       <button v-if="rent.ready.value" type="button" :disabled="rent.busy.value" @click="rent.refresh">重查租约与余额（不付款）</button>
@@ -71,7 +86,7 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, watch } from 'vue'
+import { computed, ref, onUnmounted, watch } from 'vue'
 import { agentApi, economyApi } from '../../composables/useHttp.js'
 import { useApiStore } from '../../stores/api.js'
 import { useHostingRent } from '../../composables/juyiting/useHostingRent.js'
@@ -109,9 +124,17 @@ const timestamp = value => {
   if (!Number.isSafeInteger(value) || value < 0 || value > 8640000000000000) return '待确认'
   return new Date(value).toLocaleString()
 }
+const setupInput = ref('')
+const registerSetup = async () => {
+  try {
+    const value = JSON.parse(setupInput.value)
+    if (!value || Object.keys(value).some(key => !['hostId', 'tokenSha256', 'controlTokenSha256'].includes(key))) throw new Error('只接受hostId和两个凭据摘要，不接受令牌。')
+    await rent.startSetup({ ...value, mode: props.requestedMode || 'server' })
+  } catch (cause) { rent.error.value = cause.message }
+}
 const openPersona = async () => {
   const opened = await rent.open(props.persona)
-  if (opened && rent.canInitial.value && !rent.state.value.quote) await rent.previewInitial()
+  if (opened && rent.canInitial.value && !rent.state.value.quote && (!rent.setupEnabled.value || rent.state.value.setup)) await rent.previewInitial()
 }
 const acceptedAction = async action => {
   if (await action()) {
@@ -137,6 +160,7 @@ onUnmounted(() => { clearInterval(clockTimer); rent.dispose() })
 header, .hosting-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
 h3, h4 { margin: 0 0 8px; } p { margin: 8px 0; font-size: 13px; }
 .hosting-quote, .hosting-receipt, .hosting-lease, .hosting-recovery { margin: 12px 0; padding: 12px; border: 1px solid #d4bd97; border-radius: 6px; }
+textarea { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; }
 .hosting-quote { background: #fff0c5; }.separate-fees, [role="alert"] { color: #842b13; }
 button { padding: 8px 10px; margin: 3px; border: 1px solid #987039; border-radius: 6px; background: #fff; color: #533817; cursor: pointer; } button:disabled { cursor: not-allowed; opacity: .55; }
 </style>

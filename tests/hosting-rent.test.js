@@ -562,3 +562,33 @@ describe('nonfinancial cutover lease facts', () => {
     expect(validLookup(value, value.lease.agentId, value.lease.personaCode)).to.equal(false)
   })
 })
+
+describe('outbound invitation setup', () => {
+  afterEach(() => { for (const rent of rents.splice(0)) rent.dispose() })
+  it('keeps one request while inventory is pending and never submits payment during setup', async () => {
+    const calls = []
+    const setup = { setupId: 'hca_setup', personaCode: 'linchong', agentId: 'agt_server_proposal', mode: 'local', status: 'WAITING_INVENTORY',
+      authorization: { authorizationId: 'hca_setup', hostId: 'host-fixture', purpose: 'SETUP', tenantId: '0', clientId: 'fixture', ownerJiacn: 'owner', canonicalAgentId: 'agt_server_proposal' } }
+    let pending = true
+    const h = harness({
+      loadCapability: async () => ({ economyPreviewEnabled: true, hostingSetupEnabled: true, principalScopeSha256: 'fixture-scope' }),
+      agentApi: { create: async (url, body, options) => {
+        calls.push({ url, body, key: options.headers['Idempotency-Key'] })
+        if (url.endsWith('/hosting-setups')) return setup
+        if (pending) throw Object.assign(new Error('pending'), { code: 'HOSTING_SETUP_INVENTORY_PENDING' })
+        return hostingQuote({ planId: 'agent-self-hosted' })
+      } }
+    })
+    await h.rent.open(h.persona)
+    expect(await h.rent.previewInitial()).to.equal(false)
+    expect(await h.rent.startSetup({ mode: 'local', hostId: 'host-fixture', tokenSha256: 'a'.repeat(64), controlTokenSha256: 'b'.repeat(64) })).to.equal(true)
+    expect(await h.rent.previewInitial()).to.equal(false)
+    expect(h.rent.state.value.waitingInventory).to.equal(true)
+    expect(calls[1].body).to.deep.equal({ purpose: 'INITIAL', setupId: 'hca_setup' })
+    pending = false
+    expect(await h.rent.retryUnknown()).to.equal(true)
+    expect(calls[2].key).to.equal(calls[1].key)
+    expect(calls.every(call => !call.url.endsWith('/bind'))).to.equal(true)
+    expect(h.rent.state.value.waitingInventory).to.equal(false)
+  })
+})

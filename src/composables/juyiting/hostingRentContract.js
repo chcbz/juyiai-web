@@ -43,9 +43,18 @@ export const validLookup = (value, agentId, personaCode) => {
     timestamp(reprovision.requestedAt) && optional(reprovision.serviceReadyAt, timestamp))
 }
 
+const hash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+export const validSetupRequest = value => value && Object.keys(value).every(key => ['mode', 'hostId', 'tokenSha256', 'controlTokenSha256'].includes(key)) && ['server', 'local'].includes(value.mode) && text(value.hostId) &&
+  hash(value.tokenSha256) && hash(value.controlTokenSha256) && value.tokenSha256 !== value.controlTokenSha256
+export const validSetup = (value, personaCode) => text(value?.setupId) && value.personaCode === personaCode && text(value.agentId) &&
+  ['server', 'local'].includes(value.mode) && ['WAITING_INVENTORY', 'INVENTORY_READY'].includes(value.status) &&
+  value.authorization?.authorizationId === value.setupId && value.authorization.purpose === 'SETUP' &&
+  value.authorization.canonicalAgentId === value.agentId && ['hostId', 'tenantId', 'clientId', 'ownerJiacn'].every(key => text(value.authorization[key]))
+
 export const validOperation = (op, personaCode) => {
   if (!uuid(op?.key)) return false
-  if (op.kind === 'INITIAL_QUOTE') return op.agentId == null || text(op.agentId)
+  if (op.kind === 'SETUP') return validSetupRequest(op.request)
+  if (op.kind === 'INITIAL_QUOTE') return optional(op.agentId, text) && optional(op.setupId, text)
   if (op.kind === 'INITIAL') return validQuote(op.quote, 'INITIAL', personaCode, op.agentId)
   if (!text(op.agentId) || !validLease(op.lease, op.agentId, personaCode) || op.lease.status !== 'ACTIVE') return false
   if (op.kind === 'REPROVISION' || op.kind === 'RENEWAL_QUOTE') return true
@@ -56,7 +65,8 @@ export const validOperation = (op, personaCode) => {
 export const hostingRequest = (op, personaCode) => {
   const persona = encodeURIComponent(personaCode)
   const leaseId = encodeURIComponent(op.lease?.leaseId || '')
-  if (op.kind === 'INITIAL_QUOTE') return [`/personas/${persona}/hosting-rent/quotes`, { purpose: 'INITIAL', ...(op.agentId ? { agentId: op.agentId } : {}) }]
+  if (op.kind === 'SETUP') return [`/personas/${persona}/hosting-setups`, { mode: op.request.mode, hostId: op.request.hostId, tokenSha256: op.request.tokenSha256, controlTokenSha256: op.request.controlTokenSha256 }]
+  if (op.kind === 'INITIAL_QUOTE') return [`/personas/${persona}/hosting-rent/quotes`, { purpose: 'INITIAL', ...(op.setupId ? { setupId: op.setupId } : {}), ...(op.agentId ? { agentId: op.agentId } : {}) }]
   if (op.kind === 'RENEWAL_QUOTE') return [`/hosting-leases/${leaseId}/renewal-quotes`, { agentId: op.agentId, expectedLeaseVersion: op.lease.version }]
   if (op.kind === 'REPROVISION') return [`/personas/${persona}/bind`, { mode: hostingMode(op.lease.planId), hostingAction: 'REPROVISION', agentId: op.agentId, leaseId: op.lease.leaseId, expectedLeaseVersion: op.lease.version }]
   const quote = op.quote
@@ -107,6 +117,7 @@ export const lookupNotOlder = (next, previous) => {
 // Only documented command rejections are known no-effect. A generic 503,
 // interrupted adapter, malformed receipt or network failure retains the key.
 export const definitiveHostingFailure = error => new Set([
+  'HOSTING_SETUP_REJECTED', 'HOSTING_SETUP_CONFLICT', 'HOSTING_SETUP_ALREADY_ACTIVATED', 'HOSTING_SETUP_UNAVAILABLE',
   'BAD_REQUEST', 'HOSTING_RENT_INVALID_COMMAND', 'HOSTING_RENT_UNAUTHENTICATED', 'HOSTING_RENT_FORBIDDEN',
   'HOSTING_RENT_OWNER_UNPROVEN', 'ECONOMY_PREVIEW_DISABLED', 'HOSTING_RENT_NOT_FOUND_OR_FORBIDDEN',
   'INSUFFICIENT_WEN', 'IDEMPOTENCY_CONFLICT', 'HOSTING_RENT_QUOTE_EXPIRED', 'HOSTING_RENT_QUOTE_ALREADY_CONSUMED',

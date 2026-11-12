@@ -2,11 +2,11 @@ import { computed, ref } from 'vue'
 import { isCanonicalDecimalString as decimal, isWenMoney } from '../../utils/wenAmount.js'
 import { registerIdentityCleanup } from '../../utils/identityLifecycle.js'
 import { definitiveHostingFailure, hostingPayload, hostingRequest, lookupNotOlder, matchingHostingReceipt,
-  text, validLookup, validOperation, validQuote } from './hostingRentContract.js'
+  text, validLookup, validOperation, validQuote, validSetup } from './hostingRentContract.js'
 
 const browserStorage = () => { try { return globalThis.sessionStorage } catch { return null } }
 const copy = value => value == null ? value : JSON.parse(JSON.stringify(value))
-const empty = () => ({ quote: null, operation: null, accepted: null, lookup: null, refreshPending: false })
+const empty = () => ({ setup: null, waitingInventory: false, quote: null, operation: null, accepted: null, lookup: null, refreshPending: false })
 const ownedAgentId = persona => persona?.boundToMe === true && text(persona.agentId) ? persona.agentId : null
 const targetSignature = persona => JSON.stringify([persona?.personaCode, ownedAgentId(persona), persona?.boundToMe === true,
   persona?.bound === true, persona?.systemAgent === true, persona?.canBind === true, persona?.version ?? null])
@@ -20,6 +20,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
   const busy = ref(false)
   const error = ref('')
   const ready = ref(false)
+  const setupEnabled = ref(false)
   const clock = ref(now())
   let scope = ''
   let generation = 0
@@ -59,6 +60,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     generation += 1
     controller?.abort()
     ready.value = false
+    setupEnabled.value = false
     busy.value = false
     scope = ''
     wallet.value = null
@@ -121,6 +123,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     const saved = JSON.parse(raw)
     const code = target.value.personaCode
     if (saved.scope !== scope || saved.personaCode !== code) throw new Error('恢复记录 scope 不匹配。')
+    if (saved.setup && !validSetup(saved.setup, code)) throw new Error('原接入登记记录不完整，请核对。')
     if (saved.operation && !validOperation(saved.operation, code)) throw new Error('原请求恢复记录不完整，已停止新付款。')
     if (saved.accepted && (!validOperation(saved.accepted.operation, code) || !matchingHostingReceipt(saved.accepted.receipt, saved.accepted.operation))) throw new Error('原回执恢复记录不完整，已停止新付款。')
     const agentId = saved.operation?.agentId || saved.accepted?.receipt.agentId || saved.lookup?.lease?.agentId || saved.quote?.agentId || ownedAgentId(target.value)
@@ -129,7 +132,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     // A refreshed lease can make an unconfirmed preview stale. Discard only that
     // preview; an unresolved mutation retains its independently validated exact terms.
     const preview = saved.operation?.quote || (saved.quote && validQuote(saved.quote, saved.quote.purpose, code, agentId, saved.lookup?.lease) ? saved.quote : null)
-    state.value = { quote: preview, operation: saved.operation || null, accepted: saved.accepted || null,
+    state.value = { setup: saved.setup || null, waitingInventory: Boolean(saved.waitingInventory), quote: preview, operation: saved.operation || null, accepted: saved.accepted || null,
       lookup: saved.lookup || null, refreshPending: Boolean(saved.refreshPending) }
   }
 
@@ -152,6 +155,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
       const capability = await loadCapability({ signal: ctx.signal })
       if (!current(ctx) || !selected()) return false
       if (capability?.economyPreviewEnabled !== true || !text(capability.principalScopeSha256)) throw new Error('服务端未提供已启用的预览及明确 scope；不会改走免费 server 接口。')
+      setupEnabled.value = capability.hostingSetupEnabled === true
       scope = capability.principalScopeSha256
       restore()
       ready.value = true
@@ -170,6 +174,15 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     const [path, body] = hostingRequest(operation, ctx.personaCode)
     const result = hostingPayload(await agentApi.create(path, body, { ...requestOptions(ctx), headers: { 'Idempotency-Key': operation.key } }))
     if (!current(ctx)) return false
+    state.value.waitingInventory = false
+    if (operation.kind === 'SETUP') {
+      if (!validSetup(result, ctx.personaCode) || result.mode !== operation.request.mode || result.authorization.hostId !== operation.request.hostId) throw new Error('接入登记回执与原请求不匹配。')
+      state.value.setup = { ...Object.fromEntries(['setupId', 'personaCode', 'agentId', 'mode', 'status'].map(key => [key, result[key]])),
+        authorization: Object.fromEntries(['authorizationId', 'hostId', 'purpose', 'tenantId', 'clientId', 'ownerJiacn', 'canonicalAgentId'].map(key => [key, result.authorization[key]])) }
+      state.value.operation = null
+      save()
+      return true
+    }
     if (operation.kind.endsWith('_QUOTE')) {
       const purpose = operation.kind === 'INITIAL_QUOTE' ? 'INITIAL' : 'RENEWAL'
       if (!validQuote(result, purpose, ctx.personaCode, operation.agentId, operation.lease)) throw new Error('服务端报价与原好汉/租约不一致；请核对原请求。')
@@ -215,7 +228,9 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
           if (targetAgentId.value) state.value.refreshPending = true
           save()
         }
-        error.value = cause.code === 'HOSTING_RENT_QUOTE_STALE' ? '已有技能清单或接应主机已变化，请重新查询并确认报价；本次未新增预占。' :
+        state.value.waitingInventory = cause.code === 'HOSTING_SETUP_INVENTORY_PENDING'
+        if (state.value.waitingInventory) save()
+        error.value = state.value.waitingInventory ? '等待Runtime返回目标技能清单；尚未新增预占，请用原请求重查。' : cause.code === 'HOSTING_RENT_QUOTE_STALE' ? '已有技能清单或接应主机已变化，请重新查询并确认报价；本次未新增预占。' :
           state.value.operation ? `结果未知，请只核对原请求（不重新取价/扣款）：${cause.message}` : `${cause.code || ''} ${cause.message}`
       }
       return false
@@ -225,10 +240,12 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
   const requestKey = () => { try { return createKey() } catch { return '' } }
   const previewInitial = () => {
     tick()
-    if (!canInitial.value || !selected()) return Promise.resolve(false)
+    if (!canInitial.value || !selected() || (setupEnabled.value && !state.value.setup)) return Promise.resolve(false)
     state.value.quote = null
-    return perform({ kind: 'INITIAL_QUOTE', key: requestKey(), agentId: ownedAgentId(target.value) })
+    return perform({ kind: 'INITIAL_QUOTE', key: requestKey(), agentId: ownedAgentId(target.value), ...(state.value.setup ? { setupId: state.value.setup.setupId } : {}) })
   }
+  const startSetup = request => canInitial.value && !state.value.setup && setupEnabled.value
+    ? perform({ kind: 'SETUP', key: requestKey(), request: copy(request) }) : Promise.resolve(false)
   const previewRenewal = () => {
     tick()
     if (!canRenew.value || !selected()) return Promise.resolve(false)
@@ -260,6 +277,6 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
   }
   const retryUnknown = () => state.value.operation ? perform(copy(state.value.operation), true) : Promise.resolve(false)
 
-  return { target, state, wallet, busy, ready, error, clock, targetAgentId, canInitial, canRenew, canReprovision, canConfirm, quoteExpired,
+  return { target, state, setupEnabled, startSetup, wallet, busy, ready, error, clock, targetAgentId, canInitial, canRenew, canReprovision, canConfirm, quoteExpired,
     open, refresh, previewInitial, previewRenewal, confirmQuote, cancelQuote, reprovision, retryUnknown, tick, invalidate, dispose }
 }

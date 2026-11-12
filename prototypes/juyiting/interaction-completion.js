@@ -529,7 +529,7 @@ function handleSyncedAction(action,t){
  const r=state.runtimeDemo;
  if(action==='complete-runtime-open')r.open=true;
  if(action==='complete-runtime-close'){r.open=false;renderRuntimeCatalog();persist();return true;}
- if(action==='complete-runtime-hosted'){dialog('山寨安顿','<p>保留已有付费安顿边界；本原型不报价、不付款、不绑定好汉。</p><p>保留的托管权益：身份与原到期日不变，本次不扣费。旧资金不兑换、不退款；续租按新报价以文支付。</p><p>原结算记录已归档，不展示为新的文付款流水。已到期显示“租期已到，待手动续租”。</p>');return true;}
+ if(action==='complete-runtime-hosted'){dialog('山寨安顿','<p>每位Agent独立30天租约；离线不暂停，余额足够时自动续期。</p><label>接入端公开登记材料（hostId、SETUP/CONTROL凭据摘要，不含令牌）<textarea aria-label="接入登记材料" rows="4" style="width:100%;box-sizing:border-box" placeholder="粘贴接入端生成的JSON"></textarea></label><button type="button" onclick="this.nextElementSibling.hidden=false">登记目标（原型，不付款）</button><section hidden><p>请将返回的授权元数据导入接入端一次；随后由Runtime主动连接、自动领取控制授权，无需固定IP或手动建立隧道。</p><p>等待隔离目标的实测技能清单。等待期间保留同一请求，不重复创建目标或预占。</p><p>清单就绪后查看报价→确认预留→服务就绪后收租。失败且无效果才退款；未知结果保留原单。</p></section><p>自行部署解绑不删除用户资产；本原型不接服务器、不生成凭据、不付款。</p>');return true;}
  if(action==='complete-runtime-mode'){Object.assign(r,{mode:t.dataset.mode,error:''});}
  if(action==='complete-runtime-import'){
   r.error=selectedScenario==='runtime-invalid'?'示例作用域不匹配或材料已过期；不登记安装。':'';r.imported=!r.error;

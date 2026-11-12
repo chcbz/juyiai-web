@@ -58,6 +58,29 @@ describe('hosting rent actual quote/lease UI', () => {
   })
   afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount() })
 
+  it('registers public setup materials before quoting and rejects accidentally pasted secrets', async () => {
+    const writes = []
+    controller({ loadCapability: async () => ({ economyPreviewEnabled: true, hostingSetupEnabled: true, principalScopeSha256: 'fixture-scope' }),
+      agentApi: { create: async (url, body) => { writes.push({ url, body }); return {
+        setupId: 'hca_fixture', personaCode: 'linchong', agentId: 'agt_server_proposal', mode: 'local', status: 'WAITING_INVENTORY',
+        authorization: { authorizationId: 'hca_fixture', hostId: 'fixture-host', purpose: 'SETUP', tenantId: '0', clientId: 'fixture', ownerJiacn: 'owner', canonicalAgentId: 'agt_server_proposal' }
+      } } }
+    })
+    const wrapper = await show(hostingPersona(), { requestedMode: 'local' })
+    expect(writes).to.have.length(0)
+    await wrapper.find('textarea').setValue(JSON.stringify({ token: 'never-upload' }))
+    await button(wrapper, '登记目标').trigger('click'); await flushPromises()
+    expect(writes).to.have.length(0)
+    expect(wrapper.text()).to.include('不接受令牌')
+    await wrapper.find('textarea').setValue(JSON.stringify({ hostId: 'fixture-host', tokenSha256: 'a'.repeat(64), controlTokenSha256: 'b'.repeat(64) }))
+    await button(wrapper, '登记目标').trigger('click'); await flushPromises()
+    expect(writes).to.have.length(1)
+    expect(writes[0].url).to.equal('/personas/linchong/hosting-setups')
+    expect(writes[0].body.mode).to.equal('local')
+    expect(wrapper.text()).to.include('目标已登记')
+    expect(wrapper.find('textarea').attributes()).to.have.property('readonly')
+  })
+
   for (const [status, title] of [['LOCKED', '欠费锁定，等待自动续费'], ['FINISHING', '正在解除收尾，暂不可重新邀请']]) {
     it(`shows ${status} without offering payment or re-invitation`, async () => {
       const h = controller({ agentApi: { get: async () => activeHostingLookup({ lease: { status, version: '4' }, admission: status }),
