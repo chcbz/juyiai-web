@@ -1,0 +1,1720 @@
+<template>
+  <section
+    class="archive-reader"
+    :class="{ 'is-virtual-landscape-reader': virtualLandscape, 'is-embedded-reader': embedded }"
+    aria-label="典籍阅读"
+  >
+    <div
+      v-if="reader.loading"
+      class="archive-state"
+      role="status"
+    >
+      正在整理阁中典籍…
+    </div>
+    <div
+      v-else-if="reader.errorMessage && !reader.chapter"
+      class="archive-state archive-error"
+      role="alert"
+    >
+      <p>{{ reader.errorMessage }}</p>
+      <button
+        type="button"
+        @click="retryCatalog"
+      >
+        重试
+      </button>
+    </div>
+    <template v-else>
+      <div
+        v-if="!readingOpen"
+        class="archive-shelf"
+      >
+        <header class="archive-shelf-header">
+          <div>
+            <p class="reader-kicker">典籍阅读</p>
+            <h3>阁中典籍</h3>
+            <p>先择一部典籍，再进入沉浸翻阅。</p>
+          </div>
+          <span class="archive-shelf-count">共 {{ reader.works.length }} 部</span>
+        </header>
+
+        <div
+          v-if="actionMessage || reader.errorMessage"
+          class="archive-error archive-shelf-error"
+          role="alert"
+        >
+          <p>{{ actionMessage || reader.errorMessage }}</p>
+          <button
+            v-if="reader.saveState === 'error' || reader.saveState === 'saving'"
+            type="button"
+            class="archive-progress-retry"
+            :disabled="reader.saveState === 'saving'"
+            @click="retryProgress"
+          >
+            {{ reader.saveState === 'saving' ? '正在保存…' : '重试保存进度' }}
+          </button>
+        </div>
+
+        <p v-if="reader.works.length === 0" class="archive-state">暂无已发布典籍。</p>
+        <article v-for="book in reader.works" :key="book.workId" class="archive-book-card">
+          <div class="archive-book-cover" aria-hidden="true">
+            <span>古典</span>
+            <strong>{{ book.title }}</strong>
+            <small>{{ book.chapterCount }} 章</small>
+          </div>
+          <div class="archive-book-info">
+            <p class="reader-kicker">已收录典籍</p>
+            <h4>{{ book.title }}</h4>
+            <p>共 {{ book.chapterCount }} 章正文，可记录阅读进度、书签及私人阅读笔记。</p>
+            <button
+              type="button"
+              class="archive-book-open"
+              :disabled="embedded && !detailAllowed"
+              @click="enterReading(book, $event)"
+            >
+              进入翻阅
+            </button>
+            <p v-if="embedded && !detailAllowed">请先返回，再进入翻阅。</p>
+          </div>
+        </article>
+      </div>
+
+      <Teleport to="body" :disabled="disableTeleport || embedded">
+        <section
+          v-if="readingOpen"
+          ref="dialogRef"
+          class="archive-reader-fullscreen"
+          :class="{
+            'is-virtual-landscape-reader': virtualLandscape,
+            'has-reader-capsule': !embedded && hasReaderCapsule
+          }"
+          :role="embedded ? 'region' : 'dialog'"
+          :aria-modal="embedded ? undefined : 'true'"
+          aria-labelledby="archive-reader-title"
+          tabindex="-1"
+        >
+          <header class="reader-header">
+            <button
+              type="button"
+              class="reader-icon-button reader-header-button reader-exit"
+              aria-label="返回典籍列表"
+              title="返回典籍列表"
+              @click="closeReading"
+            >
+              <svg
+                class="hall-control-icon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M19 12H5m6-6-6 6 6 6" />
+              </svg>
+            </button>
+            <div class="reader-heading">
+              <p class="reader-kicker">典籍阅读</p>
+              <h3 id="archive-reader-title">{{ reader.catalog?.title || '典籍' }}</h3>
+            </div>
+            <div class="reader-header-actions">
+              <p
+                class="save-state"
+                role="status"
+              >
+                {{ saveLabel }}
+              </p>
+              <button
+                type="button"
+                class="reader-icon-button reader-header-button reader-catalog-toggle hall-tool"
+                :aria-expanded="catalogOpen"
+                aria-controls="archive-reader-catalog"
+                @click="toggleCatalog"
+               aria-label="典籍目录" title="典籍目录"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg></button>
+              <button
+                type="button"
+                class="reader-icon-button reader-header-button reader-notes-toggle hall-tool"
+                :aria-expanded="notesOpen"
+                aria-controls="archive-reader-notes"
+                @click="toggleNotes"
+               aria-label="阅读笔记" title="阅读笔记"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 3h14v18H5ZM8 8h8M8 12h8M8 16h5"/></svg></button>
+            </div>
+          </header>
+
+          <div class="reader-layout" :class="{ 'catalog-open': catalogOpen, 'notes-open': notesOpen }">
+            <nav
+              v-if="catalogOpen"
+              id="archive-reader-catalog"
+              class="reader-catalog"
+              :aria-label="`${reader.catalog?.title || '典籍'}目录`"
+            >
+              <button
+                v-for="block in reader.blocks"
+                :key="block.blockId"
+                type="button"
+                :class="{ active: block.blockId === reader.chapter?.blockId }"
+                :aria-current="block.blockId === reader.chapter?.blockId ? 'page' : undefined"
+                @click="openBlock(block)"
+              >
+                {{ block.number == null ? '引首' : `第${block.number}回` }} {{ block.title }}
+              </button>
+            </nav>
+
+            <article
+              ref="contentRef"
+              class="reader-content"
+              tabindex="0"
+              @scroll.passive="onScroll"
+            >
+              <div
+                v-if="reader.chapterLoading"
+                class="archive-state"
+                role="status"
+              >
+                正在打开章回…
+              </div>
+              <template v-else-if="reader.chapter">
+                <h4>
+                  {{ reader.chapter.number == null ? '引首' : `第${reader.chapter.number}回` }}
+                  {{ reader.chapter.title }}
+                </h4>
+                <p
+                  v-for="paragraph in reader.chapter.paragraphs"
+                  :id="paragraph.paragraphId"
+                  :key="paragraph.paragraphId"
+                  :data-paragraph-id="paragraph.paragraphId"
+                  tabindex="0"
+                  class="reader-paragraph"
+                  @focus="handleParagraphFocus(paragraph)"
+                  @click="reader.setCurrentParagraph(paragraph)"
+                >
+                  {{ paragraph.text }}
+                </p>
+              </template>
+              <div
+                v-else
+                class="archive-state"
+              >
+                目录中暂未找到正文。
+              </div>
+            </article>
+
+            <aside
+              id="archive-reader-notes"
+              class="reader-notes"
+              aria-label="私人阅读笔记与书签"
+            >
+              <h4>私人阅读笔记</h4>
+              <textarea
+                v-model="noteText"
+                aria-label="当前段落私人阅读笔记"
+                aria-describedby="note-byte-hint"
+                placeholder="记录此处所思；仅自己可见。"
+              ></textarea>
+              <p
+                id="note-byte-hint"
+                :class="{ 'archive-error': noteBytes > 20000 }"
+              >
+                {{ noteBytes }} / 20,000 UTF-8 bytes
+              </p>
+              <button
+                type="button"
+                class="reader-icon-button note-save"
+                :disabled="!noteText.trim() || !reader.currentLocation || noteBytes > 20000 || reader.notePending"
+                :aria-label="reader.notePending ? '保存中…' : '保存笔记'"
+                :title="reader.notePending ? '保存中…' : '保存笔记'"
+                :aria-busy="reader.notePending"
+                @click="saveNote"
+              >
+                <svg
+                  class="hall-control-icon"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M4 3h14l3 3v15H3V3ZM7 3v6h9V3M7 21v-8h10v8" />
+                </svg>
+              </button>
+              <p
+                v-if="reader.noteAnchorNotice"
+                class="archive-notice"
+                role="status"
+              >
+                {{ reader.noteAnchorNotice }}
+              </p>
+              <p
+                v-if="reader.noteRetryNotice"
+                class="archive-notice"
+                role="status"
+              >
+                {{ reader.noteRetryNotice }}
+              </p>
+              <p
+                v-if="reader.noteConflictDraft"
+                class="archive-error"
+                role="alert"
+              >
+                本地草稿已保留，需人工处理冲突。
+              </p>
+              <ul>
+                <li
+                  v-for="note in reader.notes"
+                  :key="note.noteId"
+                >
+                  <p>{{ note.text }}</p>
+                  <button
+                    type="button"
+                    class="reader-icon-button note-edit hall-tool"
+                    :disabled="reader.notePending"
+                    @click="editNote(note)"
+                   aria-label="编辑笔记" title="编辑笔记"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5M4 20l4-1L21 6l-3-3L5 16Z"/></svg></button>
+                  <button
+                    type="button"
+                    class="reader-icon-button note-delete hall-tool"
+                    :disabled="reader.notePending"
+                    @click="removeNote(note)"
+                   aria-label="删除笔记" title="删除笔记"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></svg></button>
+                </li>
+              </ul>
+
+              <section
+                class="archive-question"
+                aria-label="选文问案卷书吏"
+              >
+                <h4>选文问案卷书吏</h4>
+                <p class="archive-notice">Responder：archive-clerk-v1 · 案卷书吏（fallback）</p>
+                <textarea
+                  v-model="questionText"
+                  aria-label="向案卷书吏提问"
+                  placeholder="先在当前章回正文中选取连续段落，再提出问题。"
+                ></textarea>
+                <button
+                  type="button"
+                  class="reader-icon-button question-create"
+                  :disabled="!questionText.trim() || reader.questionPending"
+                  :aria-label="reader.questionPending ? '递交中…' : '向案卷书吏提问'"
+                  :title="reader.questionPending ? '递交中…' : '向案卷书吏提问'"
+                  :aria-busy="reader.questionPending"
+                  @click="askSelectedText"
+                >
+                  <svg
+                    class="hall-control-icon"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path d="M3 3h18v14H9l-6 4ZM8 8h8M8 12h5" />
+                  </svg>
+                </button>
+                <article
+                  v-if="reader.question"
+                  class="archive-question-result"
+                  aria-live="polite"
+                >
+                  <p><strong>案卷书吏</strong> · {{ reader.question.status }}</p>
+                  <p class="archive-question-selection">{{ reader.question.selectedText }}</p>
+                  <p v-if="reader.question.answer">{{ reader.question.answer }}</p>
+                  <p v-if="reader.question.lastErrorCode" class="archive-error">{{ reader.question.lastErrorCode }}</p>
+                  <button
+                    v-if="reader.question.status === 'FAILED_RETRYABLE'"
+                    type="button"
+                    class="reader-icon-button question-retry"
+                    :disabled="reader.questionPending"
+                    :aria-label="reader.questionPending ? '重试中…' : '重试提问'"
+                    :title="reader.questionPending ? '重试中…' : '重试提问'"
+                    :aria-busy="reader.questionPending"
+                    @click="retryQuestion"
+                  >
+                    <svg
+                      class="hall-control-icon"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M19 8a7 7 0 1 0 1 6M19 3v5h-5" />
+                    </svg>
+                  </button>
+                  <button
+                    v-if="reader.question.status === 'SUCCEEDED' || reader.question.status === 'FAILED_FINAL'"
+                    class="reader-icon-button"
+                    type="button"
+                    aria-label="关闭问答"
+                    title="关闭问答"
+                    @click="reader.closeQuestion"
+                  >
+                    <svg
+                      class="hall-control-icon"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M6 6l12 12M18 6 6 18" />
+                    </svg>
+                  </button>
+                </article>
+                <p v-if="reader.questionError" class="archive-error" role="alert">{{ reader.questionError }}</p>
+              </section>
+
+              <h4>书签</h4>
+              <ul>
+                <li
+                  v-for="bookmark in reader.bookmarks"
+                  :key="bookmark.bookmarkId"
+                >
+                  <button
+                    class="reader-icon-button"
+                    type="button"
+                    :aria-label="`跳转书签：${bookmark.location?.paragraphId || bookmark.location?.blockId}`"
+                    :title="`跳转书签：${bookmark.location?.paragraphId || bookmark.location?.blockId}`"
+                    @click="openBookmark(bookmark)"
+                  >
+                    <svg
+                      class="hall-control-icon"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M6 3h12v18l-6-4-6 4Z" />
+                    </svg>
+                  </button>
+                  <span class="bookmark-location">{{ bookmark.location?.paragraphId || bookmark.location?.blockId }}</span>
+                  <button
+                    type="button"
+                    class="reader-icon-button bookmark-delete hall-tool"
+                    aria-label="删除书签"
+                    @click="removeBookmark(bookmark)"
+                   title="删除书签"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></svg></button>
+                </li>
+              </ul>
+            </aside>
+          </div>
+
+          <footer class="reader-actions" aria-label="阅读操作">
+            <button
+              v-if="embedded"
+              type="button"
+              :disabled="!citationParagraph"
+              class="reader-icon-button reader-cite-action hall-tool"
+              aria-label="引用当前段落起草交办"
+              title="引用当前段落起草交办"
+              @click="citeParagraph"
+            >
+              <svg
+                class="hall-control-icon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M4 7h6v6H5c0 3 2 4 4 4M14 7h6v6h-5c0 3 2 4 4 4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="reader-icon-button reader-continue hall-tool"
+              :disabled="!reader.continueLocation || reader.chapterLoading"
+              aria-label="继续阅读"
+              title="继续阅读"
+              @click="continueReading"
+            >
+              <svg
+                class="hall-control-icon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="m8 4 13 8-13 8Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              :disabled="!reader.canGoPrevious || reader.chapterLoading"
+              aria-label="上一回"
+              @click="runAction(reader.goPrevious, '上一回暂无法读取。')"
+             class="reader-icon-button hall-tool" title="上一回"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
+            <button
+              type="button"
+              :disabled="!reader.canGoNext || reader.chapterLoading"
+              aria-label="下一回"
+              @click="runAction(reader.goNext, '下一回暂无法读取。')"
+             class="reader-icon-button hall-tool" title="下一回"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>
+            <button
+              type="button"
+              class="reader-icon-button bookmark-create hall-tool"
+              :disabled="!reader.currentLocation || reader.bookmarkPending"
+              @click="createBookmark"
+             aria-label="添加书签" title="添加书签"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h12v18l-6-4-6 4Z"/></svg></button>
+          </footer>
+
+          <p
+            v-if="actionMessage || reader.errorMessage"
+            class="archive-error reader-global-error"
+            role="alert"
+          >
+            {{ actionMessage || reader.errorMessage }}
+          </p>
+        </section>
+      </Teleport>
+    </template>
+  </section>
+</template>
+
+<script setup>
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, proxyRefs, ref, watch } from 'vue'
+import { useArchiveReader, utf8ByteLength } from '@/composables/juyiting/useArchiveReader'
+import { nativeOrientationFromLocation } from '@/composables/juyiting/miniProgramOrientation.js'
+import { registerIdentityCleanup } from '@/utils/identityLifecycle.js'
+
+const { disableTeleport, initialView, virtualLandscape, embedded, active, detailAllowed } = defineProps({
+  embedded: { type: Boolean, default: false },
+  detailAllowed: { type: Boolean, default: true },
+  active: { type: Boolean, default: true },
+  disableTeleport: { type: Boolean, default: false },
+  initialView: {
+    type: String,
+    default: 'catalog',
+    validator: value => ['catalog', 'reader'].includes(value)
+  },
+  virtualLandscape: Boolean
+})
+
+const emit = defineEmits(['navigation-state', 'start-draft'])
+
+// The SDK also exposes wx.miniProgram in ordinary browsers; use host markers only.
+// Embedded readers use host spacing; only standalone readers reserve capsule space.
+const hasReaderCapsule = /MicroMessenger/i.test(globalThis.navigator?.userAgent || '')
+  || globalThis.window?.__wxjs_environment === 'miniprogram'
+  || nativeOrientationFromLocation(globalThis.window?.location) !== null
+
+const readerState = useArchiveReader({ autoInitialize: false })
+const reader = proxyRefs(readerState)
+const readingOpen = ref(initialView === 'reader')
+const catalogOpen = ref(false)
+const notesOpen = ref(false)
+const dialogRef = ref(null)
+const contentRef = ref(null)
+const noteText = ref('')
+const questionText = ref('')
+const editingNote = ref(null)
+const bookDrafts = new Map()
+const actionMessage = ref('')
+const NEW_NOTE_TARGET = Symbol('new-note-target')
+const noteBytes = computed(() => utf8ByteLength(noteText.value))
+// Explicit paragraph snapshot only: never read or share the private note editor.
+const citationParagraph = computed(() => reader.chapter?.paragraphs?.find(paragraph =>
+  paragraph.paragraphId === reader.currentLocation?.paragraphId) || null)
+const citeParagraph = () => {
+  const paragraph = citationParagraph.value
+  const location = reader.currentLocation
+  if (!paragraph?.text || !location) return
+  const source = `${reader.catalog?.title || '典籍'} · ${reader.chapter.title} · ${location.editionId || reader.catalog?.activeEdition?.editionId || ''}/${reader.chapter.blockId}/${paragraph.paragraphId}`
+  emit('start-draft', {
+    originRef: 'juyiting:archive',
+    instruction: `引用来源：${source}\n所选段落：\n${paragraph.text}\n\n交办要求：`,
+    inputs: []
+  })
+}
+const saveLabel = computed(() => ({
+  error: '未保存',
+  idle: '阅读进度未保存',
+  pending: '等待保存…',
+  saved: '已保存',
+  saving: '正在保存…'
+})[reader.saveState])
+const PROGRAMMATIC_SCROLL_SETTLE_MS = 180
+let scrollTimer
+let programmaticScrollTimer
+let programmaticFocusId = ''
+let programmaticScrollGeneration = 0
+let editorRevision = 0
+let returnFocusElement = null
+let closeProgressPromise = Promise.resolve(null)
+let unregisterEditorIdentityCleanup = null
+
+const runAction = async (action, fallbackMessage) => {
+  actionMessage.value = ''
+  try {
+    return await action()
+  } catch {
+    actionMessage.value = reader.errorMessage || fallbackMessage
+    return null
+  }
+}
+
+const toggleCatalog = () => {
+  catalogOpen.value = !catalogOpen.value
+  if (catalogOpen.value) notesOpen.value = false
+}
+
+const toggleNotes = () => {
+  notesOpen.value = !notesOpen.value
+  if (notesOpen.value) catalogOpen.value = false
+}
+
+const openBlock = async (block) => {
+  const opened = await runAction(
+    () => reader.loadBlock(block),
+    '章回暂无法读取。'
+  )
+  if (opened) catalogOpen.value = false
+  return opened
+}
+
+const retryCatalog = () => runAction(
+  () => reader.initialize({ openChapter: false }),
+  '典籍重试失败。'
+)
+
+const retryProgress = () => runAction(
+  () => reader.flushProgress({ retryFailed: true }),
+  '阅读进度暂未保存，请重试。'
+)
+
+const enterReading = async (book, event, editionId = null) => {
+  if (embedded && !detailAllowed) return
+  returnFocusElement = typeof event?.currentTarget?.focus === 'function'
+    ? event.currentTarget
+    : document.activeElement
+  await closeProgressPromise
+  const opened = await runAction(
+    () => reader.openBook(book.workId, editionId),
+    '典籍暂无法读取，请稍后重试。'
+  )
+  if (!opened || reader.catalog?.workId !== book.workId || (embedded && (!detailAllowed || !active))) return
+  catalogOpen.value = false
+  notesOpen.value = false
+  readingOpen.value = true
+  if (!embedded) document.body?.classList.add('archive-reading-open')
+  await nextTick()
+  dialogRef.value?.focus()
+}
+
+const closeReading = async () => {
+  reader.cancelBlockLoad()
+  closeProgressPromise = flushReadingPosition()
+  reader.closeQuestion()
+  readingOpen.value = false
+  catalogOpen.value = false
+  notesOpen.value = false
+  if (!embedded) document.body?.classList.remove('archive-reading-open')
+  await nextTick()
+  const focusTarget = returnFocusElement?.isConnected
+    ? returnFocusElement
+    : document.querySelector('.archive-reader .archive-book-open')
+  focusTarget?.focus()
+  returnFocusElement = null
+}
+
+const focusableElements = () => [...(dialogRef.value?.querySelectorAll(
+  'button:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+) || [])].filter((element) => {
+  if (element.hasAttribute('hidden')) return false
+  for (let ancestor = element; ancestor && ancestor !== dialogRef.value; ancestor = ancestor.parentElement) {
+    if (globalThis.getComputedStyle?.(ancestor).display === 'none') return false
+  }
+  return true
+})
+
+const handleReaderKeydown = (event) => {
+  if (embedded || !active || !readingOpen.value || event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeReading()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const focusable = focusableElements()
+  if (!focusable.length) {
+    event.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  const activeElement = document.activeElement
+  const focusOutsideContent = activeElement === dialogRef.value || !dialogRef.value?.contains(activeElement)
+  if (event.shiftKey && (activeElement === first || focusOutsideContent)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (activeElement === last || focusOutsideContent)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+const continueReading = () => runAction(
+  reader.continueReading,
+  '继续阅读位置暂无法读取。'
+)
+const createBookmark = () => runAction(
+  reader.createBookmark,
+  '书签暂未保存。'
+)
+const removeBookmark = bookmark => runAction(
+  () => reader.deleteBookmark(bookmark),
+  '书签暂未删除。'
+)
+const removeNote = (note) => {
+  if (reader.notePending) return Promise.resolve(null)
+  return runAction(
+    () => reader.deleteNote(note),
+    '阅读笔记暂未删除。'
+  )
+}
+
+const paragraphForSelectionNode = node => {
+  const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement
+  const paragraph = element?.closest?.('.reader-paragraph')
+  return paragraph && contentRef.value?.contains(paragraph) ? paragraph : null
+}
+
+const offsetWithinParagraph = (paragraph, node, offset) => {
+  const range = document.createRange()
+  range.selectNodeContents(paragraph)
+  range.setEnd(node, offset)
+  return range.toString().length
+}
+
+const selectionDescriptor = () => {
+  const selection = window.getSelection?.()
+  if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) throw new Error('请先在当前章回正文中选择文字。')
+  const range = selection.getRangeAt(0)
+  const start = paragraphForSelectionNode(range.startContainer)
+  const end = paragraphForSelectionNode(range.endContainer)
+  if (!start || !end || !reader.chapter) throw new Error('选文必须位于当前章回正文段落。')
+  const paragraphs = [...contentRef.value.querySelectorAll('.reader-paragraph')]
+  const startIndex = paragraphs.indexOf(start)
+  const endIndex = paragraphs.indexOf(end)
+  if (startIndex < 0 || endIndex < startIndex) throw new Error('选文必须是当前章回的连续正文段落。')
+  const authoritative = reader.chapter.paragraphs
+  const selectedParagraphs = paragraphs.slice(startIndex, endIndex + 1)
+  const selectedAuthoritative = selectedParagraphs.map(element =>
+    authoritative.find(item => item.paragraphId === element.dataset.paragraphId)
+  )
+  const authoritativeStartIndex = authoritative.indexOf(selectedAuthoritative[0])
+  if (authoritativeStartIndex < 0 || selectedAuthoritative.some((item, index) =>
+    !item || item !== authoritative[authoritativeStartIndex + index] || selectedParagraphs[index].textContent !== item.text
+  )) {
+    throw new Error('当前正文与权威段落不一致，无法提交选文。')
+  }
+  const [startItem] = selectedAuthoritative
+  const endItem = selectedAuthoritative.at(-1)
+  return {
+    startParagraphId: startItem.paragraphId,
+    startOffset: offsetWithinParagraph(start, range.startContainer, range.startOffset),
+    endParagraphId: endItem.paragraphId,
+    endOffset: offsetWithinParagraph(end, range.endContainer, range.endOffset)
+  }
+}
+
+const askSelectedText = async () => {
+  actionMessage.value = ''
+  try {
+    await reader.createQuestion({ question: questionText.value, selection: selectionDescriptor() })
+    questionText.value = ''
+    window.getSelection?.()?.removeAllRanges()
+  } catch (error) {
+    actionMessage.value = error?.message || reader.questionError || '案卷书吏暂无法受理此问。'
+  }
+}
+
+const retryQuestion = () => runAction(reader.retryQuestion, '案卷书吏重试失败。')
+
+const saveNote = async () => {
+  if (noteBytes.value > 20_000) return
+  const note = editingNote.value
+  const submittedTarget = note?.noteId || NEW_NOTE_TARGET
+  const submittedRevision = editorRevision
+  const submittedText = noteText.value
+  const saved = await runAction(
+    () => reader.saveNote({
+      noteId: note?.noteId,
+      text: submittedText,
+      anchor: note?.anchor,
+      version: note?.version || '0'
+    }),
+    '阅读笔记暂未保存。'
+  )
+  if (!saved) return
+  const currentTarget = editingNote.value?.noteId || NEW_NOTE_TARGET
+  if (currentTarget !== submittedTarget || editorRevision !== submittedRevision) return
+  const editorChangedWhileSaving = noteText.value !== submittedText
+  if (saved.preservedDraft || editorChangedWhileSaving) {
+    if (!editorChangedWhileSaving) noteText.value = saved.preservedDraft.text
+    editingNote.value = {
+      ...saved.note,
+      anchor: saved.preservedDraft ? saved.preservedDraft.anchor : saved.note.anchor,
+      version: saved.note.version
+    }
+    editorRevision += 1
+    return
+  }
+  noteText.value = ''
+  editingNote.value = null
+  editorRevision += 1
+}
+
+const editNote = (note) => {
+  if (reader.notePending) return
+  editingNote.value = note
+  noteText.value = note.text
+  editorRevision += 1
+}
+
+const openBookmark = bookmark => runAction(
+  () => {
+    const block = reader.blocks.find(item => item.blockId === bookmark.location?.blockId)
+    return reader.loadBlock(block, bookmark.location)
+  },
+  '书签位置暂无法读取。'
+)
+
+const visibleParagraph = (container) => {
+  const containerRect = container.getBoundingClientRect()
+  const candidates = [...container.querySelectorAll('.reader-paragraph')]
+    .map((element) => {
+      const rect = element.getBoundingClientRect()
+      const visibleHeight = Math.max(
+        0,
+        Math.min(rect.bottom, containerRect.bottom) - Math.max(rect.top, containerRect.top)
+      )
+      return { element, rect, visibleHeight }
+    })
+    .filter(candidate => candidate.visibleHeight > 0)
+    .sort((left, right) => right.visibleHeight - left.visibleHeight)
+  return candidates[0] || null
+}
+
+const handleParagraphFocus = (paragraph) => {
+  if (programmaticFocusId === paragraph.paragraphId) {
+    programmaticFocusId = ''
+    return
+  }
+  reader.setCurrentParagraph(paragraph)
+}
+
+const clearProgrammaticScroll = (generation) => {
+  if (programmaticScrollGeneration === generation) programmaticScrollGeneration = 0
+}
+
+const suppressProgrammaticScroll = (generation) => {
+  programmaticScrollGeneration = generation
+  clearTimeout(programmaticScrollTimer)
+  programmaticScrollTimer = setTimeout(
+    () => clearProgrammaticScroll(generation),
+    PROGRAMMATIC_SCROLL_SETTLE_MS
+  )
+}
+
+const captureVisibleParagraph = (container) => {
+  const visible = container && visibleParagraph(container)
+  if (!visible) return
+  const paragraph = reader.chapter?.paragraphs?.find(
+    item => item.paragraphId === visible.element.dataset.paragraphId
+  )
+  if (!paragraph) return
+  const atEnd = container.scrollTop + container.clientHeight >= container.scrollHeight - 4
+  const isLast = paragraph.paragraphId === reader.chapter?.paragraphs?.at(-1)?.paragraphId
+  reader.setCurrentParagraph(paragraph, atEnd && isLast ? paragraph.utf8ByteLength : 0)
+}
+
+const flushReadingPosition = () => {
+  clearTimeout(scrollTimer)
+  const focusGeneration = reader.focusRequest?.generation
+  if (!programmaticScrollGeneration || programmaticScrollGeneration !== focusGeneration) {
+    captureVisibleParagraph(contentRef.value)
+  }
+  return reader.flushProgress()
+}
+
+const onScroll = (event) => {
+  const container = event.currentTarget
+  const focusGeneration = reader.focusRequest?.generation
+  if (programmaticScrollGeneration && programmaticScrollGeneration === focusGeneration) {
+    clearTimeout(scrollTimer)
+    suppressProgrammaticScroll(programmaticScrollGeneration)
+    return
+  }
+  clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => captureVisibleParagraph(container), 180)
+}
+
+let focusedGeneration = 0
+const focusRequestedLocation = () => {
+  const request = reader.focusRequest
+  if (!request?.location || request.generation === focusedGeneration) return
+  const target = [...(contentRef.value?.querySelectorAll('.reader-paragraph') || [])]
+    .find(element => element.dataset.paragraphId === request.location.paragraphId)
+  if (!target) return
+  focusedGeneration = request.generation
+  programmaticFocusId = request.location.paragraphId
+  target.focus({ preventScroll: true })
+  programmaticFocusId = ''
+  if (target.scrollIntoView) {
+    suppressProgrammaticScroll(request.generation)
+    target.scrollIntoView({ block: 'center' })
+  }
+}
+
+const back = () => {
+  if (!readingOpen.value) return false
+  if (notesOpen.value) notesOpen.value = false
+  else if (catalogOpen.value) catalogOpen.value = false
+  else void closeReading()
+  return true
+}
+const openPublishedEdition = job => enterReading(job, null, job.editionId)
+defineExpose({ back, openPublishedEdition })
+// Drafts belong to an immutable edition, never to whichever book is currently visible.
+watch(() => reader.catalog?.activeEdition?.editionId, (nextEdition, previousEdition) => {
+  if (previousEdition) bookDrafts.set(previousEdition, {
+    noteText: noteText.value, questionText: questionText.value, editingNote: editingNote.value
+  })
+  const draft = nextEdition ? bookDrafts.get(nextEdition) : null
+  noteText.value = draft?.noteText || ''
+  questionText.value = draft?.questionText || ''
+  editingNote.value = draft?.editingNote || null
+  editorRevision += 1
+}, { flush: 'sync' })
+watch(readingOpen, value => emit('navigation-state', value), { immediate: true })
+onUpdated(() => { if (active) focusRequestedLocation() })
+
+onMounted(() => {
+  unregisterEditorIdentityCleanup = registerIdentityCleanup(() => {
+    bookDrafts.clear()
+    questionText.value = ''
+    noteText.value = ''
+    editingNote.value = null
+    editorRevision += 1
+  })
+  window.addEventListener('keydown', handleReaderKeydown)
+  if (readingOpen.value && !embedded) document.body?.classList.add('archive-reading-open')
+  reader.initialize({ openChapter: readingOpen.value }).catch(() => {})
+})
+
+onBeforeUnmount(() => {
+  unregisterEditorIdentityCleanup?.()
+  unregisterEditorIdentityCleanup = null
+  window.removeEventListener('keydown', handleReaderKeydown)
+  if (!embedded) document.body?.classList.remove('archive-reading-open')
+  void flushReadingPosition()
+  clearTimeout(programmaticScrollTimer)
+  programmaticScrollGeneration = 0
+})
+</script>
+
+<style scoped>
+.archive-reader {
+  --archive-ground: var(--work-ground, #f3f3ed);
+  --archive-paper: var(--work-paper, #fffefa);
+  --archive-ink: var(--work-ink, #242e2b);
+  --archive-muted: var(--work-muted, #68716b);
+  --archive-line: var(--work-line, #d8d8ce);
+  --archive-brand: var(--work-brand, #923f30);
+  container-type: inline-size;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  flex-direction: column;
+  color: #3f2815;
+}
+
+.archive-shelf {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  padding-right: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.archive-shelf-header,
+.reader-header,
+.reader-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.archive-shelf-header h3,
+.archive-shelf-header p,
+.reader-header h3,
+.reader-header p,
+.reader-notes h4,
+.archive-book-info h4,
+.archive-book-info p {
+  margin: 0;
+}
+
+.archive-shelf-header h3 {
+  margin: 2px 0 5px;
+  font-size: clamp(22px, 3vw, 30px);
+}
+
+.archive-shelf-header > div > p:last-child,
+.archive-book-info > p:not(.reader-kicker) {
+  color: #765f40;
+  line-height: 1.7;
+}
+
+.archive-shelf-count {
+  padding: 6px 10px;
+  border: 1px solid #dcc9a9;
+  border-radius: 999px;
+  background: rgba(255, 250, 240, 0.8);
+  color: #765f40;
+  font-size: 12px;
+}
+
+.archive-book-card {
+  display: grid;
+  grid-template-columns: minmax(128px, 180px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: clamp(18px, 4vw, 34px);
+  max-width: 680px;
+  padding: clamp(18px, 4vw, 30px);
+  border: 1px solid #d8c09a;
+  border-radius: 16px;
+  background:
+    linear-gradient(90deg, rgba(116, 74, 35, 0.05) 1px, transparent 1px) 0 0 / 22px 100%,
+    linear-gradient(145deg, #fffaf0, #f3e3c4);
+  box-shadow: 0 16px 34px rgba(71, 44, 23, 0.12);
+}
+
+.archive-book-cover {
+  position: relative;
+  display: flex;
+  min-height: 218px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 14px;
+  border: 5px double rgba(255, 232, 173, 0.68);
+  border-radius: 7px 13px 13px 7px;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.14), transparent 12%),
+    linear-gradient(145deg, #6f1f19, #9c3327);
+  color: #fff1c1;
+  box-shadow: 7px 10px 18px rgba(65, 29, 17, 0.24);
+  text-align: center;
+}
+
+.archive-book-cover::after {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border: 1px solid rgba(255, 232, 173, 0.4);
+  pointer-events: none;
+}
+
+.archive-book-cover span,
+.archive-book-cover small {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  letter-spacing: 0.28em;
+}
+
+.archive-book-cover strong {
+  position: relative;
+  z-index: 1;
+  font-family: serif;
+  font-size: clamp(25px, 4vw, 34px);
+  letter-spacing: 0.24em;
+  writing-mode: vertical-rl;
+}
+
+.archive-book-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+}
+
+.archive-book-info h4 {
+  font-family: serif;
+  font-size: clamp(24px, 4vw, 34px);
+}
+
+.archive-book-open,
+.reader-header-button,
+.reader-catalog button,
+.reader-notes button,
+.reader-actions button,
+.archive-state button {
+  padding: 8px 11px;
+  border: 1px solid var(--archive-line);
+  border-radius: 7px;
+  background: var(--archive-paper);
+  color: var(--archive-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.archive-book-open {
+  min-width: 120px;
+  margin-top: 6px;
+  padding: 11px 18px;
+  background: #23483e;
+  color: #fff8e8;
+  text-align: center;
+  font-weight: 700;
+}
+
+.archive-reader-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  box-sizing: border-box;
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: clamp(12px, 2vw, 24px);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 0, rgba(214, 180, 119, 0.2), transparent 42%),
+    #f4ead6;
+  color: #3f2815;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader {
+  top: 0;
+  right: auto;
+  bottom: auto;
+  left: 0;
+  width: 100dvh;
+  height: 100dvw;
+  transform: rotate(90deg) translateY(-100%);
+  transform-origin: top left;
+}
+
+.reader-header {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  padding: 2px 4px 10px;
+  border-bottom: 1px solid rgba(98, 66, 34, 0.18);
+}
+
+.reader-kicker,
+.save-state {
+  color: #765f40;
+  font-size: 12px;
+}
+
+.reader-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.reader-header-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.reader-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.reader-actions button {
+  min-width: 0;
+  min-height: 40px;
+  padding-inline: 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+
+.archive-reader-fullscreen .reader-icon-button {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-icon-button:focus-visible {
+  outline: 2px solid var(--archive-brand);
+  outline-offset: 2px;
+}
+
+.reader-icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reader-heading h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-location {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.reader-header-button {
+  background: #f3f3ed;
+}
+
+.reader-header-button.reader-exit {
+  border-color: transparent;
+  background: transparent;
+  color: var(--archive-brand);
+  font-weight: 500;
+}
+
+.reader-layout {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.32fr);
+  gap: 12px;
+}
+
+.reader-layout.catalog-open {
+  grid-template-columns: minmax(190px, 0.28fr) minmax(0, 1fr) minmax(230px, 0.32fr);
+}
+
+.reader-catalog,
+.reader-content,
+.reader-notes {
+  min-height: 0;
+  padding: clamp(12px, 2vw, 22px);
+  overflow: auto;
+  border: 1px solid #dcc9a9;
+  border-radius: 12px;
+  background: rgba(255, 250, 240, 0.94);
+  box-shadow: 0 8px 24px rgba(71, 44, 23, 0.08);
+}
+
+.reader-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.reader-catalog button.active,
+.reader-actions button {
+  background: #23483e;
+  color: #fff8e8;
+}
+
+.reader-actions button:disabled,
+.reader-notes button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.reader-content {
+  scroll-behavior: smooth;
+}
+
+.reader-content h4 {
+  margin: 18px 0 24px;
+  font-family: serif;
+  font-size: clamp(22px, 2.5vw, 30px);
+  text-align: center;
+}
+
+.reader-paragraph {
+  max-width: 50em;
+  margin: 0 auto 1.05em;
+  font-family: serif;
+  font-size: clamp(16px, 1.35vw, 20px);
+  line-height: 2;
+  outline-offset: 3px;
+  cursor: text;
+  text-align: justify;
+}
+
+.reader-paragraph:focus {
+  outline: 2px solid #b07835;
+}
+
+.archive-question {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  padding-top: 12px;
+  border-top: 1px solid #dcc9a9;
+}
+
+.archive-question textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.archive-question-result {
+  padding: 8px;
+  border-radius: 6px;
+  background: #f5ead4;
+}
+
+.archive-question-result p {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+}
+
+.archive-question-selection,
+.archive-notice {
+  color: #765f40;
+  font-size: 12px;
+}
+
+.reader-notes textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  margin: 0 0 7px;
+  font: inherit;
+}
+
+.reader-notes ul {
+  padding: 0;
+  list-style: none;
+}
+
+.reader-notes li {
+  padding: 8px 0;
+  border-top: 1px solid #eadabb;
+}
+
+.reader-notes li p {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+}
+
+.reader-notes li button + button {
+  margin-left: 6px;
+}
+
+.archive-state {
+  padding: 22px;
+  border-radius: 8px;
+  background: #fff8e8;
+  text-align: center;
+}
+
+.archive-error {
+  color: #9b2f26;
+}
+
+.reader-global-error {
+  flex: 0 0 auto;
+  margin: 0;
+  text-align: center;
+}
+
+:global(body.archive-reading-open) {
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .archive-reader-fullscreen {
+    padding: 8px;
+  }
+
+  .reader-layout,
+  .reader-layout.catalog-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .reader-catalog,
+  .reader-notes {
+    position: absolute;
+    z-index: 4;
+    box-sizing: border-box;
+    box-shadow: 12px 0 30px rgba(45, 27, 16, 0.24);
+  }
+
+  .reader-catalog {
+    inset: 0 auto 0 0;
+    width: min(82vw, 330px);
+  }
+
+  .reader-notes {
+    display: none;
+    inset: 0 0 0 auto;
+    width: min(88vw, 390px);
+    max-height: none;
+  }
+
+  .reader-layout.notes-open .reader-notes {
+    display: block;
+  }
+
+  .reader-header-actions {
+    width: auto;
+    justify-content: flex-end;
+  }
+}
+
+.archive-reader.is-virtual-landscape-reader .archive-shelf {
+  gap: 10px;
+}
+
+.archive-reader.is-virtual-landscape-reader .archive-shelf-header > div > p:last-child {
+  display: none;
+}
+
+.archive-reader.is-virtual-landscape-reader .archive-book-card {
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px;
+}
+
+.archive-reader.is-virtual-landscape-reader .archive-book-cover {
+  min-height: 118px;
+  padding: 8px 6px;
+}
+
+.archive-reader.is-virtual-landscape-reader .archive-book-cover strong {
+  font-size: 20px;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader {
+  gap: 6px;
+  padding: 6px max(12px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-header {
+  flex-wrap: nowrap;
+  padding-bottom: 4px;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-header .reader-kicker {
+  display: none;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-header h3,
+.archive-reader-fullscreen.is-virtual-landscape-reader .save-state,
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-header-button {
+  white-space: nowrap;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-header h3 {
+  overflow: hidden;
+  font-size: 18px;
+  text-overflow: ellipsis;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-header-actions {
+  width: auto;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .save-state {
+  margin: 0;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-layout,
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-layout.catalog-open {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 32%);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-catalog {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: min(38%, 280px);
+  box-sizing: border-box;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-catalog,
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-content,
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-notes {
+  padding: 10px;
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-notes {
+  position: static;
+  display: block;
+  width: auto;
+  box-shadow: 0 8px 24px rgba(71, 44, 23, 0.08);
+}
+
+.archive-reader-fullscreen.is-virtual-landscape-reader .reader-notes-toggle {
+  display: none;
+}
+
+@media (min-width: 901px) {
+  .reader-notes-toggle {
+    display: none;
+  }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .archive-shelf {
+    gap: 10px;
+  }
+
+  .archive-shelf-header > div > p:last-child {
+    display: none;
+  }
+
+  .archive-book-card {
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .archive-book-cover {
+    min-height: 118px;
+    padding: 8px 6px;
+  }
+
+  .archive-book-cover strong {
+    font-size: 20px;
+  }
+
+  .archive-reader-fullscreen {
+    gap: 6px;
+    padding: 6px max(12px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .reader-header {
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .reader-header .reader-kicker {
+    display: none;
+  }
+
+  .reader-header h3,
+  .save-state,
+  .reader-header-button {
+    white-space: nowrap;
+  }
+
+  .reader-header h3 {
+    overflow: hidden;
+    font-size: 18px;
+    text-overflow: ellipsis;
+  }
+
+  .reader-header-actions {
+    width: auto;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .save-state {
+    margin: 0;
+  }
+
+  .reader-layout,
+  .reader-layout.catalog-open {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 32%);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .reader-catalog {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(38vw, 280px);
+    box-sizing: border-box;
+  }
+
+  .reader-catalog,
+  .reader-content,
+  .reader-notes {
+    padding: 10px;
+  }
+
+  .reader-notes {
+    position: static;
+    display: block;
+    width: auto;
+    box-shadow: 0 8px 24px rgba(71, 44, 23, 0.08);
+  }
+
+  .reader-notes-toggle {
+    display: none;
+  }
+}
+
+.archive-reader-fullscreen.has-reader-capsule {
+  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+.archive-reader-fullscreen.has-reader-capsule:not(.is-virtual-landscape-reader) .reader-header {
+  padding-right: 112px;
+}
+
+.archive-reader-fullscreen.has-reader-capsule.is-virtual-landscape-reader {
+  /* rotate(90deg): physical top/right/bottom/left become logical left/top/right/bottom. */
+  padding: max(6px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-top));
+}
+
+.archive-reader-fullscreen.has-reader-capsule.is-virtual-landscape-reader .reader-header {
+  /* The physical top-right capsule sits at the rotated header's logical top-left. */
+  padding-left: 112px;
+}
+
+@media (max-width: 900px) and (orientation: portrait) {
+  .reader-header {
+    gap: 4px;
+  }
+
+  .reader-kicker,
+  .save-state {
+    display: none;
+  }
+
+  .reader-heading {
+    overflow: hidden;
+  }
+
+  .reader-heading h3 {
+    overflow: hidden;
+    font-size: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .reader-header-actions {
+    gap: 4px;
+  }
+
+  .reader-header-button {
+    padding: 7px;
+    white-space: nowrap;
+  }
+
+  .reader-actions {
+    gap: 0;
+  }
+
+  .reader-actions button {
+    padding-inline: 4px;
+    font-size: 13px;
+  }
+}
+
+@container (max-width: 520px) {
+  .archive-book-card {
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .archive-book-cover {
+    min-height: 174px;
+    padding: 12px 8px;
+  }
+
+  .archive-book-cover strong {
+    font-size: 23px;
+  }
+}
+.archive-reader.is-embedded-reader .archive-reader-fullscreen {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  z-index: auto;
+  transform: none;
+  flex: 1;
+  background: var(--archive-ground);
+  color: var(--archive-ink);
+}
+.archive-reader.is-embedded-reader .reader-header {
+  padding-top: 8px;
+  border-color: var(--archive-line);
+  background: var(--archive-paper);
+}
+.archive-reader.is-embedded-reader .reader-content,
+.archive-reader.is-embedded-reader .reader-catalog,
+.archive-reader.is-embedded-reader .reader-notes {
+  border-color: var(--archive-line);
+  background: var(--archive-paper);
+  color: var(--archive-ink);
+}
+.archive-reader.is-embedded-reader .reader-actions button {
+  border-color: var(--archive-line);
+  background: var(--archive-paper);
+  color: var(--archive-ink);
+}
+
+</style>
