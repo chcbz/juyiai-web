@@ -160,7 +160,7 @@ const loadSfc = (relativePath, runtimeAgentApi = { post: async () => { throw new
     .replace(/^import\s+HallDraftEditor\s+from\s+['"]\.\/HallDraftEditor\.vue['"];?\s*$/gm, 'var HallDraftEditor = { template: \'<section class="hall-draft-editor-stub" />\', props: [\'agents\', \'selectedAgent\', \'identityEpoch\'], emits: [\'close\'] }')
     .replace(/^import\s+HallMaterialPicker\s+from\s+['"]\.\/HallMaterialPicker\.vue['"];?\s*$/gm, `var HallMaterialPicker = { data: () => ({ opened: false }), methods: { open() { this.opened = true } }, template: '<section class="hall-material-picker-stub" :data-open="opened" />', props: ['modelValue', 'identityScope', 'identityEpoch', 'disabled'], emits: ['update:modelValue'] }`)
     .replace(/^import\s+HallMaterialThumbnail\s+from\s+['"]\.\/HallMaterialThumbnail\.vue['"];?\s*$/gm, `var HallMaterialThumbnail = { template: '<span class="material-thumbnail-stub" />' }`)
-    .replace(/^import\s+HostingRentPanel\s+from\s+['"].\/HostingRentPanel\.vue['"];?\s*$/gm, 'var HostingRentPanel = { template: \'<section class="hosting-rent-stub" />\', props: [\'persona\', \'resolvePersona\'] }')
+    .replace(/^import\s+HostingRentPanel\s+from\s+['"].\/HostingRentPanel\.vue['"];?\s*$/gm, 'var HostingRentPanel = { template: \'<section class="hosting-rent-stub" />\', props: [\'persona\', \'resolvePersona\', \'requestedMode\'], emits: [\'hosting-confirmed\'] }')
     // Dedicated archive-positions tests cover this child; keep the hall fixture scoped to its parent.
     .replace(/^import\s+ArchivePositions\s+from\s+['"].\/archive\/ArchivePositions\.vue['"];?\s*$/gm, 'var ArchivePositions = Vue.defineComponent({render: () => null})')
     .replace(/^import\s+ArchiveReader\s+from\s+['"].\/archive\/ArchiveReader\.vue['"];?\s*$/gm, 'var ArchiveReader = { template: \'<section class="archive-reader-stub">典籍阅读</section>\' }')
@@ -1313,7 +1313,14 @@ describe('JuyiHall component behavior', () => {
     expect(catalog.find('.hosting-rent-stub').exists()).to.equal(true)
     await catalog.find('.catalog-action.primary').trigger('click')
     await catalog.findAll('button').find(button => button.text() === '自行部署').trigger('click')
-    expect(catalog.emitted('bind-persona')[0]).to.deep.equal([personas[1], 'local'])
+    expect(catalog.emitted('bind-persona')).to.equal(undefined)
+    const rent = catalog.findComponent('.hosting-rent-stub')
+    expect(rent.exists()).to.equal(true)
+    expect(rent.props('requestedMode')).to.equal('local')
+    expect(rent.props('persona')).to.deep.equal(personas[1])
+    const receipt = { agentId: 'local-fixture', mode: 'local' }
+    rent.vm.$emit('hosting-confirmed', receipt)
+    expect(catalog.emitted('hosting-confirmed')[0]).to.deep.equal([receipt])
     catalog.unmount()
   })
 
