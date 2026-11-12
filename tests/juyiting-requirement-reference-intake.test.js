@@ -1,0 +1,337 @@
+import * as assigneeCandidates from '../src/composables/juyiting/hallAssigneeCandidates.js'
+import * as taskPresentation from '../src/composables/juyiting/hallTaskPresentation.js'
+import * as ordinaryCancellation from '../src/composables/juyiting/useHallOrdinaryCancellation.js'
+import { expect } from 'chai'
+import { before, after } from 'mocha'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { ref, nextTick } from 'vue'
+import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import { createRequirementCreateIntentStore, requirementCreateBody, requirementCreateReceipt, requirementReferenceInputs } from '../src/composables/juyiting/hallRequirementCreateIntent.js'
+import { useHallRequirementCreate } from '../src/composables/juyiting/useHallRequirementCreate.js'
+import { createPointAndStartIntentStore, exactPointAndStartScope, pointAndStartBody } from '../src/composables/juyiting/hallPointAndStartIntent.js'
+import { useHallPointAndStart } from '../src/composables/juyiting/useHallPointAndStart.js'
+
+const scopeA = '0\u0000client-a\u0000owner-a', scopeB = '0\u0000client-a\u0000owner-b'
+const image = (version = '2') => ({ fileId: 'pwf_image', version: String(version), purpose: 'REFERENCE' })
+const payload = (inputRefs = [image()]) => ({ title: ' 画一只鸟🦜 ', description: '完整原文\n照片风格\n', requiredAbilities: ['image'], inputRefs })
+const intent = body => ({ schemaVersion: 1, key: 'original-key', body: requirementCreateBody(body || payload()), receipt: null })
+const receipt = (record, taskId = 'task-1') => ({ schemaVersion: 1, operationId: 'atco_1', taskId,
+  requirementRevision: '1', state: 'COMMITTED', inputRefs: record.body.inputRefs, task: { id: taskId, title: 'bird', status: 'open' } })
+const flush = async () => { for (let i = 0; i < 8; i++) { await Promise.resolve(); await nextTick() } }
+const memoryStorage = () => {
+  const rows = new Map()
+  return { rows, getItem: key => rows.get(key) ?? null, setItem: (key, value) => rows.set(key, value), removeItem: key => rows.delete(key) }
+}
+const harness = ({ storage = memoryStorage(), scope = ref(scopeA), epoch = ref(1), post, get, onCommitted } = {}) => {
+  const calls = [], adopted = []; let keyCount = 0
+  const api = {
+    create: async (path, body, options) => { calls.push({ method: 'POST', path, body, key: options.headers['Idempotency-Key'] }); return post ? post(body) : (receipt({ body })) },
+    get: async (path, _query, options) => { calls.push({ method: 'GET', path, key: options.headers['Idempotency-Key'] }); return get ? get() : (receipt(intent())) }
+  }
+  const h = useHallRequirementCreate({ agentApi: api, actorScopeKey: scope, identityEpoch: epoch, storage,
+    createIdempotencyKey: () => `create-${++keyCount}`, onCommitted: onCommitted || ((value, fence) => { if (!fence.isCurrent()) return false; adopted.push(value); return true }) })
+  return { ...h, storage, calls, adopted, scope, epoch, keyCount: () => keyCount }
+}
+const cleanup = [], owned = value => { cleanup.push(value); return value }
+
+describe('exact requirement/reference create contract', () => {
+  afterEach(() => { for (const h of cleanup.splice(0)) h.dispose() })
+  it('preserves long Unicode/null/empty original text without task_plan truncation or latest substitution', () => {
+    const body = requirementCreateBody({ title: '🦜'.repeat(300), description: '', inputRefs: [image(1)] })
+    expect(body.title).to.equal('🦜'.repeat(300)); expect(body.description).to.equal('')
+    expect(body.reward).to.equal(null); expect(body.requiredAbilities).to.equal(null); expect(body.inputRefs).to.deep.equal([image(1)])
+    expect(requirementCreateBody({ title: 'bird' }).description).to.equal(null)
+    expect(requirementCreateBody({ title: 'bird', description: ' ' }).description).to.equal(' ')
+  })
+  it('allows empty references and canonicalizes only exact selection ordering', () => {
+    expect(requirementCreateBody({ title: 'bird' }).inputRefs).to.deep.equal([])
+    const other = { fileId: 'pwf_a', version: '4', purpose: 'REFERENCE' }
+    expect(requirementReferenceInputs([image(), other])).to.deep.equal([other, image()])
+  })
+  for (const [name, refs] of [
+    ['duplicate', [image(), image()]], ['wrong purpose', [{ ...image(), purpose: 'INPUT' }]],
+    ['fractional version', [image(1.2)]], ['out-of-INT version', [image(2147483648)]],
+    ['fake owner', [{ ...image(), owner: 'other' }]], ['latest marker', [image('latest')]],
+    ['too many refs', Array.from({ length: 33 }, (_, n) => ({ ...image(), fileId: `pwf_${n}` }))]
+  ]) it(`rejects ${name} rather than silently filtering material`, () => { expect(requirementReferenceInputs(refs)).to.equal(null) })
+  for (const key of ['owner', 'tenantId', 'grossBountyAmountWen', 'grantId', 'targetAgentId', 'costAuthorizationRef'])
+    it(`cannot reinterpret ${key} as ordinary task creation authority`, () => { expect(requirementCreateBody({ ...payload(), [key]: 'fake' })).to.equal(null) })
+  it('persists actual NUL-separated scope, encoding keys and isolating owners', () => {
+    const storage = memoryStorage(), a = createRequirementCreateIntentStore({ storage, scope: scopeA })
+    expect(a.write(intent()).state).to.equal('PRESENT'); expect(a.read().record.body).to.deep.equal(intent().body)
+    expect(createRequirementCreateIntentStore({ storage, scope: scopeB }).read().state).to.equal('ABSENT')
+    expect([...storage.rows.keys()][0]).to.include('%00')
+  })
+  it('never overwrites unresolved key/body or accepts null-body/future-schema records', () => {
+    const store = createRequirementCreateIntentStore({ storage: memoryStorage(), scope: scopeA })
+    store.write(intent())
+    for (const value of [{ ...intent(), key: 'new' }, { ...intent(), body: null }, { ...intent(), schemaVersion: 2 }]) expect(store.write(value).state).to.equal('CORRUPT')
+    expect(store.read().record).to.deep.equal(intent())
+  })
+  it('rejects mismatching media/task receipt; exact verified receipt is required to settle', () => {
+    const store = createRequirementCreateIntentStore({ storage: memoryStorage(), scope: scopeA }), original = intent()
+    store.write(original)
+    for (const value of [{ ...receipt(original), inputRefs: [image(3)] }, { ...receipt(original), task: { id: 'other' } }, { ...receipt(original), grant: 'fake' }])
+      expect(requirementCreateReceipt(value, original)).to.equal(null)
+    expect(store.settle(original).state).to.equal('CORRUPT')
+    const confirmed = { ...original, receipt: receipt(original) }
+    expect(store.write(confirmed).state).to.equal('PRESENT'); expect(store.settle(confirmed).state).to.equal('ABSENT')
+  })
+  it('POSTs one atomic operation, not independent legacy task/link writes', async () => {
+    const h = owned(harness())
+    expect(await h.create(payload())).to.equal(true)
+    expect(h.calls).to.deep.equal([{ method: 'POST', path: '/tasks/creation-operations', body: intent().body, key: 'create-1' }])
+    expect(h.adopted[0].task.id).to.equal('task-1'); expect(h.readOriginal().state).to.equal('ABSENT')
+  })
+  it('double-clicks or payload edits in flight cannot replace fixed body/key', async () => {
+    let resolve
+    const h = owned(harness({ post: body => new Promise(done => { resolve = () => done((receipt({ body }))) }) }))
+    const p = payload(), pending = h.create(p); p.title = 'new draft'; p.inputRefs[0].version = 5
+    expect(await h.create(payload([]))).to.equal(false); expect(h.calls).to.have.length(1); expect(h.keyCount()).to.equal(1)
+    expect(h.calls[0].body).to.deep.equal(intent().body); resolve(); expect(await pending).to.equal(true)
+  })
+  it('network-unknown POST retains original and blocks new-key create', async () => {
+    const h = owned(harness({ post: () => { throw new TypeError('network') } }))
+    expect(await h.create(payload())).to.equal(false); expect(h.state.value.status).to.equal('UNKNOWN')
+    expect(await h.create({ title: 'different', inputRefs: [] })).to.equal(false)
+    expect(h.calls).to.have.length(1); expect(h.keyCount()).to.equal(1); expect(h.readOriginal().record.key).to.equal('create-1')
+  })
+  it('remount only GETs; unknown 404 never clears or silently replays', async () => {
+    const storage = memoryStorage(); createRequirementCreateIntentStore({ storage, scope: scopeA }).write(intent())
+    const h = owned(harness({ storage, get: () => { throw Object.assign(new Error('unknown'), { status: 404 }) } }))
+    await flush(); expect(h.calls.map(c => c.method)).to.deep.equal(['GET']); expect(h.state.value.status).to.equal('UNKNOWN')
+    expect(h.readOriginal().record.key).to.equal('original-key'); expect(await h.create(payload())).to.equal(false); expect(h.calls).to.have.length(1)
+    expect(await h.resumeOriginal()).to.equal(true)
+    expect(h.calls[1]).to.deep.equal({ method: 'POST', path: '/tasks/creation-operations', key: 'original-key', body: intent().body })
+  })
+  it('known committed receipt only GETs even when explicitly resumed', async () => {
+    const storage = memoryStorage(), original = intent()
+    createRequirementCreateIntentStore({ storage, scope: scopeA }).write({ ...original, receipt: receipt(original) })
+    const h = owned(harness({ storage, onCommitted: () => false }))
+    await flush(); expect(await h.resumeOriginal()).to.equal(false); expect(h.calls.map(c => c.method)).to.deep.equal(['GET', 'GET'])
+    expect(h.state.value.intent.receipt.taskId).to.equal('task-1')
+  })
+  for (const boundary of ['scope', 'epoch', 'dispose']) it(`fences late POST at ${boundary} boundary`, async () => {
+    let resolve
+    const h = owned(harness({ post: body => new Promise(done => { resolve = () => done((receipt({ body }))) }),
+      get: () => { throw Object.assign(new Error('unknown'), { status: 404 }) } }))
+    const pending = h.create(payload())
+    if (boundary === 'scope') h.scope.value = scopeB
+    if (boundary === 'epoch') h.epoch.value++
+    if (boundary === 'dispose') h.dispose()
+    resolve(); expect(await pending).to.equal(false); await flush(); expect(h.adopted).to.deep.equal([])
+    expect(createRequirementCreateIntentStore({ storage: h.storage, scope: scopeA }).read().record.receipt).to.equal(null)
+    expect(h.calls.filter(c => c.method === 'POST')).to.have.length(1)
+  })
+  it('corrupt/unavailable records and failed write readback are never absent/writable', async () => {
+    const storage = memoryStorage(); createRequirementCreateIntentStore({ storage, scope: scopeA }).write(intent()); storage.rows.set([...storage.rows.keys()][0], '{corrupt')
+    const corrupt = owned(harness({ storage })); expect(await corrupt.create(payload())).to.equal(false); expect(corrupt.state.value.status).to.equal('STORAGE_CORRUPT')
+    const unavailable = owned(harness({ storage: { getItem: () => { throw new Error('denied') } } }))
+    const badWrite = owned(harness({ storage: { getItem: () => null, setItem: () => {} } }))
+    for (const h of [corrupt, unavailable, badWrite]) { expect(await h.create(payload())).to.equal(false); expect(h.calls).to.deep.equal([]) }
+  })
+  it('cleanup failure retains known committed receipt and never creates another operation', async () => {
+    const storage = memoryStorage(); storage.removeItem = () => { throw new Error('denied') }
+    const h = owned(harness({ storage }))
+    expect(await h.create(payload())).to.equal(false); expect(h.state.value.status).to.equal('COMMITTED')
+    expect(h.state.value.intent.receipt.taskId).to.equal('task-1'); expect(await h.create(payload())).to.equal(false); expect(h.calls).to.have.length(1)
+  })
+  it('incompatible/grant-looking responses never acknowledge successful task creation', async () => {
+    for (const value of [{ grantId: 'g', taskId: 'task-1' }, { ...receipt(intent()), requirementRevision: '2' }, { ...receipt(intent()), inputRefs: [image(6)] }]) {
+      const h = owned(harness({ post: () => ((value)) }))
+      expect(await h.create(payload())).to.equal(false); expect(h.adopted).to.deep.equal([]); expect(h.readOriginal().record.receipt).to.equal(null)
+    }
+  })
+  it('existing point-and-start actually reads original intent with real Hall namespace', async () => {
+    expect(exactPointAndStartScope(scopeA)).to.equal(true)
+    const storage = memoryStorage(), body = pointAndStartBody({ agentId: 'agent-1', taskVersion: '0', requirementRevision: '1', requestedOperations: ['GENERATE_IMAGE'], initialOperation: 'GENERATE_IMAGE' })
+    const record = { schemaVersion: 1, taskId: 'task-1', key: 'assign-key', body, postAcknowledged: false, grant: null, projection: null }
+    storage.setItem(`cyf.juyiting.point-and-start.v1.${encodeURIComponent(scopeA)}.task-1`, JSON.stringify(record))
+    expect(createPointAndStartIntentStore({ storage, scope: scopeA, taskId: 'task-1' }).read().state).to.equal('PRESENT')
+    let reads = 0
+    const h = owned(useHallPointAndStart({ agentApi: { get: async () => { reads++; throw Object.assign(new Error('unknown'), { status: 404 }) } }, actorScopeKey: ref(scopeA), storage }))
+    expect(await h.checkOriginal('task-1')).to.equal(false); expect(reads).to.equal(1); expect(h.state.value.intent.key).to.equal('assign-key')
+  })
+})
+
+const page = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const actualCreate = page.match(/const createTask = async \(payload, acknowledge = \(\) => \{\}\) => \{([\s\S]*?)\n\}\nconst archiveConfirmationPending/)?.[1]
+if (!actualCreate) throw new Error('Actual JuyiHall create closure missing')
+const actualDefaultRequirementEntry = page.match(/const openDefaultRequirementCreate = \(\) => \{([\s\S]*?)\n\}\nconst openReferencedRequirement/)?.[1]
+if (!actualDefaultRequirementEntry) throw new Error('Actual JuyiHall default requirement entry missing')
+const pageHarness = ({ pendingDraft = null, created = true, error = null } = {}) => {
+  const h = { ordinary: [], toasts: [], acknowledgements: [], opened: [] }
+  const deps = { hallDraftRecovery: { unresolvedIntent: ref(pendingDraft) },
+    openOverviewItem: item => h.opened.push(item), showToast: text => h.toasts.push(text),
+    runRequirementCreate: async p => { h.ordinary.push(p); return created },
+    requirementCreateState: ref({ error }) }
+  h.create = new Function(...Object.keys(deps), `return async (payload, acknowledge = () => {}) => {${actualCreate}}`)(...Object.values(deps))
+  return h
+}
+describe('actual JuyiHall default requirement entry', () => {
+  it('always delegates to the guarded standalone formal requirement route', () => {
+    let drafts = 0
+    const entry = new Function('openPanel', `return () => {${actualDefaultRequirementEntry}}`)((panel, options) => { expect(panel).to.equal('formalDraft'); expect(options).to.deep.equal({ restore: true }); drafts++; return true })
+    expect(entry()).to.equal(true)
+    expect(drafts).to.equal(1)
+    const blocked = new Function('openPanel', `return () => {${actualDefaultRequirementEntry}}`)(() => false)
+    expect(blocked()).to.equal(false)
+    expect(actualDefaultRequirementEntry).not.to.include('multimediaDeliberationUiEnabled')
+    expect(actualDefaultRequirementEntry).not.to.include("openPanel('tasks'")
+  })
+  it('wires all default entries to the standalone draft with its save-before-leave guard', () => {
+    expect((page.match(/openDefaultRequirementCreate\(\)/g) || [])).to.have.length(3)
+    expect(page).not.to.include('openCreateRequirement')
+    expect(page).to.include('if (guardPanelLeave(() => openPrivateDraft(context))) return false')
+    expect(page).to.include("if (!openPanel('draft', { restore: true })) return false")
+  })
+})
+
+describe('actual JuyiHall creation and retired funding boundary', () => {
+  it('uses atomic requirement creation with a definitive acknowledgement', async () => {
+    const h = pageHarness()
+    expect(await h.create(payload(), ok => h.acknowledgements.push(ok))).to.equal(true)
+    expect(h.ordinary).to.deep.equal([payload()]); expect(h.acknowledgements).to.deep.equal([true])
+  })
+  for (const key of ['grossBountyAmountWen', 'settlementPolicy', 'requiredSkillRequirements']) {
+    it(`rejects retired ${key} without reinterpreting it as a new requirement`, async () => {
+      const h = pageHarness()
+      expect(await h.create({ ...payload(), [key]: 'legacy' }, ok => h.acknowledgements.push(ok))).to.equal(false)
+      expect(h.ordinary).to.deep.equal([]); expect(h.acknowledgements).to.deep.equal([false])
+      expect(h.toasts[0]).to.include('旧资金榜已停止创建')
+      expect(page).not.to.include('const resumeFundedCreate')
+    })
+  }
+  it('opens an unresolved draft instead of creating another task', async () => {
+    const h = pageHarness({ pendingDraft: { kind: 'TASK_CREATE', draftId: 'original' } })
+    expect(await h.create(payload(), ok => h.acknowledgements.push(ok))).to.equal(false)
+    expect(h.ordinary).to.deep.equal([]); expect(h.acknowledgements).to.deep.equal([false])
+    expect(h.opened).to.deep.equal([{ sourceType: 'DRAFT', sourceId: 'original' }])
+  })
+  it('preserves the requirement coordinator failure and does not claim successful creation', async () => {
+    const h = pageHarness({ created: false, error: '原操作待核对' })
+    expect(await h.create(payload(), ok => h.acknowledgements.push(ok))).to.equal(false)
+    expect(h.ordinary).to.deep.equal([payload()]); expect(h.acknowledgements).to.deep.equal([false])
+    expect(h.toasts).to.deep.equal(['原操作待核对'])
+  })
+  it('compiles actual changed SFCs and wires exact recovery handlers', () => {
+    for (const name of ['world/JuyiHall.vue', 'juyiting/BountyPanel.vue', 'juyiting/HallMaterialPicker.vue']) {
+      const filename = fileURLToPath(new URL(`../src/components/${name}`, import.meta.url))
+      const { descriptor, errors } = parse(readFileSync(filename, 'utf8'), { filename }); expect(errors).to.deep.equal([])
+      const script = compileScript(descriptor, { id: 'reference-intake' })
+      expect(compileTemplate({ source: descriptor.template.content, filename, id: 'reference-intake', compilerOptions: { bindingMetadata: script.bindings } }).errors).to.deep.equal([])
+    }
+    expect(page).to.include('@check-requirement-create="checkRequirementCreate"'); expect(page).to.include('@resume-requirement-create="resumeRequirementCreate"')
+  })
+})
+
+// Mount the actual task board: creation is absent, original recovery and detail remain.
+let Vue, mount, Panel
+const wrappers = [], domDescriptors = {}
+const panelProps = () => ({ identityScope: scopeA, authorizationGeneration: 1, fundedPreviewEnabled: true,
+  abilityText: () => '', canAssign: () => false, formatTime: () => '', portraitName: () => '', portraitStyle: () => ({}),
+  taskAgentMatchScore: () => 0, taskStateClass: () => '', taskStatusCount: () => 0, taskStatusText: () => '' })
+const action = (wrapper, text) => {
+  const found = wrapper.findAll('button').find(button => button.text() === text)
+  expect(found, `missing button ${text}`).to.exist; return found
+}
+describe('mounted Bounty read/manage surface and original recovery', () => {
+  before(async () => {
+    for (const key of ['SVGElement', 'Element', 'Node']) {
+      domDescriptors[key] = Object.getOwnPropertyDescriptor(globalThis, key)
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: window[key] })
+    }
+    Vue = await import('vue'); ({ mount } = await import('@vue/test-utils'))
+    const TaskMaterialLinks = Vue.defineComponent({ name: 'TaskMaterialLinks', render: () => Vue.h('section', { class: 'formal-task-execution' }, '明确开始正式办理（PDF）') })
+    const filename = fileURLToPath(new URL('../src/components/juyiting/BountyPanel.vue', import.meta.url))
+    const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
+    const silver = await import('../src/utils/wenAmount.js')
+    const imports = new Proxy({ './HallTaskResources.vue': Vue.defineComponent({ name: 'HallTaskResources', props: ['taskId'], render: () => Vue.h('section', { class: 'hall-task-resources' }) }), vue: Vue, '@/composables/juyiting/hallAssigneeCandidates.js': assigneeCandidates, '../../composables/juyiting/hallTaskPresentation.js': taskPresentation, '../../composables/juyiting/useHallOrdinaryCancellation.js': ordinaryCancellation, '@/utils/wenAmount': silver, '@/components/personal-workspace/TaskMaterialLinks.vue': TaskMaterialLinks }, {
+      get: (target, name) => target[name] ?? Vue.defineComponent({ render: () => Vue.h('span') })
+    })
+    const code = compileScript(descriptor, { id: 'mounted-reference-intake', inlineTemplate: true }).content
+      .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_, names, path) =>
+        `const { ${names.split(',').map(name => name.trim().replace(/\s+as\s+/, ': ')).join(', ')} } = imports[${JSON.stringify(path)}]`)
+      .replace(/^import\s+([^\s]+)\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_, name, path) => `const ${name} = imports[${JSON.stringify(path)}]`)
+      .replace('export default', 'return')
+    Panel = new Function('imports', code)(imports)
+  })
+  afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount() })
+  after(() => {
+    for (const key of Object.keys(domDescriptors)) {
+      if (domDescriptors[key]) Object.defineProperty(globalThis, key, domDescriptors[key])
+      else delete globalThis[key]
+    }
+  })
+  const panel = (props = {}) => { const wrapper = mount(Panel, { props: { ...panelProps(), ...props } }); wrappers.push(wrapper); return wrapper }
+  it('separates loading, request failure, empty lists and filter misses', async () => {
+    const wrapper = panel({ tasks: [], loading: true })
+    expect(wrapper.find('.empty-list').exists()).to.equal(false)
+    await wrapper.setProps({ loading: false, errorMessage: 'Failed to fetch', countsErrorMessage: 'Failed to fetch' })
+    expect(wrapper.find('.empty-list').exists()).to.equal(false)
+    expect(wrapper.findAll('.task-data-state.is-error')).to.have.length(1)
+    await wrapper.setProps({ errorMessage: '', countsErrorMessage: '', taskKeyword: '无匹配关键词' })
+    expect(wrapper.get('.empty-list').text()).to.include('没有符合当前筛选条件')
+    await wrapper.setProps({ taskKeyword: '', taskStatusFilter: '' })
+    expect(wrapper.get('.empty-list').text()).to.include('还没有事项')
+  })
+  for (const embeddedHall of [true, false]) it(`does not expose creation in the task board (embedded=${embeddedHall})`, async () => {
+    const wrapper = panel({ embeddedHall })
+    expect(wrapper.vm.openCreateRequirement).to.equal(undefined)
+    expect(wrapper.find('form').exists()).to.equal(false)
+    wrapper.vm.openTask({ id: 'existing-task', title: '既有事项', status: 'open' })
+    await nextTick()
+    expect(wrapper.emitted('select-task').at(-1)[0].id).to.equal('existing-task')
+    expect(wrapper.find('form').exists()).to.equal(false)
+    expect(wrapper.emitted('create-task')).to.equal(undefined)
+  })
+
+  it('Hall detail consistently uses multimedia discussion rather than a separate PDF execution entry', async () => {
+    const formalTaskExecutionContext = { taskId: 'existing-task', conversationId: 'conversation-1', targetAgentId: 'agent-image', conversationConfirmed: true, formalExecutionAuthorized: true, authorizationReason: '' }
+    const open = panel({ embeddedHall: true, formalTaskExecutionContext })
+    open.vm.openTask({ id: 'existing-task', title: '画一只鸟', status: 'open' })
+    await nextTick()
+    expect(open.find('.formal-task-execution').exists()).to.equal(false)
+    expect(open.text()).to.include('请选择承办人')
+    expect(open.text()).not.to.include('一份可预览、下载和验收的正式 PDF')
+
+    const bridgeIntent = { taskId: 'existing-task', body: { agentId: 'agent-image', requirementRevision: '1', requestedOperations: ['GENERATE_IMAGE'], initialOperation: 'GENERATE_IMAGE', inputRefs: [] }, controlledImageBridge: { schemaVersion: 1, wrapper: { schemaVersion: 1, assignment: {}, providerConsent: {} }, receipt: { schemaVersion: 1 } } }
+    // No controlledConsentOffer is supplied: this models its normal clear after a
+    // successful BOUND bridge response, then an explicit close/re-entry to detail.
+    const controlled = panel({ embeddedHall: true, formalTaskExecutionContext,
+      pointAndStartState: { status: 'BOUND', error: null, intent: bridgeIntent } })
+    controlled.vm.openTask({ id: 'existing-task', title: '画一只鸟', status: 'assigned' })
+    await nextTick()
+    await controlled.find('.bounty-back-button').trigger('click'); await nextTick()
+    controlled.vm.openTask({ id: 'existing-task', title: '画一只鸟', status: 'assigned' })
+    await nextTick()
+    expect(controlled.find('.formal-task-execution').exists()).to.equal(false)
+    expect(controlled.find('.matter-advice-card').text()).to.include('补充要求、查看结果和提出修改，都在原议事中继续')
+    expect(controlled.findComponent({ name: 'HallTaskResources' }).props('taskId')).to.equal('existing-task')
+    expect(controlled.find('.matter-results-action').exists()).to.equal(false)
+
+    const failed = panel({ embeddedHall: true, formalTaskExecutionContext,
+      pointAndStartState: { status: 'UNKNOWN', error: 'Controlled image bridge request unavailable', intent: bridgeIntent } })
+    failed.vm.openTask({ id: 'existing-task', title: '画一只鸟', status: 'assigned' })
+    await nextTick()
+    expect(failed.get('.matter-send-details').element.open).to.equal(false)
+    expect(failed.get('.matter-send-details').text()).to.include('Controlled image bridge request unavailable')
+    expect(failed.get('.matter-send-status').classes()).to.include('is-warning')
+
+    const ordinary = panel({ embeddedHall: true, formalTaskExecutionContext })
+    ordinary.vm.openTask({ id: 'existing-task', title: '既有正式任务', status: 'assigned' })
+    await nextTick()
+    expect(ordinary.find('.formal-task-execution').exists()).to.equal(false)
+    expect(ordinary.find('.matter-advice-card').exists()).to.equal(true)
+  })
+
+  it('shows immutable unknown original refs and emits explicit check/resume instead of resubmitting current draft', async () => {
+    const wrapper = panel({ requirementCreateState: { status: 'UNKNOWN', intent: intent(), error: '结果未知' } })
+    expect(wrapper.find('.requirement-create-recovery').text()).to.include('pwf_image v2')
+    await action(wrapper, '查询保存结果').trigger('click'); await action(wrapper, '继续原保存操作').trigger('click')
+    expect(wrapper.emitted('check-requirement-create')).to.have.length(1)
+    expect(wrapper.emitted('resume-requirement-create')).to.have.length(1)
+    expect(wrapper.emitted('create-task')).to.equal(undefined)
+  })
+})

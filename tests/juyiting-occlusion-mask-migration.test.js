@@ -1,0 +1,87 @@
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, cpSync, mkdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { expect } from 'chai'
+import { validateMaskMigration } from '../scripts/juyiting/validate-mask-migration-ledger.mjs'
+import { readGitBlobAtCommit } from '../scripts/juyiting/lib/baseline-provenance.mjs'
+import { generateMaskMigrationFixtures } from '../scripts/juyiting/generate-mask-migration-ledger.mjs'
+import {
+  OWNER_BY_MASK, PROBE_FIXTURES, RECALIBRATIONS, NAV_AREA,
+  countOwnedPixelsInPolygon, pointStatus
+} from '../scripts/juyiting/lib/mask-migration-evidence.mjs'
+
+const REPO=join(fileURLToPath(new URL('.',import.meta.url)),'..')
+const LEDGER='tests/fixtures/juyiting/occlusion-v2-masks/migration-ledger.json'
+const CONTACT='tests/fixtures/juyiting/occlusion-v2-masks/contact-sheet.svg'
+const load=p=>JSON.parse(readFileSync(join(REPO,p),'utf8'))
+async function validate({ledger=load(LEDGER),contact=readFileSync(join(REPO,CONTACT),'utf8'),inputRoot=REPO,ledgerText}={}){return validateMaskMigration({ledger,contact,inputRoot,ledgerText:ledgerText||JSON.stringify(ledger,null,2)})}
+async function mutateLedger(mutator,{inputRoot}={}){const l=load(LEDGER);mutator(l);return validate({ledger:l,inputRoot})}
+async function mutateContact(mutator){return validate({contact:mutator(readFileSync(join(REPO,CONTACT),'utf8'))})}
+async function expectRejected(result,needle){result=await result;expect(result.ok).to.equal(false);expect(result.errors.join('\n')).to.include(needle)}
+const E10A_ACCEPTED_COMMIT='7404d361daba8f0af0dea98ab9db38cbbf01b286'
+const sha256=bytes=>createHash('sha256').update(bytes).digest('hex')
+const isolatedPaths=()=>{
+ const ledger=load(LEDGER),paths=new Set([
+  'tests/fixtures/juyiting/occlusion-v0/inventory.json',
+  'tests/fixtures/juyiting/occlusion-v2-fragments/fragment-ownership-spec.json',
+  'tests/fixtures/juyiting/occlusion-v1-props/prop-sort-spec.json',
+  'tests/fixtures/juyiting/occlusion-v1-props/prop-tmx-manifest.json',
+  'tests/fixtures/juyiting/occlusion-v1-props/contact-sheet.svg',
+  'public/juyiting/hall.tmx',
+ ])
+ for(const input of Object.values(ledger.provenance.inputHashes))if(input?.path)paths.add(input.path)
+ for(const input of Object.values(ledger.provenance.inputHashes.generatorTooling))paths.add(input.path)
+ return [...paths]
+}
+function copyIsolatedRoot(prefix){
+ const root=mkdtempSync(join(tmpdir(),prefix))
+ for(const path of isolatedPaths()){
+  const out=join(root,path);mkdirSync(join(out,'..'),{recursive:true});cpSync(join(REPO,path),out,{recursive:true})
+ }
+ return root
+}
+
+describe('E10A 37-mask machine/visual evidence',function(){
+ this.timeout(120000)
+ const ledger=load(LEDGER),inventory=load('tests/fixtures/juyiting/occlusion-v0/inventory.json'),fragSpec=load('tests/fixtures/juyiting/occlusion-v2-fragments/fragment-ownership-spec.json'),frags=new Map(fragSpec.fragments.map(f=>[f.stableId,f]))
+ it('passes the directed validator with zero warnings',async()=>{const r=await validate();expect(r.ok,r.errors.join('\n')).to.equal(true);expect(r.warnings).to.deep.equal([])})
+ it('verifies historical TMX and generator tooling from the accepted Git commit bytes',()=>{for(const input of [ledger.provenance.inputHashes.tmx,...Object.values(ledger.provenance.inputHashes.generatorTooling)])expect(sha256(readGitBlobAtCommit(E10A_ACCEPTED_COMMIT,input.path)),input.path).to.equal(input.sha256)})
+ it('has a real SHA-256 generationId and content hash',()=>{expect(ledger.generationId).to.match(/^[0-9a-f]{64}$/);expect(ledger.generationId).not.to.equal('0'.repeat(64));const hash=createHash('sha256').update(JSON.stringify({...ledger,contentSha256:''},null,2)).digest('hex');expect(ledger.contentSha256).to.equal(hash)})
+ it('freezes 37 unique masks 48-84 and exactly one accepted owner each',()=>{expect(ledger.entries).to.have.length(37);expect(new Set(ledger.entries.map(e=>e.legacyTmxId)).size).to.equal(37);for(let id=48;id<=84;id++){const e=ledger.entries.find(e=>e.legacyTmxId===id);expect(e.targetFragmentStableIds).to.deep.equal([OWNER_BY_MASK[id]]);expect(e.targetFragmentCount).to.equal(1);expect(e.oneToManyRationale).to.equal(null);expect(e.ownerOverlapEvidence.ownedPixelsInLegacyPolygon).to.be.greaterThan(0)}})
+ it('recomputes exact boundary-inclusive ownershipRuns overlap and freezes one real owner per mask',()=>{for(const e of ledger.entries){const m=inventory.masks.find(m=>m.tmxId===e.legacyTmxId),actual=fragSpec.fragments.map(f=>({stableId:f.stableId,pixels:countOwnedPixelsInPolygon(f.ownershipRuns,m.polygon)})).filter(x=>x.pixels>0);expect(actual).to.deep.equal([{stableId:e.targetFragmentStableId,pixels:e.ownerOverlapEvidence.ownedPixelsInLegacyPolygon}]);expect(e.ownerOverlapEvidence.actualOwners).to.deep.equal([{stableId:e.targetFragmentStableId,ownedPixelsInLegacyPolygon:e.ownerOverlapEvidence.ownedPixelsInLegacyPolygon}])}})
+ it('locks mask51, mask58, and mask76 exact owner pixels',()=>{expect(ledger.entries.find(e=>e.legacyTmxId===51).ownerOverlapEvidence.ownedPixelsInLegacyPolygon).to.equal(29316);expect(ledger.entries.find(e=>e.legacyTmxId===58).ownerOverlapEvidence.ownedPixelsInLegacyPolygon).to.equal(30629);expect(ledger.entries.find(e=>e.legacyTmxId===76).ownerOverlapEvidence.ownedPixelsInLegacyPolygon).to.equal(11150)})
+ it('has no constraints and uses fixed-point Y switching for all entries',()=>{expect(ledger.summary.constraintCount).to.equal(0);for(const e of ledger.entries){expect(e.constraintDecision.decision).to.equal('none');expect(e.constraintDecision.target).to.equal(null);expect(e.constraintDecision.relation).to.equal(null);expect(e.sortMode).to.equal('fixed-point-y')}})
+ it('has exactly seven recalibrations and mask80 stays east-upper',()=>{expect(ledger.summary.recalibrationCount).to.equal(Object.keys(RECALIBRATIONS).length);expect(ledger.entries.find(e=>e.legacyTmxId===80).recalibrationDecision.homeChunk).to.equal('east-upper')})
+ it('hard-gates all 111 probes through nav/collision and anchor relation',()=>{for(const e of ledger.entries)for(const name of ['behind','boundary','front']){const p=e.probes[name];expect(p.footPoint).to.deep.equal(PROBE_FIXTURES[e.legacyTmxId][name]);expect(pointStatus(p.footPoint,inventory).navigable).to.equal(true);expect(p.navValidation.navigable).to.equal(true);if(name==='behind')expect(p.footPoint.y).to.be.lessThan(e.sortAnchor.y);if(name==='boundary')expect(p.footPoint.y).to.equal(e.sortAnchor.y);if(name==='front')expect(p.footPoint.y).to.be.greaterThan(e.sortAnchor.y)}})
+ it('freezes mask58 wall/prop separation and same-role world-order matrix',()=>{const e=ledger.entries.find(e=>e.legacyTmxId===58),v=e.mask58Evidence;expect(v.prop92.bounds).to.deep.equal({x:1360,y:255,width:172,height:124,maxX:1532,maxY:379});expect(v.prop92.sortAnchor).to.deep.equal({x:1446,y:379});expect(v.prop92.tieBias).to.equal(-4);expect(v.prop92.opaquePixelsOverlappingMaskPolygon).to.equal(0);expect(v.roleFixture.positions.behind.footPoint.y).to.equal(370);expect(v.roleFixture.positions.boundary.footPoint.y).to.equal(379);expect(v.roleFixture.positions.front.footPoint.y).to.equal(420);expect(v.roleFixture.positions.behind.navValidation).to.include({navigable:false,insideNavArea:true});expect(v.roleFixture.positions.behind.navValidation.collisionIds).to.deep.equal([45]);expect(v.roleFixture.positions.behind.navValidation.navObstacleIds).to.deep.equal([156]);expect(v.roleFixture.positions.boundary.navValidation.navigable).to.equal(true);expect(v.roleFixture.positions.front.navValidation.navigable).to.equal(true);for(const p of Object.values(v.roleFixture.positions))expect(p.expectedByRole.lujunyi).to.equal(p.expectedByRole.husanniang)})
+ it('contact sheet embeds real canonical/owner/agent/nav evidence for all 37',()=>{const s=readFileSync(join(REPO,CONTACT),'utf8');expect((s.match(/class="mask-card"/g)||[]).length).to.equal(37);expect(s).to.include('data-evidence="canonical');expect(s).to.include('target-owner');expect(s).to.include('agent-frame');expect(s).to.include('nav-status');expect(s).to.include('data-mask58-special="true"');expect((s.match(/data-evidence="nav-status"/g)||[]).length).to.be.at.least(111);for(let id=48;id<=84;id++)expect((s.match(new RegExp(`data-mask-tmx-id="${id}"`,'g'))||[]).length).to.be.at.least(2)})
+ it('generator is byte-reproducible and atomically updates both fixtures',async()=>{const before=[readFileSync(join(REPO,LEDGER),'utf8'),readFileSync(join(REPO,CONTACT),'utf8')];const generated=await generateMaskMigrationFixtures({write:false});expect(generated.ledgerText).to.equal(before[0]);expect(generated.contact).to.equal(before[1]);const source=readFileSync(join(REPO,'scripts/juyiting/generate-mask-migration-ledger.mjs'),'utf8');expect(source).to.include('atomicWriteUtf8Batch');expect(source).not.to.match(/writeFileSync\([^)]*(migration-ledger|contact-sheet)/)})
+
+ describe('mutation rejection',()=>{
+  it('missing mask',async()=>await expectRejected(mutateLedger(l=>l.entries.pop()),'expected 37 entries'))
+  it('duplicate id',async()=>await expectRejected(mutateLedger(l=>l.entries[1].legacyTmxId=48),'duplicate mask id'))
+  it('wrong region/recalibration',async()=>await expectRejected(mutateLedger(l=>l.entries.find(e=>e.legacyTmxId===80).recalibrationDecision.homeChunk='east-lower'),'mask 80: recalibration drift'))
+  it('polygon drift',async()=>await expectRejected(mutateLedger(l=>l.entries[0].polygon[0].x++),'polygon/AABB drift'))
+  it('target missing',async()=>await expectRejected(mutateLedger(l=>l.entries[0].targetFragmentStableId='jyt.occ.nope.v2'),'target must be sole real owner'))
+  it('one-to-many without reason',async()=>await expectRejected(mutateLedger(l=>{const e=l.entries.find(e=>e.legacyTmxId===51);e.targetFragmentStableIds.push('jyt.occ.west-lower.railing-02.v2');e.targetFragmentCount=2}),'target must be sole real owner'))
+  it('constraint/global relation',async()=>await expectRejected(mutateLedger(l=>{const e=l.entries[0];e.constraintDecision={decision:'always-behind',target:e.targetFragmentStableId,relation:'behind',priority:'mandatory',scope:'global',rationale:'bad'}}),'constraints must be none/not-needed'))
+  it('probe outside nav',async()=>await expectRejected(mutateLedger(l=>l.entries[0].probes.front.footPoint={x:10,y:367}),'probe outside nav or in obstacle/collision'))
+  it('probe in obstacle',async()=>await expectRejected(mutateLedger(l=>l.entries[0].probes.front.footPoint={x:600,y:500}),'probe outside nav or in obstacle/collision'))
+  it('wrong anchor direction',async()=>await expectRejected(mutateLedger(l=>l.entries[0].probes.behind.footPoint.y=l.entries[0].sortAnchor.y+1),'behind anchor direction invalid'))
+  it('anchor out of map bounds',async()=>await expectRejected(mutateLedger(l=>l.entries[0].sortAnchor.x=1665),'sortAnchor out of map bounds'))
+  it('constraint target wrong',async()=>await expectRejected(mutateLedger(l=>{const e=l.entries[0];e.constraintDecision={decision:'always-behind',target:'jyt.occ.nope.v2',relation:'behind',priority:'mandatory',scope:'global',rationale:'bad target'}}),'constraints must be none/not-needed'))
+  it('constraint cycle risk',async()=>await expectRejected(mutateLedger(l=>{const [a,b]=l.entries;a.constraintDecision={decision:'edge',target:b.targetFragmentStableId,relation:'before',priority:'mandatory',scope:'global',rationale:'A before B'};b.constraintDecision={decision:'edge',target:a.targetFragmentStableId,relation:'before',priority:'mandatory',scope:'global',rationale:'B before A'}}),'constraints must be none/not-needed'))
+  it('generation uncertainty/content drift',async()=>await expectRejected(mutateLedger(l=>l.generationId='f'.repeat(64)),'generationId content derivation mismatch'))
+  it('target zero overlap',async()=>{const root=mkdtempSync(join(tmpdir(),'e10a-zero-overlap-'));try{for(const path of ['tests/fixtures/juyiting/occlusion-v0/inventory.json','tests/fixtures/juyiting/occlusion-v2-fragments/fragment-ownership-spec.json','tests/fixtures/juyiting/occlusion-v1-props/prop-sort-spec.json','tests/fixtures/juyiting/occlusion-v1-props/prop-tmx-manifest.json','tests/fixtures/juyiting/occlusion-v2-atlases/atlas-manifest.json','public/juyiting/hall.tmx','public/juyiting/images/liangshan-hall-mid-occluders-v3.webp','public/juyiting/images/liangshan-hall-base-clean-v3.webp','public/juyiting/images/props/liangshan-hall-prop-bounty-board-cropped.png']){const out=join(root,path);mkdirSync(join(out,'..'),{recursive:true});cpSync(join(REPO,path),out,{recursive:true})}const specPath=join(root,'tests/fixtures/juyiting/occlusion-v2-fragments/fragment-ownership-spec.json'),spec=JSON.parse(readFileSync(specPath,'utf8'));spec.fragments.find(f=>f.stableId===OWNER_BY_MASK[48]).ownershipRuns=[];writeFileSync(specPath,JSON.stringify(spec));await expectRejected(validate({inputRoot:root}),'target zero overlap')}finally{rmSync(root,{recursive:true,force:true})}})
+  it('mask58 wrong table bounds',async()=>await expectRejected(mutateLedger(l=>l.entries.find(e=>e.legacyTmxId===58).mask58Evidence.prop92.bounds.y=573),'prop92 bounds/anchor/tieBias drift'))
+  it('mask58 y573 narrative',async()=>await expectRejected(mutateLedger(l=>l.entries.find(e=>e.legacyTmxId===58).targetVisualStructure+=' desk y573'),'forbidden table y573 narrative'))
+  it('mask58 table nav evidence drift',async()=>await expectRejected(mutateLedger(l=>l.entries.find(e=>e.legacyTmxId===58).mask58Evidence.roleFixture.positions.behind.navValidation.navigable=true),'mask 58 table behind nav evidence drift'))
+  it('TBD visual structure',async()=>await expectRejected(mutateLedger(l=>l.entries[0].targetVisualStructure='TBD'),'generic TBD visual structure'))
+  it('manifest/input hash drift',async()=>{const root=mkdtempSync(join(tmpdir(),'e10a-input-'));try{for(const path of ['tests/fixtures/juyiting/occlusion-v0/inventory.json','tests/fixtures/juyiting/occlusion-v2-fragments/fragment-ownership-spec.json','tests/fixtures/juyiting/occlusion-v1-props/prop-sort-spec.json','tests/fixtures/juyiting/occlusion-v1-props/prop-tmx-manifest.json','tests/fixtures/juyiting/occlusion-v2-atlases/atlas-manifest.json','public/juyiting/hall.tmx','public/juyiting/images/liangshan-hall-mid-occluders-v3.webp','public/juyiting/images/liangshan-hall-base-clean-v3.webp','public/juyiting/images/props/liangshan-hall-prop-bounty-board-cropped.png']){const out=join(root,path);mkdirSync(join(out,'..'),{recursive:true});cpSync(join(REPO,path),out,{recursive:true})}writeFileSync(join(root,'tests/fixtures/juyiting/occlusion-v2-atlases/atlas-manifest.json'),'{}');await expectRejected(validate({inputRoot:root}),'input hash drift: e9b')}finally{rmSync(root,{recursive:true,force:true})}})
+  it('isolated input roots hash their own generator tooling and reject drift',async()=>{const root=copyIsolatedRoot('e10a-tooling-');try{writeFileSync(join(root,'scripts/juyiting/render-mask-contact-sheet.mjs'),'// drift\n');await expectRejected(validate({inputRoot:root}),'generator tooling hash drift: renderer')}finally{rmSync(root,{recursive:true,force:true})}})
+  it('current role metadata is checked independently of historical fixture provenance',async()=>{const root=copyIsolatedRoot('e10a-role-');try{const path=join(root,'tests/fixtures/juyiting/occlusion-v1-props/prop-sort-spec.json'),spec=JSON.parse(readFileSync(path,'utf8'));spec.visualEvidence.roles.lujunyi.sourceFrameAlphaAabb.minX++;writeFileSync(path,JSON.stringify(spec));await expectRejected(validate({inputRoot:root}),'current role semantics drift: lujunyi')}finally{rmSync(root,{recursive:true,force:true})}})
+  for(const [label,needle] of [['canonical','data-evidence="canonical'],['owner','target-owner'],['agent','agent-frame'],['nav','nav-status'],['number','data-mask-tmx-id="84"']])it(`contact sheet missing ${label}`,async()=>await expectRejected(mutateContact(s=>s.split(needle).join('missing-marker')),'contact sheet missing'))
+ })
+})

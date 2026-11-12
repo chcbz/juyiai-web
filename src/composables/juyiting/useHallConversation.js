@@ -1,0 +1,2340 @@
+import { useHallMessagePages } from './useHallMessagePages.js'
+import { createHallRequestReadbackScheduler } from './hallRequestReadbackScheduler.js'
+import { createChatStreamDecoder } from '../../utils/chatStreamWire.js'
+import { computed, reactive, ref, unref, watch } from 'vue'
+import {
+  appendHallEventMessage as reduceHallEventMessage,
+  appendStreamPayload,
+  appendHallPreview,
+  stopHallPreviews,
+  hasResolvedAgentReply,
+  normalizeHallMessage,
+  normalizeSenderName,
+  canonicalWireString
+} from './hallConversationMessages.js'
+import { fetchHallConversationEvents } from '../../utils/authenticatedSse.js'
+import { registerIdentityCleanup } from '../../utils/identityLifecycle.js'
+import { combineAbortSignals } from '../../utils/abortSignals.js'
+import { captureHallVoiceSnapshot } from './useHallVoiceConversation.js'
+import { exactHallConversationId, normalizeHallConversationHistory } from './hallConversationHistory.js'
+import { createHallSseParser } from './hallConversationSse.js'
+import { isAcceptanceProjectionEvent } from './hallAcceptanceEvents.js'
+import { isMessagePartEvent } from './hallMessageParts.js'
+import {
+  bountyBootstrapReference, sameBountyBootstrapReference, bountyBootstrapContextMatches,
+  validateBountyBootstrapRequest, bootstrapReadbackIsCurrent
+} from './hallBountyBootstrap.js'
+import { typedId } from './hallTypedDeliberation.js'
+import { catalogLong, catalogPage } from './bountyRequestCatalog.js'
+import { bountyInteractionTargetId } from './useHallChatContext.js'
+import {
+  cancellationTarget,
+  deliberationBusy,
+  deliberationReplyActive,
+  deliberationStatusText,
+  isPendingTurn,
+  isTerminalTurnState,
+  reduceDeliberationEvent
+} from './hallDeliberationState.js'
+
+const runtimeEnv = import.meta.env ?? {}
+const HALL_HISTORY_PAGE_SIZE = 100
+const HALL_EVENT_RETRY_BASE_MS = 1_000
+const HALL_EVENT_RETRY_CAP_MS = 30_000
+const HALL_REQUEST_READBACK_DEBOUNCE_MS = 250
+
+export const useHallConversation = ({
+  apiStore,
+  chatContext,
+  chatMode,
+  chatApi,
+  globalStore,
+  log,
+  openPanel,
+  outgoingMetadata,
+  portraitShortName,
+  selectedAgent,
+  selectedTask,
+  showToast,
+  onFinalReply,
+  onDelivery,
+  onRequestCatalogHint = null,
+  onTypedOutcome = null,
+  identityScope = null,
+  replyCancellationStorage = null
+}) => {
+  const messages = ref([])
+  const conversationId = ref('')
+  // A page-local notification, not another connection or a retained reply body.
+  const conversationHistory = ref([])
+  const conversationHistoryDeletingId = ref('')
+  const conversationHistoryLoading = ref(false)
+  const conversationHistoryError = ref('')
+  const conversationHistoryHasMore = ref(true)
+  const conversationHistoryPage = ref(0)
+  const conversationLoadError = ref('')
+  const isConversationLoading = ref(false)
+  const selectedHallConversationId = ref('')
+  const draft = ref('')
+  const scopeDrafts = new Map()
+  const threadDrafts = new Map()
+  const threadDraftKey = id => `${chatContext?.value?.conversationScopeType || ''}\u0000${chatContext?.value?.conversationScopeKey || ''}\u0000${id || ''}`
+  const saveThreadDraft = () => { threadDrafts.set(threadDraftKey(conversationId.value), { text: draft.value, metadata: { ...(outgoingMetadata?.value || {}) } }) }
+  const restoreThreadDraft = id => {
+    const saved = threadDrafts.get(threadDraftKey(id))
+    setDraft(saved?.text || '')
+    if (outgoingMetadata) outgoingMetadata.value = { ...(saved?.metadata || {}) }
+  }
+  const stopDraftAdoptionWatch = watch(conversationId, (nextId, previousId) => {
+    // A server-created thread adopts the current unsent draft; do not resurrect
+    // that new-thread slot later. Explicit history navigation sets selection first.
+    if (!previousId && nextId && selectedHallConversationId.value !== nextId) threadDrafts.delete(threadDraftKey(''))
+  }, { flush: 'sync' })
+  const isStreaming = ref(false)
+  const isAwaitingReply = ref(false)
+  const isSubmitting = ref(false)
+  const isAdoptingBountyBootstrap = ref(false)
+  const eventStreamRecovering = ref(false)
+  const deliberationStatus = ref('')
+  const activeRequest = ref(null)
+  const activeTurns = ref([])
+  const capabilityState = ref({ loaded: false, v2: false })
+  const draftRevision = ref(0)
+  const replyEventSequence = ref(0)
+  const observedFinalReplyIds = new Set()
+  let localMessageSequence = 0
+  let streamFinalCandidate = null
+  const eventCursors = new Map()
+  const turnStates = new Map()
+  const requestReadback = createHallRequestReadbackScheduler({
+    read: (id, guard) => readUnknownRequestOnce(id, guard),
+    captureGuard: () => captureGuard(),
+    isCurrent: guard => guardCurrent(guard),
+    isActiveRequest: id => activeRequest.value?.requestId === id,
+    setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+    clearTimeout: timer => window.clearTimeout(timer),
+    debounceMs: HALL_REQUEST_READBACK_DEBOUNCE_MS
+  })
+  const cancellationJobs = reactive(new Map())
+  // This tab-scoped marker is a read-only recovery hint, never cancellation authority.
+  const cancellationStorage = () => {
+    try { return replyCancellationStorage || globalThis.window?.sessionStorage } catch { return null }
+  }
+  const cancellationKey = () => {
+    const identity = unref(identityScope)
+    const request = activeRequest.value
+    return identity && request?.requestId && request.conversationId && request.conversationGeneration && request.requestRevision
+      ? `juyiting:reply-stop:v1:${encodeURIComponent(JSON.stringify([identity, request.conversationId, request.conversationGeneration, request.requestId, request.requestRevision]))}` : ''
+  }
+  const savedCancellation = () => {
+    const key = cancellationKey()
+    if (!key) return null
+    try {
+      const target = JSON.parse(cancellationStorage()?.getItem(key) || 'null')
+      if (!target || !((typeof target.turnId === 'string' && target.turnId && Object.keys(target).length === 1) ||
+          (target.allPending === true && Object.keys(target).length === 1))) return null
+      return { inFlight: false, unknown: true, target }
+    } catch { return null }
+  }
+  const saveCancellation = (key, target) => {
+    if (!key) return
+    try {
+      if (target) cancellationStorage()?.setItem(key, JSON.stringify(target))
+      else cancellationStorage()?.removeItem(key)
+    } catch { /* Keep the current-tab in-memory recovery if browser storage is unavailable. */ }
+  }
+
+  let capabilityPromise = null
+  let capabilityAttempt = 0
+  let authoritativeResyncPromise = null
+  let activeBuiltInTurn = null
+  let recoveringReplyTurn = null
+  let activeSendToken = null
+  let activeSendSession = null
+  const hasPendingSendSession = ref(false)
+  let bootstrapAdoptionToken = null
+  let adoptedBootstrap = null
+
+  let hallEventController = null
+  let hallEventConversationId = ''
+  let hallEventReconnectTimer = null
+  let hallEventReconnectFailures = 0
+  let hallEventTerminal = false
+  let hallReplyTimers = []
+  let hallReplyPollTimer = null
+  let hallSyncTimers = []
+  let lifecycleGeneration = 0
+  let lifecycleController = new AbortController()
+  let disposed = false
+  let hallEventSignalCleanup = null
+  let hallReplyController = null
+  let hallReplySignalCleanup = null
+  let hallReplyStreamHandle = null
+  let hallReplyGeneration = 0
+  let hallConversationLoadGeneration = 0
+  let hallConversationHistoryGeneration = 0
+  let pendingHallConversationLoad = null
+  let pendingHallConversationHistoryLoad = null
+  let loadedConversationScopeSignature = ''
+  const suppressedRestoreScopes = new Set()
+  let stopScopeWatch = () => {}
+
+  const exactRuntimeId = exactHallConversationId
+  const now = () => Date.now()
+  const apiData = response => response
+  const authEpoch = () => apiStore?.authorizationGeneration
+  const v2Supported = capability => capability?.schemaVersion === '2' && capability.requestId === true &&
+    capability.requestRevision === true && capability.contextSnapshot === true && capability.durableTurns === true &&
+    capability.deltaSequence === true && capability.cancel === true && Array.isArray(capability.interactionHints) &&
+    capability.interactionHints.includes('chat')
+  const inputRefsFor = metadata => Array.isArray(metadata?.inputRefs)
+    ? metadata.inputRefs.map(ref => ({ type: typeof ref?.type === 'string' ? ref.type : '', id: typeof ref?.id === 'string' ? ref.id : '' }))
+      .filter(ref => ref.type && ref.id)
+    : []
+  const safeOutgoingMetadata = metadata => {
+    const source = metadata && typeof metadata === 'object' ? metadata : {}
+    const safe = {}
+    for (const key of ['libraryCitationId', 'librarySourceType']) {
+      if (typeof source[key] === 'string' && source[key]) safe[key] = source[key]
+    }
+    return safe
+  }
+  const seenVector = () => ({ conversationId: conversationId.value || undefined, eventCursor: eventCursors.get(conversationId.value) || undefined })
+  const recordObservation = (name, request) => { request?.observations?.push({ name, at: now() }) }
+  const captureGuard = (scope = scopeSnapshot()) => Object.freeze({
+    generation: lifecycleGeneration, authEpoch: authEpoch(), scope, signature: scopeSignature(scope)
+  })
+  const guardCurrent = guard => Boolean(guard && !disposed && guard.generation === lifecycleGeneration &&
+    guard.authEpoch === authEpoch() && guard.signature === scopeSignature(scopeSnapshot()) && sameScope(guard.scope))
+  const abortIfStale = guard => {
+    if (!guardCurrent(guard)) throw new DOMException('Hall identity or scope changed', 'AbortError')
+  }
+  const negotiateCapabilities = async guard => {
+    abortIfStale(guard)
+    if (capabilityState.value.loaded) return capabilityState.value
+    if (capabilityPromise) { const result = await capabilityPromise; abortIfStale(guard); return result }
+    const attempt = ++capabilityAttempt
+    const promise = Promise.resolve().then(async () => {
+      try {
+        abortIfStale(guard)
+        const response = await chatApi.get('/capabilities', {}, { autoLoading: false, signal: lifecycleController.signal })
+        abortIfStale(guard)
+        if (attempt !== capabilityAttempt) throw new DOMException('Stale capability negotiation', 'AbortError')
+        const capability = apiData(response)
+        const v2 = v2Supported(capability)
+        if (!v2) throw new Error('议事暂不可用，请稍后重试')
+        capabilityState.value = { loaded: true, v2: true }
+      } catch (error) {
+        if (error?.name === 'AbortError' || !guardCurrent(guard) || attempt !== capabilityAttempt) throw error?.name === 'AbortError'
+          ? error : new DOMException('Hall identity changed during capability negotiation', 'AbortError')
+        capabilityState.value = { loaded: false, v2: false }
+        throw error
+      } finally {
+        if (capabilityPromise === promise) capabilityPromise = null
+      }
+      abortIfStale(guard)
+      return capabilityState.value
+    })
+    capabilityPromise = promise
+    return promise
+  }
+
+  const scopeSnapshot = () => {
+    const context = chatContext?.value || {}
+    const type = context.conversationScopeType
+    const key = context.conversationScopeKey
+    if (!['public', 'bounty', 'private'].includes(type) || typeof key !== 'string' || !key) return null
+    return Object.freeze({ type, key })
+  }
+
+  const scopeSignature = snapshot => snapshot ? `${snapshot.type}\u0000${snapshot.key}` : ''
+
+  const sameScope = snapshot => Boolean(
+    snapshot &&
+    chatContext?.value?.conversationScopeType === snapshot.type &&
+    chatContext?.value?.conversationScopeKey === snapshot.key
+  )
+
+  const invalidateConversationLoads = () => {
+    hallConversationLoadGeneration += 1
+    return hallConversationLoadGeneration
+  }
+
+  const invalidateConversationHistoryLoads = () => {
+    hallConversationHistoryGeneration += 1
+    return hallConversationHistoryGeneration
+  }
+
+  const durableBusy = computed(() => deliberationBusy(activeRequest.value, activeTurns.value))
+  const durableCancelTarget = computed(() => cancellationTarget(activeRequest.value, activeTurns.value))
+  const replyCancellationState = computed(() => {
+    const job = cancellationJobs.get(activeRequest.value?.requestId) || savedCancellation()
+    return job ? { inFlight: job.inFlight, unknown: job.unknown, target: job.target } : null
+  })
+  const isConversationBusy = computed(() => isAdoptingBountyBootstrap.value || hasPendingSendSession.value || isSubmitting.value || durableBusy.value || isStreaming.value || isAwaitingReply.value || isConversationLoading.value || Boolean(conversationHistoryDeletingId.value))
+
+  const pendingAgentName = computed(() => {
+    if (!selectedAgent.value) return ''
+    return portraitShortName(selectedAgent.value) || selectedAgent.value.name || selectedAgent.value.agentId || ''
+  })
+
+  const currentChatContext = computed(() => chatContext?.value || {
+    conversationScopeType: 'public',
+    conversationScopeKey: 'public',
+    mode: 'public',
+    participantAgentIds: [],
+    selectedTaskId: selectedTask.value?.id,
+    targetAgentIds: selectedAgent.value?.agentId ? [selectedAgent.value.agentId] : [],
+    taskId: selectedTask.value?.id,
+    targetAgentId: selectedAgent.value?.agentId || ''
+  })
+
+  const chatConnectionStatus = computed(() => {
+    if (isSubmitting.value) return '正在提交，等待受理'
+    if (eventStreamRecovering.value) return '正在恢复连接'
+    if (deliberationStatus.value) return deliberationStatus.value
+    if (isStreaming.value) return '正在回复…'
+    if (isAwaitingReply.value) return pendingAgentName.value ? `${pendingAgentName.value} 正在回复…` : '等待回复…'
+    return '连接正常'
+  })
+
+  const senderText = (message) => {
+    if (message?.isSelf) return '你'
+    const senderName = normalizeSenderName(message?.senderName)
+    if (senderName) return senderName
+    if (message.sender === 'USER') return '用户'
+    if (message.sender === 'SYSTEM') return '传令牌'
+    return '聚义厅'
+  }
+
+  const stopHallReplyStreaming = () => {
+    hallReplyTimers.forEach(timer => window.clearTimeout(timer))
+    hallReplyTimers = []
+    hallReplyController?.abort(new DOMException('Hall reply stopped', 'AbortError'))
+    hallReplyController = null
+    hallReplyStreamHandle?.cancel?.(new DOMException('Hall reply stopped', 'AbortError'))
+    hallReplyStreamHandle = null
+    hallReplySignalCleanup?.()
+    hallReplySignalCleanup = null
+  }
+
+  let hallReplyPollTick = null
+  const stopHallReplyPolling = () => {
+    hallReplyPollTick = null
+    if (hallReplyPollTimer) {
+      window.clearInterval(hallReplyPollTimer)
+      hallReplyPollTimer = null
+    }
+  }
+
+  const stopHallConversationSync = () => {
+    hallSyncTimers.forEach(timer => window.clearTimeout(timer))
+    hallSyncTimers = []
+  }
+
+  const cancelHallReplyTurn = (reason = 'Hall reply cancelled') => {
+    hallReplyGeneration += 1
+    stopHallReplyStreaming()
+    stopHallReplyPolling()
+    stopHallConversationSync()
+    clearBuiltInTurn()
+    isStreaming.value = false
+    isAwaitingReply.value = false
+    return reason
+  }
+
+  const setDraft = (value = '') => {
+    draft.value = String(value || '')
+    draftRevision.value += 1
+  }
+
+  const clearDraft = () => {
+    setDraft('')
+  }
+
+  const exactMessageId = message => typeof message?.localId === 'string' && message.localId ? message.localId : ''
+  const beginBuiltInTurn = requestConversationId => {
+    recoveringReplyTurn = null
+    activeBuiltInTurn = {
+      conversationId: requestConversationId || null,
+      baselineMessageIds: new Set(messages.value.map(exactMessageId).filter(Boolean)),
+      stagedFinals: [],
+      stagedMessageIds: new Set()
+    }
+  }
+  const clearBuiltInTurn = () => {
+    activeBuiltInTurn = null
+    streamFinalCandidate = null
+  }
+  const resolveBuiltInTurnConversation = id => {
+    if (!activeBuiltInTurn || typeof id !== 'string' || !id) return
+    activeBuiltInTurn.conversationId = id
+  }
+  const stageActiveBuiltInFinal = ({ message, source, toastName, replyConversationId = conversationId.value }) => {
+    if (!activeBuiltInTurn) return false
+    if (activeBuiltInTurn.conversationId && replyConversationId !== activeBuiltInTurn.conversationId) return false
+    const messageId = exactMessageId(message)
+    if (!messageId) return false
+    if (activeBuiltInTurn.baselineMessageIds.has(messageId)) return true
+    if (!activeBuiltInTurn.stagedMessageIds.has(messageId)) {
+      activeBuiltInTurn.stagedMessageIds.add(messageId)
+      activeBuiltInTurn.stagedFinals.push({ message, source, toastName, conversationId: replyConversationId })
+    }
+    return true
+  }
+
+  const notifyFinalReply = ({ message, source, replyConversationId = conversationId.value }) => {
+    const messageId = exactMessageId(message)
+    if (!messageId || !String(message.content || '').trim() || observedFinalReplyIds.has(messageId)) return false
+    observedFinalReplyIds.add(messageId)
+    replyEventSequence.value += 1
+    onFinalReply?.({
+      conversationId: replyConversationId,
+      message,
+      messageId,
+      source,
+      sequence: replyEventSequence.value
+    })
+    return true
+  }
+
+  const syncDurablePresentation = () => {
+    if (!activeRequest.value?.requestId) return
+    for (const message of messages.value) {
+      if (!message.streaming || !message.turnId) continue
+      const turn = activeTurns.value.find(item => item.turnId === message.turnId)
+      if (!turn || !['CANCELLED', 'FAILED', 'RECOVERY_REQUIRED'].includes(turn.state)) continue
+      message.streaming = false
+      message.statusText = turn.state === 'RECOVERY_REQUIRED' ? '需要恢复核对（已暂停）' : turn.state === 'CANCELLED' ? '已停止（未完成）' : '回复失败（未完成）'
+    }
+    const busy = hasPendingSendSession.value || deliberationBusy(activeRequest.value, activeTurns.value)
+    isAwaitingReply.value = hasPendingSendSession.value || deliberationReplyActive(activeRequest.value, activeTurns.value)
+    isStreaming.value = activeTurns.value.some(turn => ['STREAMING', 'GENERATING'].includes(String(turn.state || '').toUpperCase()))
+    deliberationStatus.value = deliberationStatusText(activeRequest.value, activeTurns.value) ||
+      (busy ? '等待回话' : String(activeRequest.value.state || '').toUpperCase() === 'PARTIAL' ? '部分回话已完成' : '')
+  }
+
+  const applyDeliberationEvent = event => {
+    if (!event || typeof event !== 'object') return false
+    if (activeRequest.value?.requestId && event.requestId && event.requestId !== activeRequest.value.requestId) {
+      return false
+    }
+    const session = activeSendSession?.roundCloseout ? activeSendSession : null
+    if (session && event.requestId === session.requestId) {
+      if (!currentSendSession(session) || !bindSendEvent(session, event)) return false
+    }
+    const reduced = reduceDeliberationEvent({ request: activeRequest.value, turns: activeTurns.value }, event)
+    if (reduced.handled) {
+      activeRequest.value = reduced.request
+      activeTurns.value = reduced.turns
+      for (const turn of activeTurns.value) {
+        if (!turn?.turnId) continue
+        const tracker = turnStates.get(turn.turnId) || { lastDeltaSeq: '0', waitingFinal: false, terminal: false }
+        tracker.terminal = isTerminalTurnState(turn.state)
+        turnStates.set(turn.turnId, tracker)
+      }
+      recordObservation('first_status', activeRequest.value)
+      if (session && event.requestId === session.requestId &&
+          (isTerminalTurnState(event.state || event.agentDelivery?.state) || event.type === 'agent_message' ||
+           ['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(event.requestState || event.aggregateState))) {
+        session.terminalReadbackHint = true
+        scheduleAuthoritativeRequestReadback(session.requestId, { immediate: true })
+      }
+    }
+    return reduced.handled
+  }
+
+  const needsUnversionedTurnReadback = event => {
+    const requestId = typeof event?.requestId === 'string' ? event.requestId : ''
+    const turnId = typeof event?.turnId === 'string' ? event.turnId : (typeof event?.agentDelivery?.turnId === 'string' ? event.agentDelivery.turnId : '')
+    if (!requestId || requestId !== activeRequest.value?.requestId || !turnId) return false
+    const turn = activeTurns.value.find(item => item.turnId === turnId)
+    if (isTerminalTurnState(turn?.state) || !canonicalWireString(turn?.stateVersion, { allowZero: true })) return false
+    return !canonicalWireString(event.stateVersion ?? event.agentDelivery?.stateVersion, { allowZero: true })
+  }
+
+  let projectionsDirty = false
+  let replayProjectionDirty = false
+  let projectionFlight = null
+  const refreshHallProjections = event => {
+    if (!onRequestCatalogHint || disposed || !conversationId.value) return Promise.resolve(true)
+    projectionsDirty = true
+    const guard = captureGuard(); const id = conversationId.value
+    const key = [event?.type, event?.requestId, event?.childRequestId, event?.replyRequestId, event?.parentOutcomeId].join('\u0000')
+    if (projectionFlight && projectionFlight.id === id && guardCurrent(projectionFlight.guard)) {
+      projectionFlight.pending.set(key, event)
+      return projectionFlight.promise
+    }
+    const flight = { guard, id, pending: new Map([[key, event]]) }; projectionFlight = flight
+    flight.promise = (async () => {
+      let success = false
+      do {
+        const events = [...flight.pending.values()]
+        flight.pending.clear()
+        const hint = events.length === 1 ? events[0] : { type: 'request_changes', conversationId: id, events }
+        // A full recovery already covers replay hints received before this read.
+        // Later replay events set the flag again; failure remains projectionsDirty.
+        if (events.some(item => item?.type === 'resync_required')) replayProjectionDirty = false
+        try { success = await onRequestCatalogHint(hint) !== false } catch { success = false }
+        if (!guardCurrent(guard) || conversationId.value !== id) return false
+      } while (success && flight.pending.size)
+      projectionsDirty = !success
+      if (!success) {
+        hallEventReconnectFailures++
+        scheduleHallEventReconnect(lifecycleGeneration)
+      }
+      return success
+    })().finally(() => { if (projectionFlight === flight) projectionFlight = null })
+    return flight.promise
+  }
+
+  const refreshExecutionRequest = (event, { refreshProjection = true } = {}) => {
+    if (disposed || event?.conversationId !== conversationId.value || !typedId(event?.requestId)) return false
+    if (refreshProjection) void refreshHallProjections(event)
+    if (event.requestId === activeRequest.value?.requestId) scheduleAuthoritativeRequestReadback(event.requestId, { immediate: true })
+    return true
+  }
+
+  const appendHallEventMessage = (event, { deferServerResync = false, deferProjectionHint = false } = {}) => {
+    const refreshProjection = () => { if (!deferProjectionHint) void refreshHallProjections(event) }
+    if (['delivery_submission_completed', 'delivery_review_changed'].includes(event?.type) && event.conversationId === conversationId.value && typedId(event.requestId)) {
+      onTypedOutcome?.(event)
+      refreshProjection()
+      return true
+    }
+    // Receipt/journal events never replace a request projection or create a successful deliverable.
+    if (['execution_abandoned', 'execution_terminal', 'action_started', 'action_failed', 'target_capability_unavailable', 'cancel_requested'].includes(event?.type)) return refreshExecutionRequest(event, { refreshProjection: !deferProjectionHint })
+    // Historical replay may contain deltas from an earlier cancelled request.
+    // Only the active request owns live bubbles; persisted historical finals still render.
+    if (event?.type === 'agent_message_delta' && activeRequest.value?.requestId &&
+        event.requestId && event.requestId !== activeRequest.value.requestId) return true
+    const needsReadback = needsUnversionedTurnReadback(event)
+    if (event.conversationId === conversationId.value && activeRequest.value?.requestId &&
+      event.requestId && event.requestId !== activeRequest.value.requestId &&
+      ['interaction.state_changed', 'chat_request_replay'].includes(event.type)) {
+      // Authenticated conversation replay does not need a preloaded history ID list.
+      // A live non-current status still invalidates its own projection, never the active round.
+      refreshProjection()
+      return true
+    }
+    const durableHandled = applyDeliberationEvent(event)
+    const messageEvent = event?.type === 'agent_message_delta' || event?.type === 'agent_message' || event?.type === 'resync_required' || ['part.processing', 'part.ready', 'part.failed'].includes(event?.type)
+    // Keep the active-request reducer closed. A non-active media event can only ask the
+    // independent read-only catalog to re-read its owner-scoped index.
+    if (['part.ready', 'agent_message', 'resync_required'].includes(event?.type) && event.requestId && event.conversationId === conversationId.value) refreshProjection()
+    const typedRequestId = event?.type === 'agent_message' && event?.typedOutcome ? event.requestId :
+      event?.type === 'typed_question_answered' ? (event.requestId || event.replyRequestId) : ''
+    if (typedRequestId && event.conversationId === conversationId.value) {
+      onTypedOutcome?.({ ...event, requestId: typedRequestId })
+      // agent_message already requested the same catalog refresh above.
+      if (event.type !== 'agent_message') refreshProjection()
+    }
+    if (!messageEvent) {
+      if (typedRequestId && event.conversationId === conversationId.value) return true
+      if (durableHandled) syncDurablePresentation()
+      return durableHandled
+    }
+    const state = {
+      conversationId: conversationId.value,
+      messages: messages.value,
+      isAwaitingReply: isAwaitingReply.value,
+      isStreaming: isStreaming.value,
+      turnStates,
+      manageTurnBusy: Boolean(activeRequest.value?.requestId)
+    }
+    const result = reduceHallEventMessage(state, event, globalStore.getJiacn)
+    conversationId.value = state.conversationId
+    messages.value = state.messages
+    isAwaitingReply.value = state.isAwaitingReply
+    isStreaming.value = state.isStreaming
+    if (result.type === 'missing_message') {
+      void authoritativeResync(event.conversationId, result.type)
+      return false
+    }
+    if (result.type === 'invalid_part' || result.type === 'invalid_delta') {
+      void authoritativeResync(event.conversationId, result.type)
+      return false
+    }
+    if (result.type === 'resync_required') {
+      if (!deferServerResync) void authoritativeResync(event.conversationId, result.type, { clearCursor: false })
+      return event.type === 'resync_required'
+    }
+    const bootstrapEvent = adoptedBootstrap && event.requestId === adoptedBootstrap.initialRequestId &&
+      activeRequest.value?.requestId === adoptedBootstrap.initialRequestId && event.conversationId === adoptedBootstrap.conversationId &&
+      bountyBootstrapContextMatches(chatContext?.value, selectedTask?.value, selectedAgent?.value, adoptedBootstrap)
+    // Restored executions have no bootstrap receipt or CHAT turn checkpoint.
+    // Share the same media hint readback, rather than scheduling a second GET.
+    const executionEvent = event.requestId === activeRequest.value?.requestId && event.conversationId === conversationId.value &&
+      activeRequest.value?.steps?.some(step => step.kind === 'EXECUTE')
+    if ((bootstrapEvent || executionEvent) && ((event.type === 'agent_message' && ['final', 'duplicate', 'part'].includes(result.type)) ||
+        (event.type === 'part.ready' && ['part', 'duplicate_part'].includes(result.type)))) {
+      // A media event is a readback hint, never authority to mark execution/task completed.
+      scheduleAuthoritativeRequestReadback(event.requestId, { immediate: true })
+    }
+    if (result.type === 'late_delta' || result.type === 'duplicate_part') { syncDurablePresentation(); return true }
+    if (needsReadback && result.type === 'delta') scheduleAuthoritativeRequestReadback(event.requestId)
+    if ((!activeSendSession?.roundCloseout || activeSendSession.requestId !== event.requestId) && needsReadback && event.type === 'agent_message' && ['final', 'duplicate'].includes(result.type)) {
+      scheduleAuthoritativeRequestReadback(event.requestId, { immediate: true })
+    }
+    if (result.type === 'delta') recordObservation('first_delta', activeRequest.value)
+    if (result.type === 'final') recordObservation('final_render', activeRequest.value)
+    if (result.type === 'final' && result.message?.sender === 'AGENT' &&
+        recoveringReplyTurn?.conversationId === event.conversationId) {
+      if (recoveringReplyTurn.baselineMessageIds.has(exactMessageId(result.message))) {
+        syncDurablePresentation()
+        return true
+      }
+      recoveringReplyTurn = null
+    }
+    if (result.type === 'final' && result.message?.sender === 'AGENT' && stageActiveBuiltInFinal({
+      message: result.message,
+      source: 'agent_event',
+      toastName: result.toastName,
+      replyConversationId: event.conversationId
+    })) {
+      syncDurablePresentation()
+      return true
+    }
+    if (result.shouldStopPolling && !deliberationBusy(activeRequest.value, activeTurns.value)) stopHallReplyPolling()
+    if (result.toastName) showToast(`${result.toastName} 已回话`)
+    if (result.type === 'final' && result.message?.sender === 'AGENT') {
+      notifyFinalReply({ message: result.message, source: 'agent_event', replyConversationId: event.conversationId })
+    }
+    syncDurablePresentation()
+    return !['ignored', 'invalid_message_id', 'invalid_conversation'].includes(result.type)
+  }
+
+  const apiStreamUrl = (path, params = {}) => {
+    const baseURL = runtimeEnv.VITE_API_BASE_URL || ''
+    const requestPath = baseURL
+      ? `${baseURL}${path.startsWith('/') ? path : `/${path}`}`
+      : path
+    const searchParams = new URLSearchParams(params).toString()
+    return searchParams ? `${requestPath}?${searchParams}` : requestPath
+  }
+
+  const clearHallEventReconnect = () => {
+    if (hallEventReconnectTimer != null) window.clearTimeout(hallEventReconnectTimer)
+    hallEventReconnectTimer = null
+  }
+
+  const discardHallPreviews = () => {
+    const state = { messages: messages.value, turnStates }
+    stopHallPreviews(state)
+    messages.value = state.messages
+  }
+
+  const stopHallEventTransport = () => {
+    discardHallPreviews()
+    clearHallEventReconnect()
+    if (hallEventController) hallEventController.abort(new DOMException('Hall event stream stopped', 'AbortError'))
+    hallEventController = null
+    hallEventSignalCleanup?.()
+    hallEventSignalCleanup = null
+    hallEventConversationId = ''
+    eventStreamRecovering.value = false
+  }
+
+  const resetHallEventRecovery = () => {
+    hallEventReconnectFailures = 0
+    hallEventTerminal = false
+  }
+
+  const scheduleHallEventReconnect = (generation) => {
+    if (disposed || generation !== lifecycleGeneration || hallEventTerminal || hallEventReconnectTimer != null || !isPageVisible()) return
+    const exponent = Math.max(0, hallEventReconnectFailures - 1)
+    const base = Math.min(HALL_EVENT_RETRY_CAP_MS, HALL_EVENT_RETRY_BASE_MS * (2 ** exponent))
+    const delay = Math.min(HALL_EVENT_RETRY_CAP_MS, base + Math.floor(base * boundedJitter()))
+    const timer = window.setTimeout(async () => {
+      if (hallEventReconnectTimer !== timer || disposed || generation !== lifecycleGeneration || hallEventTerminal || !isPageVisible()) return
+      const guard = captureGuard()
+      const id = conversationId.value
+      const requestId = activeRequest.value?.requestId
+      const current = () => guardCurrent(guard) && conversationId.value === id && activeRequest.value?.requestId === requestId
+      try {
+        // A broken SSE transport can miss the final event after durable admission.
+        // Reuse the existing retry slot and single-flight read; never resend or poll in parallel.
+        let projectionsRead = false
+        const recoverTransport = !hallEventController
+        if (recoverTransport && requestId && await recoverUnknownRequest(requestId, guard) && current()) {
+          const missingFinal = activeTurns.value.some(turn => turn.finalMessageId &&
+            !messages.value.some(message => exactMessageId(message) === turn.finalMessageId && !message.streaming))
+          // Keep partial output while the turn is pending. Only missing durable finals
+          // require a history read; repeated reconnects must not reload an already rendered final.
+          if (!durableBusy.value && missingFinal) {
+            const loaded = await loadHallConversationContent(id, { identity: guard, adoptionCurrent: current, resumeEvents: false })
+            if (!loaded && current()) deliberationStatus.value = '回话已结束，正文加载待重试'
+          }
+          if (current()) { projectionsRead = true; await refreshHallProjections({ type: 'resync_required', conversationId: id, requestId }) }
+        }
+        if (!projectionsRead && projectionsDirty && current()) await refreshHallProjections({ type: 'resync_required', conversationId: id, requestId })
+      } catch (error) {
+        if (guardCurrent(guard) && error?.name !== 'AbortError') log.warn('核对断流原回话失败', error)
+      } finally {
+        if (hallEventReconnectTimer === timer) {
+          hallEventReconnectTimer = null
+          if (guardCurrent(guard) && !hallEventTerminal && isPageVisible()) {
+            if (!hallEventController) void startHallEventStream()
+            if (projectionsDirty) scheduleHallEventReconnect(generation)
+          }
+        }
+      }
+    }, delay)
+    hallEventReconnectTimer = timer
+  }
+
+  const failHallEventStream = (generation, error) => {
+    if (disposed || generation !== lifecycleGeneration || error?.name === 'AbortError') return
+    if (error?.status === 400 || error?.status === 409 || error?.status === 410 || error?.status === 501) {
+      void authoritativeResync(conversationId.value, `sse_${error.status}`, { restartStream: error.status !== 501 })
+      return
+    }
+    if (isTerminalHallEventError(error)) {
+      hallEventTerminal = true
+      clearHallEventReconnect()
+      eventStreamRecovering.value = false
+      return
+    }
+    log.warn('聚义厅实时消息连接中断', error)
+    hallEventReconnectFailures += 1
+    eventStreamRecovering.value = true
+    scheduleHallEventReconnect(generation)
+  }
+
+  const startHallEventStream = async () => {
+    if (disposed || hallEventTerminal || !isPageVisible()) return
+    const generation = lifecycleGeneration
+    const streamScope = scopeSnapshot()
+    const streamGuard = { generation, authEpoch: authEpoch(), scope: streamScope, signature: scopeSignature(streamScope) }
+    const id = conversationId.value
+    if (typeof id !== 'string' || !id || hallEventConversationId === id) return
+    stopHallEventTransport()
+    hallEventConversationId = id
+    hallEventController = new AbortController()
+    const eventSignal = combineAbortSignals({ signals: [lifecycleController.signal, hallEventController.signal] })
+    hallEventSignalCleanup = eventSignal.cleanup
+
+    try {
+      const cursor = eventCursors.get(id)
+      const response = await fetchHallConversationEvents({
+        apiStore,
+        url: apiStreamUrl('/chat/conversation/events', { id }),
+        headers: cursor ? { 'Last-Event-ID': `conversation:${id}:${cursor}` } : {},
+        signal: eventSignal.signal
+      })
+      if (!guardCurrent(streamGuard) || !response) {
+        if (!response && guardCurrent(streamGuard)) {
+          hallEventTerminal = true
+        }
+        hallEventController = null
+        return
+      }
+      if (!response.ok || !response.body) {
+        const failure = new Error(`Hall event stream failed: ${response.status}`)
+        failure.status = response.status
+        throw failure
+      }
+      eventStreamRecovering.value = false
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let pendingServerResyncCursor = ''
+      let streamReplayReady = false
+      const parser = createHallSseParser({
+        conversationId: id, requestId: response.headers.get('X-Request-Id'),
+        onEvent: (event, candidateCursor) => {
+          if (!guardCurrent(streamGuard)) return false
+          if (event.type === 'stream_ready') {
+            streamReplayReady = true
+            if (replayProjectionDirty || projectionsDirty && !projectionFlight) {
+              replayProjectionDirty = false
+              void refreshHallProjections({ type: 'resync_required', conversationId: id })
+            }
+            hallEventReconnectFailures = 0; return true
+          }
+          if (event.type === 'resync_required') {
+            const currentCursor = eventCursors.get(id)
+            pendingServerResyncCursor = candidateCursor && (!currentCursor || BigInt(candidateCursor) > BigInt(currentCursor))
+              ? candidateCursor
+              : ''
+          }
+          if (!streamReplayReady && isAcceptanceProjectionEvent(event)) replayProjectionDirty = true
+          const accepted = appendHallEventMessage(event, { deferServerResync: event.type === 'resync_required', deferProjectionHint: !streamReplayReady })
+          if (accepted) hallEventReconnectFailures = 0
+          return accepted
+        },
+        onPreview: event => {
+          if (!guardCurrent(streamGuard) || event.requestId !== activeRequest.value?.requestId) return
+          const state = { conversationId: id, messages: messages.value, turnStates,
+            isAwaitingReply: isAwaitingReply.value }
+          const result = appendHallPreview(state, event)
+          messages.value = state.messages
+          isAwaitingReply.value = state.isAwaitingReply
+          if (result.type === 'preview' && event.deltaSeq === '1' &&
+              !activeRequest.value?.observations?.some(item => item.name === 'first_delta')) {
+            recordObservation('first_delta', activeRequest.value)
+          }
+        },
+        onPreviewInvalid: () => { if (guardCurrent(streamGuard)) discardHallPreviews() },
+        onCursor: cursorValue => eventCursors.set(id, cursorValue),
+        onCommitted: (event, cursorValue) => {
+          if (event.type === 'resync_required' && pendingServerResyncCursor === cursorValue) {
+            pendingServerResyncCursor = ''
+            void authoritativeResync(id, 'resync_required', { clearCursor: false })
+          }
+        },
+        onInvalid: reason => { log.warn('聚义厅事件帧无效', reason); void authoritativeResync(id, reason) }
+      })
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done || disposed || generation !== lifecycleGeneration) break
+        parser.push(decoder.decode(value, { stream: true }))
+      }
+      parser.push(decoder.decode())
+      parser.finish()
+      if (!disposed && generation === lifecycleGeneration && !eventSignal.signal.aborted) {
+        hallEventConversationId = ''
+        hallEventController = null
+        hallEventSignalCleanup?.()
+        hallEventSignalCleanup = null
+        failHallEventStream(generation, new Error('Hall event stream ended'))
+      }
+    } catch (error) {
+      if (!disposed && generation === lifecycleGeneration) {
+        hallEventConversationId = ''
+        hallEventController = null
+        failHallEventStream(generation, error)
+      }
+    } finally {
+      if (generation === lifecycleGeneration) {
+        hallEventSignalCleanup?.()
+        hallEventSignalCleanup = null
+      }
+    }
+  }
+
+  const stopHallEventStream = () => {
+    stopHallEventTransport()
+    resetHallEventRecovery()
+  }
+
+  const handleHallEventVisibility = () => {
+    if (disposed) return
+    if (!isPageVisible()) {
+      stopHallEventTransport()
+      return
+    }
+    startHallEventStream()
+    hallReplyPollTick?.()
+    if (projectionsDirty) scheduleHallEventReconnect(lifecycleGeneration)
+  }
+
+  const handleHallEventFocus = () => {
+    if (!isPageVisible() || hallEventReconnectTimer != null) return
+    startHallEventStream()
+    hallReplyPollTick?.()
+    if (projectionsDirty) scheduleHallEventReconnect(lifecycleGeneration)
+  }
+
+  const resetDurableState = () => {
+    capabilityAttempt += 1
+    capabilityPromise = null
+    capabilityState.value = { loaded: false, v2: false }
+    deliberationStatus.value = ''
+    activeRequest.value = null
+    activeTurns.value = []
+    cancellationJobs.clear()
+    turnStates.clear()
+    eventCursors.clear()
+    requestReadback.reset()
+    authoritativeResyncPromise = null
+    activeSendToken = null
+    activeSendSession = null
+    hasPendingSendSession.value = false
+    isSubmitting.value = false
+  }
+
+  const resetLifecycle = ({ keepBootstrapAdoption = false } = {}) => {
+    if (!keepBootstrapAdoption) {
+      bootstrapAdoptionToken = null
+      isAdoptingBountyBootstrap.value = false
+    }
+    adoptedBootstrap = null
+    if (activeSendSession) closeSendTransport(activeSendSession, 'identity-change')
+    lifecycleGeneration += 1
+    recoveringReplyTurn = null
+    lifecycleController.abort(new DOMException('Hall identity lifecycle reset', 'AbortError'))
+    projectionsDirty = false
+    replayProjectionDirty = false
+    projectionFlight = null
+    resetDurableState()
+    if (!disposed) lifecycleController = new AbortController()
+  }
+
+  const clearHallConversationIdentityState = () => {
+    invalidateConversationLoads()
+    invalidateConversationHistoryLoads()
+    pendingHallConversationLoad = null
+    pendingHallConversationHistoryLoad = null
+    conversationHistory.value = []
+    conversationHistoryDeletingId.value = ''
+    conversationHistoryLoading.value = false
+    conversationHistoryError.value = ''
+    conversationHistoryHasMore.value = true
+    conversationHistoryPage.value = 0
+    conversationLoadError.value = ''
+    isConversationLoading.value = false
+    selectedHallConversationId.value = ''
+    loadedConversationScopeSignature = ''
+    suppressedRestoreScopes.clear()
+    resetLifecycle()
+    stopHallEventStream()
+    stopHallReplyStreaming()
+    stopHallReplyPolling()
+    stopHallConversationSync()
+    conversationId.value = ''
+    scopeDrafts.clear()
+    threadDrafts.clear()
+    setDraft('')
+    if (outgoingMetadata) outgoingMetadata.value = {}
+    messages.value = []
+    isStreaming.value = false
+    isAwaitingReply.value = false
+    clearBuiltInTurn()
+  }
+
+  stopScopeWatch = watch(
+    () => `${chatContext?.value?.conversationScopeType || ''}\u0000${chatContext?.value?.conversationScopeKey || ''}`,
+    (nextScope, previousScope) => {
+      if (!previousScope || nextScope === previousScope || disposed) return
+      threadDrafts.set(`${previousScope}\u0000${conversationId.value || ''}`, { text: draft.value, metadata: { ...(outgoingMetadata?.value || {}) } })
+      scopeDrafts.set(previousScope, { text: draft.value, metadata: { ...(outgoingMetadata?.value || {}) } })
+      const restored = scopeDrafts.get(nextScope)
+      setDraft(restored?.text || '')
+      if (outgoingMetadata) outgoingMetadata.value = { ...(restored?.metadata || {}) }
+      invalidateConversationLoads()
+      invalidateConversationHistoryLoads()
+      pendingHallConversationLoad = null
+      pendingHallConversationHistoryLoad = null
+      conversationHistory.value = []
+      conversationHistoryDeletingId.value = ''
+      conversationHistoryLoading.value = false
+      conversationHistoryError.value = ''
+      conversationHistoryHasMore.value = true
+      conversationHistoryPage.value = 0
+      conversationLoadError.value = ''
+      isConversationLoading.value = false
+      selectedHallConversationId.value = ''
+      loadedConversationScopeSignature = ''
+      resetLifecycle()
+      stopHallEventStream()
+      stopHallReplyStreaming()
+      stopHallReplyPolling()
+      stopHallConversationSync()
+      conversationId.value = ''
+      messages.value = []
+      isStreaming.value = false
+      isAwaitingReply.value = false
+      clearBuiltInTurn()
+    },
+    { flush: 'sync' }
+  )
+
+  browserDocument()?.addEventListener?.('visibilitychange', handleHallEventVisibility)
+  browserWindow()?.addEventListener?.('focus', handleHallEventFocus)
+
+  const unregisterIdentityCleanup = registerIdentityCleanup(clearHallConversationIdentityState)
+  const disposeHallConversation = () => {
+    cancellationJobs.clear()
+    if (disposed) return
+    disposed = true
+    requestReadback.dispose()
+    browserDocument()?.removeEventListener?.('visibilitychange', handleHallEventVisibility)
+    browserWindow()?.removeEventListener?.('focus', handleHallEventFocus)
+    stopScopeWatch()
+    stopDraftAdoptionWatch()
+    messagePages.dispose()
+    clearHallConversationIdentityState()
+    unregisterIdentityCleanup()
+  }
+
+  const messagePages = useHallMessagePages({
+    chatApi, messages, conversationId,
+    identityKey: () => identityScope ? unref(identityScope) : globalStore.getJiacn,
+    captureGuard, guardCurrent,
+    normalize: item => normalizeHallMessage(item, globalStore.getJiacn)
+  })
+
+  const loadHallConversationContent = async (id = conversationId.value, guard = {}) => {
+    const exactId = exactRuntimeId(id)
+    if (disposed || !exactId) return false
+    const generation = lifecycleGeneration
+    const contentReplyGeneration = hallReplyGeneration
+    const contentSendToken = activeSendToken
+    const loadGeneration = guard.loadGeneration ?? hallConversationLoadGeneration
+    const expectedScope = guard.scope || scopeSnapshot()
+    const isSelectedLoad = guard.selection === true
+    const restoreRequest = expectedScope?.type === 'bounty' && !activeRequest.value?.requestId
+    const isCurrentContentLoad = () => (
+      !disposed &&
+      generation === lifecycleGeneration &&
+      contentReplyGeneration === hallReplyGeneration &&
+      (!activeSendToken || activeSendToken === contentSendToken) &&
+      loadGeneration === hallConversationLoadGeneration &&
+      conversationId.value === exactId &&
+      sameScope(expectedScope) &&
+      (!guard.identity || guardCurrent(guard.identity)) &&
+      (!guard.adoptionCurrent || guard.adoptionCurrent())
+    )
+    let loaded = false
+    let contentFailed = false
+    const failContentLoad = error => {
+      if (!isCurrentContentLoad()) return
+      contentFailed = true
+      if (error?.name !== 'AbortError') log.warn('加载聚义厅会话内容失败', error)
+      if ((isSelectedLoad || restoreRequest) && error?.name !== 'AbortError') {
+        messages.value = []
+        conversationLoadError.value = '这段旧话暂不可取，请重试。'
+      }
+    }
+    if (isSelectedLoad || restoreRequest) {
+      isConversationLoading.value = true
+      conversationLoadError.value = ''
+    }
+    try {
+      await chatApi.get('/conversation/messages', { id: exactId }, {
+        autoLoading: false,
+        signal: lifecycleController.signal,
+        onSuccess: (contentResult) => {
+          if (!isCurrentContentLoad()) return
+          if (restoreRequest && !activeRequest.value?.requestId) {
+            const taskId = expectedScope.key.startsWith('task:') ? expectedScope.key.slice(5) : ''
+            const page = catalogPage(contentResult.requestPage, { conversationId: exactId, taskId, after: '0' })
+            if (!typedId(taskId) || !page || !catalogLong(page.eventCursor, true) || page.hasMore ||
+                (page.entries.length ? page.entries.at(-1).ordinal !== page.through : page.through !== '0')) {
+              throw new Error('原回话最新轮次范围不一致，请重试。')
+            }
+            const latest = page.entries.at(-1)?.request
+            if (latest && !applyRequestView(latest, latest.requestId)) throw new Error('原回话状态暂不可核实，请重试。')
+            // Messages, request state and cursor share one database snapshot. Older-page
+            // adoption never enters this branch or advances an existing event stream.
+            if (!eventCursors.has(exactId) && hallEventConversationId !== exactId) eventCursors.set(exactId, page.eventCursor)
+          }
+          const latestMessages = messagePages.applyLatest(contentResult)
+          const recovery = recoveringReplyTurn?.conversationId === exactId ? recoveringReplyTurn : null
+          const finalAgentReplies = latestMessages.filter(message => message.sender === 'AGENT' && !message.streaming &&
+            String(message.content || '').trim() && (!recovery || !recovery.baselineMessageIds.has(exactMessageId(message))))
+          loadedConversationScopeSignature = scopeSignature(expectedScope)
+          const activeTurnForConversation = Boolean(activeBuiltInTurn && activeBuiltInTurn.conversationId === exactId)
+          finalAgentReplies.forEach(message => {
+            if (!stageActiveBuiltInFinal({ message, source: 'poll_final', replyConversationId: exactId })) {
+              notifyFinalReply({ message, source: 'poll_final', replyConversationId: exactId })
+            }
+          })
+          if (recovery) {
+            if (finalAgentReplies.length) {
+              recoveringReplyTurn = null
+              isAwaitingReply.value = false
+              isStreaming.value = false
+              if (!durableBusy.value) stopHallReplyPolling()
+            } else {
+              isAwaitingReply.value = true
+              isStreaming.value = false
+              messages.value.push({
+                localId: `recovery-${exactId}`, sender: 'SYSTEM',
+                content: '正在核对原话头，尚无可核验的最终回话；请勿重复发送。',
+                timestamp: Date.now(), streaming: false
+              })
+            }
+          } else if (activeTurnForConversation) {
+            isAwaitingReply.value = true
+            isStreaming.value = true
+          } else if (hasResolvedAgentReply(messages.value)) {
+            isAwaitingReply.value = false
+            isStreaming.value = false
+            if (!durableBusy.value) stopHallReplyPolling()
+          }
+          if (activeRequest.value?.requestId) syncDurablePresentation()
+          if (isSelectedLoad) conversationLoadError.value = ''
+          loaded = true
+          if (guard.resumeEvents !== false) startHallEventStream()
+        },
+        onError: failContentLoad
+      })
+      if (!loaded && !contentFailed && isCurrentContentLoad()) failContentLoad(new Error('Hall conversation content response was empty'))
+      return loaded && isCurrentContentLoad()
+    } catch (error) {
+      failContentLoad(error)
+      return false
+    } finally {
+      if ((isSelectedLoad || restoreRequest) && isCurrentContentLoad()) isConversationLoading.value = false
+    }
+  }
+
+  const performHallMessagesLoad = async (expectedScope, loadGeneration) => {
+    const generation = lifecycleGeneration
+    const expectedSignature = scopeSignature(expectedScope)
+    const isCurrentLoad = () => (
+      !disposed &&
+      generation === lifecycleGeneration &&
+      loadGeneration === hallConversationLoadGeneration &&
+      sameScope(expectedScope) &&
+      !suppressedRestoreScopes.has(expectedSignature)
+    )
+    stopHallEventStream()
+    stopHallReplyStreaming()
+    stopHallReplyPolling()
+    conversationId.value = ''
+    selectedHallConversationId.value = ''
+    conversationLoadError.value = ''
+    messages.value = []
+    isAwaitingReply.value = false
+    isStreaming.value = false
+    try {
+      let callbackResult
+      const response = await chatApi.list('/conversation/list', {
+        pageNum: 1,
+        pageSize: 1,
+        orderBy: 'update_time desc',
+        search: {
+          conversationType: 'juyiting',
+          conversationScopeType: expectedScope.type,
+          conversationScopeKey: expectedScope.key
+        }
+      }, {
+        autoLoading: false,
+        signal: lifecycleController.signal,
+        onSuccess: result => { callbackResult = result }
+      })
+      if (!isCurrentLoad()) return false
+      const result = callbackResult ?? response
+      if (!Array.isArray(result?.items)) return false
+      const hallConversation = result.items[0]
+      if (!hallConversation) return false
+      if (hallConversation.conversationType !== 'juyiting' ||
+          hallConversation.conversationScopeType !== expectedScope.type ||
+          hallConversation.conversationScopeKey !== expectedScope.key) return false
+      const id = exactRuntimeId(hallConversation.id)
+      if (!id) return false
+      selectedHallConversationId.value = id
+      conversationId.value = id
+      return loadHallConversationContent(id, { loadGeneration, scope: expectedScope })
+    } catch (error) {
+      if (error?.name !== 'AbortError' && isCurrentLoad()) log.warn('加载聚义厅会话失败', error)
+      return false
+    }
+  }
+
+  const loadHallMessages = ({ force = false } = {}) => {
+    if (disposed || isAdoptingBountyBootstrap.value) return Promise.resolve(false)
+    const expectedScope = scopeSnapshot()
+    if (!expectedScope) return Promise.resolve(false)
+    const expectedSignature = scopeSignature(expectedScope)
+    if (suppressedRestoreScopes.has(expectedSignature)) return Promise.resolve(false)
+    if (!force && loadedConversationScopeSignature === expectedSignature && conversationId.value) {
+      startHallEventStream()
+      return Promise.resolve(true)
+    }
+    if (pendingHallConversationLoad?.signature === expectedSignature) return pendingHallConversationLoad.promise
+
+    const loadGeneration = invalidateConversationLoads()
+    const promise = performHallMessagesLoad(expectedScope, loadGeneration)
+    pendingHallConversationLoad = { signature: expectedSignature, promise }
+    return promise.finally(() => {
+      if (pendingHallConversationLoad?.promise === promise) pendingHallConversationLoad = null
+    })
+  }
+
+  const readHistoryRows = result => Array.isArray(result?.items) ? result.items : []
+
+  const loadHallConversationHistory = ({ force: _force = false, loadMore = false } = {}) => {
+    if (disposed) return Promise.resolve([])
+    const expectedScope = scopeSnapshot()
+    if (!expectedScope || conversationHistoryDeletingId.value || (loadMore && !conversationHistoryHasMore.value)) return Promise.resolve([])
+    const expectedSignature = scopeSignature(expectedScope)
+    if (pendingHallConversationHistoryLoad?.signature === expectedSignature) return pendingHallConversationHistoryLoad.promise
+
+    const generation = lifecycleGeneration
+    const historyGeneration = invalidateConversationHistoryLoads()
+    const pageNum = loadMore ? conversationHistoryPage.value + 1 : 1
+    const isCurrentHistoryLoad = () => (
+      !disposed &&
+      generation === lifecycleGeneration &&
+      historyGeneration === hallConversationHistoryGeneration &&
+      sameScope(expectedScope)
+    )
+    if (!loadMore) {
+      conversationHistory.value = []
+      conversationHistoryPage.value = 0
+      conversationHistoryHasMore.value = true
+    }
+    conversationHistoryLoading.value = true
+    conversationHistoryError.value = ''
+    const promise = (async () => {
+      try {
+        let callbackResult
+        const response = await chatApi.list('/conversation/list', {
+          pageNum,
+          pageSize: HALL_HISTORY_PAGE_SIZE,
+          orderBy: 'update_time desc',
+          search: {
+            conversationType: 'juyiting',
+            conversationScopeType: expectedScope.type,
+            conversationScopeKey: expectedScope.key
+          }
+        }, {
+          autoLoading: false,
+          signal: lifecycleController.signal,
+          onSuccess: result => { callbackResult = result }
+        })
+        if (!isCurrentHistoryLoad()) return []
+        const rawRows = readHistoryRows(callbackResult ?? response)
+        const nextRows = rawRows.map(row => normalizeHallConversationHistory(row, expectedScope)).filter(Boolean)
+        const merged = loadMore ? [...conversationHistory.value] : []
+        const seen = new Set(merged.map(item => item.id))
+        nextRows.forEach(item => {
+          if (seen.has(item.id)) return
+          seen.add(item.id)
+          merged.push(item)
+        })
+        conversationHistory.value = merged
+        conversationHistoryPage.value = pageNum
+        // The current service loses true PageInfo totals; raw page fullness is authoritative.
+        conversationHistoryHasMore.value = rawRows.length === HALL_HISTORY_PAGE_SIZE
+        return conversationHistory.value
+      } catch (error) {
+        if (error?.name !== 'AbortError' && isCurrentHistoryLoad()) {
+          log.warn('加载聚义厅话头记录失败', error)
+          conversationHistoryError.value = '旧话头暂不可取，请稍后重试。'
+        }
+        return []
+      } finally {
+        if (isCurrentHistoryLoad()) conversationHistoryLoading.value = false
+      }
+    })()
+    pendingHallConversationHistoryLoad = { signature: expectedSignature, promise }
+    return promise.finally(() => {
+      if (pendingHallConversationHistoryLoad?.promise === promise) pendingHallConversationHistoryLoad = null
+    })
+  }
+
+  const loadMoreHallConversationHistory = () => loadHallConversationHistory({ loadMore: true })
+
+  const deleteHallConversation = async (id) => {
+    if (scopeSnapshot()?.type === 'bounty') return false
+    if (disposed || isConversationBusy.value || conversationHistoryLoading.value || conversationHistoryDeletingId.value) return false
+    const expectedScope = scopeSnapshot()
+    const exactId = exactRuntimeId(id)
+    if (!expectedScope || !exactId || !conversationHistory.value.some(item => item.id === exactId)) return false
+
+    const generation = lifecycleGeneration
+    const expectedSignature = scopeSignature(expectedScope)
+    invalidateConversationHistoryLoads()
+    pendingHallConversationHistoryLoad = null
+    conversationHistoryLoading.value = false
+    conversationHistoryDeletingId.value = exactId
+    conversationHistoryError.value = ''
+    try {
+      await chatApi.delete('/conversation/delete', exactId, {
+        autoLoading: false,
+        signal: lifecycleController.signal
+      })
+      if (disposed || generation !== lifecycleGeneration || !sameScope(expectedScope)) return false
+
+      conversationHistory.value = conversationHistory.value.filter(item => item.id !== exactId)
+      conversationHistoryDeletingId.value = ''
+      if (conversationId.value === exactId) {
+        newHallConversation({ notify: false })
+        showToast('话头已删除，已另起新话头')
+      } else {
+        showToast('旧话头已删除')
+      }
+      if (!disposed && sameScope(expectedScope) && scopeSignature(scopeSnapshot()) === expectedSignature) {
+        await loadHallConversationHistory({ force: true })
+      }
+      return true
+    } catch (error) {
+      if (error?.name !== 'AbortError' && !disposed && generation === lifecycleGeneration && sameScope(expectedScope)) {
+        log.warn('删除聚义厅话头失败', error)
+        showToast('删除话头未成，请稍后重试')
+      }
+      return false
+    } finally {
+      if (conversationHistoryDeletingId.value === exactId) conversationHistoryDeletingId.value = ''
+    }
+  }
+
+  const selectHallConversation = async (id) => {
+    if (disposed || isConversationBusy.value) return false
+    const expectedScope = scopeSnapshot()
+    const exactId = exactRuntimeId(id)
+    if (!expectedScope || !exactId || !conversationHistory.value.some(item => item.id === exactId)) return false
+
+    saveThreadDraft()
+    restoreThreadDraft(exactId)
+    const loadGeneration = invalidateConversationLoads()
+    pendingHallConversationLoad = null
+    loadedConversationScopeSignature = ''
+    resetLifecycle()
+    stopHallEventStream()
+    stopHallReplyStreaming()
+    stopHallReplyPolling()
+    stopHallConversationSync()
+    selectedHallConversationId.value = exactId
+    conversationId.value = exactId
+    messages.value = []
+    isStreaming.value = false
+    isAwaitingReply.value = false
+    clearBuiltInTurn()
+    return loadHallConversationContent(exactId, { loadGeneration, scope: expectedScope, selection: true })
+  }
+
+  const retryHallConversation = async () => {
+    resetHallEventRecovery()
+    if (conversationLoadError.value && selectedHallConversationId.value) return selectHallConversation(selectedHallConversationId.value)
+    const guard = captureGuard()
+    const requestId = activeRequest.value?.requestId
+    if (requestId) await recoverUnknownRequest(requestId, guard)
+    if (!guardCurrent(guard) || activeRequest.value?.requestId !== requestId) return false
+    return loadHallMessages({ force: true })
+  }
+
+  const startHallReplyPolling = (id = conversationId.value) => {
+    if (disposed || typeof id !== 'string' || !id) return
+    const generation = lifecycleGeneration
+    stopHallReplyPolling()
+    const guard = captureGuard()
+    const replyGeneration = hallReplyGeneration
+    const sendToken = activeSendToken
+    const pollCurrent = () => guardCurrent(guard) && generation === lifecycleGeneration &&
+      replyGeneration === hallReplyGeneration && (!activeSendToken || activeSendToken === sendToken) && conversationId.value === id
+    let inFlight = false
+    const tick = async () => {
+      if (hallReplyPollTimer !== timer || inFlight || !isPageVisible()) return
+      if (!pollCurrent() || !isAwaitingReply.value) {
+        if (hallReplyPollTimer === timer) stopHallReplyPolling()
+        return
+      }
+      inFlight = true
+      try {
+        // Current protocol completion comes from the request, not just a message in history.
+        if (activeRequest.value?.requestId) await recoverUnknownRequest(activeRequest.value.requestId, guard)
+        if (!pollCurrent()) return
+        await loadHallConversationContent(id)
+      } finally {
+        inFlight = false
+      }
+    }
+    const timer = window.setInterval(tick, 2000)
+    hallReplyPollTimer = timer
+    hallReplyPollTick = () => { void tick() }
+  }
+
+  const scheduleHallConversationSync = (id) => {
+    if (disposed || !id) return
+    const generation = lifecycleGeneration
+    const replyGeneration = hallReplyGeneration
+    const sendToken = activeSendToken
+    const schedule = delay => {
+      const timer = window.setTimeout(() => {
+        hallSyncTimers = hallSyncTimers.filter(item => item !== timer)
+        if (!disposed && generation === lifecycleGeneration && replyGeneration === hallReplyGeneration &&
+            (!activeSendToken || activeSendToken === sendToken) && conversationId.value === id) {
+          loadHallConversationContent(id)
+        }
+      }, delay)
+      hallSyncTimers.push(timer)
+    }
+    schedule(1500)
+    schedule(5000)
+  }
+
+  const newHallConversation = ({ notify = true } = {}) => {
+    // Task discussion reuses its bound conversation; preserve drafts and active work.
+    if (scopeSnapshot()?.type === 'bounty') return false
+    saveThreadDraft()
+    restoreThreadDraft(null)
+    const currentScopeSignature = scopeSignature(scopeSnapshot())
+    if (currentScopeSignature) suppressedRestoreScopes.add(currentScopeSignature)
+    invalidateConversationLoads()
+    invalidateConversationHistoryLoads()
+    pendingHallConversationLoad = null
+    pendingHallConversationHistoryLoad = null
+    conversationHistoryLoading.value = false
+    conversationHistoryError.value = ''
+    conversationLoadError.value = ''
+    isConversationLoading.value = false
+    selectedHallConversationId.value = ''
+    loadedConversationScopeSignature = ''
+    resetLifecycle()
+    stopHallEventStream()
+    stopHallReplyStreaming()
+    stopHallReplyPolling()
+    stopHallConversationSync()
+    conversationId.value = ''
+    messages.value = []
+    isStreaming.value = false
+    isAwaitingReply.value = false
+    clearBuiltInTurn()
+    recoveringReplyTurn = null
+    if (notify) showToast('已另起厅前话头')
+  }
+
+  const processStream = (eventData) => {
+    const raw = String(eventData || '').replace(/^data:\s?/, '').trim()
+    let event = null
+    try { event = JSON.parse(raw) } catch { /* legacy text stream */ }
+    if (event && typeof event === 'object' && !Array.isArray(event)) {
+      const durableEvent = Boolean(event.requestId || event.turnId || event.agentDelivery ||
+        ['chat_request_replay', 'agent_message_delta', 'agent_message', 'resync_required'].includes(event.type))
+      if (durableEvent && !Object.hasOwn(event, 'conversationId') && conversationId.value) event.conversationId = conversationId.value
+      if (durableEvent && event.conversationId && conversationId.value && event.conversationId !== conversationId.value) {
+        void authoritativeResync(conversationId.value, 'conversation_conflict')
+        return false
+      }
+      // Stream replies can also carry replayed media events. Never consume a scoped
+      // part as a status-only request update; the same reducer handles SSE and stream.
+      if (isMessagePartEvent(event) || event.type === 'execution_abandoned') return appendHallEventMessage(event)
+      if (event.agentDelivery || event.type === 'chat_request_replay' || (event.requestId && !['agent_message_delta', 'agent_message', 'resync_required'].includes(event.type))) {
+        const handled = applyDeliberationEvent(event)
+        const deliveryState = String(event.agentDelivery?.state || event.state || '').toUpperCase()
+        const actuallyDelivered = event.agentDelivery?.delivered === true || deliveryState === 'DISPATCHED'
+        if (event.agentDelivery && (event.agentDelivery.accepted === true || actuallyDelivered)) {
+          isSubmitting.value = false
+          if (actuallyDelivered) {
+            onDelivery?.({ agentId: event.agentDelivery.agentId || event.agentId || '', requestId: event.requestId || '', turnId: event.turnId || event.agentDelivery.turnId || '' })
+          }
+        }
+        if (event.agentDelivery && event.agentDelivery.accepted !== true && !actuallyDelivered) {
+          const state = { conversationId: conversationId.value, messages: messages.value, isAwaitingReply: isAwaitingReply.value, isStreaming: isStreaming.value, turnStates, manageTurnBusy: true }
+          const result = appendStreamPayload(state, JSON.stringify(event))
+          conversationId.value = state.conversationId
+          messages.value = state.messages
+          if (result.shouldReconnect) { startHallEventStream(); scheduleHallConversationSync(result.conversationId) }
+        }
+        if (event.agentDelivery?.accepted === true && event.requestId) {
+          scheduleAuthoritativeRequestReadback(event.requestId, { immediate: true })
+        }
+        syncDurablePresentation()
+        return handled
+      }
+      if (event.type === 'agent_message' && activeBuiltInTurn) {
+        const needsReadback = needsUnversionedTurnReadback(event)
+        isSubmitting.value = false
+        applyDeliberationEvent(event)
+        const state = { conversationId: conversationId.value, messages: messages.value, isAwaitingReply: isAwaitingReply.value,
+          isStreaming: isStreaming.value, turnStates, manageTurnBusy: Boolean(activeRequest.value?.requestId) }
+        const result = appendStreamPayload(state, JSON.stringify(event))
+        conversationId.value = state.conversationId; messages.value = state.messages
+        isAwaitingReply.value = state.isAwaitingReply; isStreaming.value = state.isStreaming
+        if (result.type === 'stream_final' && result.message?.content) {
+          streamFinalCandidate = { message: result.message, conversationId: result.conversationId, toastName: result.toastName }
+          if ((!activeSendSession?.roundCloseout || activeSendSession.requestId !== event.requestId) && needsReadback) scheduleAuthoritativeRequestReadback(event.requestId, { immediate: true })
+        }
+        syncDurablePresentation()
+        return result.type === 'stream_final'
+      }
+      if (['agent_message_delta', 'agent_message', 'resync_required'].includes(event.type)) {
+        isSubmitting.value = false
+        return appendHallEventMessage(event)
+      }
+    }
+    const state = {
+      conversationId: conversationId.value, messages: messages.value,
+      isAwaitingReply: isAwaitingReply.value, isStreaming: isStreaming.value, turnStates,
+      manageTurnBusy: Boolean(activeRequest.value?.requestId)
+    }
+    const result = appendStreamPayload(state, eventData, globalStore.getJiacn)
+    conversationId.value = state.conversationId
+    messages.value = state.messages
+    isAwaitingReply.value = state.isAwaitingReply
+    isStreaming.value = state.isStreaming
+    if (result.shouldStopPolling && !durableBusy.value) stopHallReplyPolling()
+    if (result.type === 'assistant' && result.message?.content) streamFinalCandidate = { message: result.message, conversationId: null, toastName: result.toastName }
+    if (result.type === 'stream_final' && result.message?.content) streamFinalCandidate = { message: result.message, conversationId: result.conversationId, toastName: result.toastName }
+    if (result.type === 'conversation') { suppressedRestoreScopes.delete(scopeSignature(scopeSnapshot())); resolveBuiltInTurnConversation(result.conversationId) }
+    if (result.shouldReconnect) { startHallEventStream(); scheduleHallConversationSync(result.conversationId) }
+    return !['invalid_conversation', 'invalid_message_id'].includes(result.type)
+  }
+
+  const currentSendSession = session => Boolean(session && activeSendSession === session &&
+    activeSendToken === session.token && !session.terminalConfirmed && guardCurrent(session.guard) && session.replyGeneration === hallReplyGeneration)
+
+  const bindSendEvent = (session, event) => {
+    if (event.requestRevision !== undefined && event.requestRevision !== session.requestRevision) return false
+    const id = event.conversationId === undefined ? '' : exactRuntimeId(event.conversationId)
+    const generation = event.conversationGeneration === undefined ? '' : canonicalWireString(event.conversationGeneration)
+    if ((event.conversationId !== undefined && !id) || (event.conversationGeneration !== undefined && !generation) ||
+        (id && session.conversationId && id !== session.conversationId) ||
+        (generation && session.conversationGeneration && generation !== session.conversationGeneration)) return false
+    if (id) session.conversationId = id
+    if (generation) session.conversationGeneration = generation
+    const turnId = event.turnId || event.agentDelivery?.turnId
+    if (typeof turnId === 'string' && turnId) session.expectedTurnIds.add(turnId)
+    return true
+  }
+
+  const localRequestViewMatches = (session, view) => {
+    if (!currentSendSession(session) || !view || Array.isArray(view) || view.requestId !== session.requestId ||
+        view.requestRevision !== session.requestRevision || !canonicalWireString(view.stateVersion, { allowZero: true }) ||
+        typeof view.conversationId !== 'string' || !exactRuntimeId(view.conversationId) || !canonicalWireString(view.conversationGeneration) ||
+        (session.conversationId && view.conversationId !== session.conversationId) ||
+        (conversationId.value && view.conversationId !== conversationId.value) ||
+        (session.conversationGeneration && view.conversationGeneration !== session.conversationGeneration) ||
+        !Array.isArray(view.turns)) return false
+    const previousVersion = canonicalWireString(activeRequest.value?.stateVersion, { allowZero: true })
+    if (previousVersion && BigInt(view.stateVersion) < BigInt(previousVersion)) return false
+    const ids = new Set()
+    for (const turn of view.turns) {
+      if (typeof turn?.turnId !== 'string' || !turn.turnId || ids.has(turn.turnId) ||
+          turn.requestId !== view.requestId || turn.requestRevision !== view.requestRevision ||
+          turn.conversationId !== view.conversationId || turn.conversationGeneration !== view.conversationGeneration ||
+          typeof turn.targetAgentId !== 'string' || !turn.targetAgentId ||
+          !canonicalWireString(turn.stateVersion, { allowZero: true }) ||
+          !canonicalWireString(turn.lastDeltaSeq, { allowZero: true }) ||
+          (turn.finalMessageId != null && !exactRuntimeId(turn.finalMessageId))) return false
+      const previous = activeTurns.value.find(item => item.turnId === turn.turnId)
+      if (previous?.stateVersion && BigInt(turn.stateVersion) < BigInt(previous.stateVersion)) return false
+      ids.add(turn.turnId)
+    }
+    return [...session.expectedTurnIds].every(id => ids.has(id))
+  }
+
+  const closeSendTransport = (session, reason, { abort = true } = {}) => {
+    if (!session || session.transportClosed) return
+    session.transportClosed = true
+    session.closeReason = reason
+    const error = new DOMException(`Hall reply ${reason}`, 'AbortError')
+    if (abort) {
+      session.controller.abort(error)
+      // Reader cancellation is transport cleanup, never cancellation of durable work.
+      try { Promise.resolve(session.streamHandle?.cancel?.(error)).catch(() => {}) } catch { /* already closed */ }
+    }
+    if (hallReplyController === session.controller) hallReplyController = null
+    if (hallReplyStreamHandle === session.streamHandle) hallReplyStreamHandle = null
+    session.signalCleanup?.()
+    if (hallReplySignalCleanup === session.signalCleanup) hallReplySignalCleanup = null
+    session.signalCleanup = null
+    if (reason === 'identity-change') session.resolveCompletion(false)
+  }
+
+  const publishStreamFinals = () => {
+    const finalized = streamFinalCandidate
+    const completedTurn = activeBuiltInTurn
+    clearBuiltInTurn()
+    const id = conversationId.value
+    if (finalized?.message?.content && id && (!finalized.conversationId || finalized.conversationId === id)) {
+      if (finalized.toastName) showToast(`${finalized.toastName} 已回话`)
+      notifyFinalReply({ message: finalized.message, source: 'stream_end', replyConversationId: id })
+    }
+    completedTurn?.stagedFinals.forEach(staged => {
+      if (staged.toastName && !observedFinalReplyIds.has(exactMessageId(staged.message))) showToast(`${staged.toastName} 已回话`)
+      notifyFinalReply({ message: staged.message, source: staged.source, replyConversationId: staged.conversationId })
+    })
+  }
+
+  const settleCurrentRequest = (session, view) => {
+    if (session?.settlePromise) return session.settlePromise
+    if (!localRequestViewMatches(session, view) ||
+        !['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(view.state) || !view.turns.length ||
+        !view.turns.every(turn => isTerminalTurnState(turn.state)) ||
+        ![...session.expectedTargetIds].every(id => view.turns.some(turn => turn.targetAgentId === id))) return null
+    session.terminalConfirmed = true
+    session.commitSentMetadata()
+    stopHallReplyPolling()
+    closeSendTransport(session, 'request-terminal')
+    activeSendToken = null
+    activeSendSession = null
+    hasPendingSendSession.value = false
+    isSubmitting.value = false
+    syncDurablePresentation()
+    publishStreamFinals()
+    session.resolveCompletion(!session.transportFailed)
+    const missingFinals = () => view.turns.some(turn => ['FINAL_PERSISTED', 'PUBLISHED'].includes(turn.state) &&
+      (!turn.finalMessageId || !messages.value.some(message => exactMessageId(message) === turn.finalMessageId &&
+        !message.streaming && String(message.content || '').trim())))
+    const stillThisRound = () => guardCurrent(session.guard) && session.replyGeneration === hallReplyGeneration &&
+      activeRequest.value?.requestId === session.requestId && conversationId.value === view.conversationId && !activeSendToken
+    // History recovery cannot hold the send lock or reclassify the durable terminal state.
+    session.settlePromise = stillThisRound() && missingFinals()
+      ? loadHallConversationContent(view.conversationId, { identity: session.guard, adoptionCurrent: stillThisRound }).then(loaded => {
+        if (stillThisRound() && (!loaded || missingFinals())) {
+          deliberationStatus.value = `${view.state === 'PARTIAL' ? '部分回话已完成；' : ''}回话已结束，正文加载待重试`
+        }
+        return true
+      })
+      : Promise.resolve(true)
+    return session.settlePromise
+  }
+
+  const performHallMessageSend = async ({
+    content: explicitContent,
+    contextSnapshot,
+    source = 'text',
+    clearDraftRevision,
+    onConversationResolved
+  } = {}, sendToken, content) => {
+    const isVoiceSend = source === 'voice'
+    let sendContext = contextSnapshot || currentChatContext.value
+    if (isVoiceSend) {
+      const validated = captureHallVoiceSnapshot({
+        context: contextSnapshot,
+        draft: contextSnapshot?.draft,
+        draftRevision: contextSnapshot?.draftRevision
+      })
+      if (!validated || validated.cas !== contextSnapshot?.cas || clearDraftRevision !== validated.draftRevision) return false
+      sendContext = validated
+    }
+    const requestConversationId = isVoiceSend ? sendContext.conversationId : conversationId.value
+    const sendScope = scopeSnapshot()
+    const sendGuard = captureGuard(sendScope)
+    try {
+      await negotiateCapabilities(sendGuard)
+      abortIfStale(sendGuard)
+    } catch (error) {
+      if (error?.name === 'AbortError') return false
+      log.warn('聚义厅协议确认失败', error)
+      deliberationStatus.value = '消息未发送，请稍后重试'
+      showToast(deliberationStatus.value)
+      return false
+    }
+    const metadataSource = isVoiceSend ? (sendContext.outgoingMetadata || {}) : (outgoingMetadata?.value || {})
+    const mentionAgentIds = Array.isArray(sendContext.mentionAgentIds) && sendContext.mentionAgentIds.length
+      ? sendContext.mentionAgentIds
+      : sendContext.targetAgentIds
+    const selectedAgentId = isVoiceSend ? sendContext.selectedAgentId : (Object.hasOwn(sendContext, 'selectedAgentId') ? sendContext.selectedAgentId : selectedAgent.value?.agentId)
+    const selectedTaskId = isVoiceSend ? sendContext.selectedTaskId : (Object.hasOwn(sendContext, 'selectedTaskId') ? sendContext.selectedTaskId : selectedTask.value?.id)
+    const requestId = sendToken.requestId
+    const requestRevision = '1'
+    const interactionHint = inputRefsFor(metadataSource).length ? 'inspect' : 'chat'
+    const request = { requestId, requestRevision, observations: [] }
+    recordObservation('send', request)
+    const replyGeneration = ++hallReplyGeneration
+    const session = {
+      token: sendToken, requestId, requestRevision, guard: sendGuard, replyGeneration,
+      // Bounty typed/action admission and media child requests keep their existing lifecycle.
+      roundCloseout: ['public', 'private'].includes(sendContext.conversationScopeType),
+      conversationId: requestConversationId || '',
+      conversationGeneration: activeRequest.value?.conversationId === requestConversationId
+        ? canonicalWireString(activeRequest.value.conversationGeneration) || '' : '',
+      expectedTurnIds: new Set(),
+      expectedTargetIds: new Set((sendContext.targetAgentIds?.length ? sendContext.targetAgentIds : [sendContext.targetAgentId]).filter(id => typeof id === 'string' && id)),
+      controller: new AbortController(), streamHandle: null, signalCleanup: null,
+      terminalConfirmed: false, transportFailed: false, transportClosed: false, closeReason: null, settlePromise: null
+    }
+    session.commitSentMetadata = () => {
+      if (isVoiceSend && draftRevision.value === clearDraftRevision) clearDraft()
+      if (outgoingMetadata) outgoingMetadata.value = {}
+    }
+    const completion = new Promise(resolve => { session.resolveCompletion = resolve })
+    activeSendSession = session
+    hasPendingSendSession.value = session.roundCloseout
+    const isCurrentReplyTurn = () => currentSendSession(session)
+    if (explicitContent === undefined) clearDraft()
+    stopHallReplyStreaming()
+    clearBuiltInTurn()
+    beginBuiltInTurn(requestConversationId)
+    localMessageSequence += 1
+    messages.value.push({
+      localId: `user-${Date.now()}-${localMessageSequence}`,
+      sender: 'USER',
+      senderName: '你',
+      isSelf: true,
+      content,
+      timestamp: Date.now(),
+      streaming: false
+    })
+    isStreaming.value = false
+    isAwaitingReply.value = false
+    activeRequest.value = { ...request, state: 'SUBMITTING' }
+    activeTurns.value = []
+    stopHallReplyPolling()
+
+    hallReplyController = session.controller
+    const replySignal = combineAbortSignals({ signals: [lifecycleController.signal, hallReplyController.signal] })
+    session.signalCleanup = replySignal.cleanup
+    hallReplySignalCleanup = session.signalCleanup
+
+    try {
+      const safeMetadata = safeOutgoingMetadata(metadataSource)
+      const body = {
+        requestId, requestRevision, interactionHint,
+        clientSeenVector: seenVector(), inputRefs: inputRefsFor(metadataSource),
+        content,
+        conversationId: requestConversationId,
+        conversationType: 'juyiting',
+        conversationScopeType: sendContext.conversationScopeType,
+        conversationScopeKey: sendContext.conversationScopeKey,
+        targetAgentIds: sendContext.targetAgentIds,
+        targetAgentId: sendContext.targetAgentId,
+        taskId: sendContext.taskId,
+        metadata: {
+          ...safeMetadata,
+          scene: 'juyiting',
+          scopeKey: sendContext.conversationScopeKey,
+          selectedAgentId,
+          mentionAgentIds,
+          participantAgentIds: sendContext.participantAgentIds,
+          targetAgentIds: sendContext.targetAgentIds,
+          selectedTaskId
+        }
+      }
+      let streamRequestId
+      const streamDecoder = createChatStreamDecoder()
+      const transport = chatApi.create('/stream', body, {
+        responseType: 'stream',
+        autoLoading: false,
+        timeout: 1800000,
+        signal: replySignal.signal,
+        headers: { 'Idempotency-Key': requestId },
+        onStreamOpen: (handle, response) => {
+          streamRequestId = response.headers.get('x-request-id')
+          if (!isCurrentReplyTurn()) {
+            handle.cancel?.(new DOMException('Stale Hall reply stream', 'AbortError'))
+            return
+          }
+          session.streamHandle = handle
+          hallReplyStreamHandle = handle
+        },
+        onStream: eventData => {
+          if (!isCurrentReplyTurn()) return
+          const event = streamDecoder.accept(eventData, streamRequestId)
+          if (!event) return
+          const conversationReplay = isMessagePartEvent(event) || event?.type === 'execution_abandoned'
+          if (session.roundCloseout && !conversationReplay && event && typeof event === 'object' && event.requestId &&
+              (event.requestId !== session.requestId || !bindSendEvent(session, event))) return
+          const previousConversationId = conversationId.value
+          const accepted = processStream(JSON.stringify(event))
+          if (accepted) recordObservation('first_response', request)
+          if (conversationId.value && conversationId.value !== previousConversationId) onConversationResolved?.(conversationId.value)
+        },
+        onStreamEnd: () => {
+          if (!isCurrentReplyTurn()) return
+          streamDecoder.finish()
+          session.streamHandle = null
+          hallReplyStreamHandle = null
+          publishStreamFinals()
+          syncDurablePresentation()
+          // A final event has already arranged this GET (including its trailing rerun).
+          if (session.roundCloseout && (!session.terminalReadbackHint || !requestReadback.hasInFlight(requestId))) {
+            scheduleAuthoritativeRequestReadback(requestId, { immediate: true })
+          }
+          if (isAwaitingReply.value && conversationId.value) startHallReplyPolling(conversationId.value)
+        },
+        onError: (message, requestError) => {
+          if (!isCurrentReplyTurn() || requestError?.name === 'AbortError') return
+          throw requestError || new Error(message)
+        }
+      })
+      await Promise.race([transport, completion])
+      if (session.terminalConfirmed) return guardCurrent(sendGuard) && !session.transportFailed
+      if (!isCurrentReplyTurn()) return false
+      session.commitSentMetadata()
+      return true
+    } catch (error) {
+      if (session.terminalConfirmed) return guardCurrent(sendGuard) && !session.transportFailed
+      if (error?.name === 'AbortError' || !isCurrentReplyTurn()) return false
+      session.transportFailed = true
+      log.error('聚义厅消息发送失败', error)
+      recordObservation('network_unknown', request)
+      isStreaming.value = false
+      isAwaitingReply.value = false
+      deliberationStatus.value = '结果未知，正在核对原请求'
+      await recoverUnknownRequest(requestId, sendGuard)
+      if (!isCurrentReplyTurn()) return false
+      const exactId = exactRuntimeId(conversationId.value)
+      const stillBusy = hasPendingSendSession.value || deliberationBusy(activeRequest.value, activeTurns.value)
+      recoveringReplyTurn = exactId && stillBusy ? {
+        conversationId: exactId,
+        baselineMessageIds: new Set(activeBuiltInTurn?.baselineMessageIds || [])
+      } : null
+      clearBuiltInTurn()
+      if (exactId && stillBusy) {
+        isAwaitingReply.value = true
+        startHallEventStream()
+        startHallReplyPolling(exactId)
+        // Read only: the POST may have been accepted before the transport failed.
+        void loadHallConversationContent(exactId)
+      } else {
+        isAwaitingReply.value = false
+        stopHallReplyPolling()
+        if (exactId) void loadHallConversationContent(exactId)
+      }
+      localMessageSequence += 1
+      messages.value.push({
+        localId: `system-${Date.now()}-${localMessageSequence}`,
+        sender: 'SYSTEM',
+        content: exactId && stillBusy
+          ? '传令连接中断，正在原话头核对回话；请勿重复发送。'
+          : exactId ? '连接已中断，本轮已结束。' : '传令连接中断，结果未知；请从议事记录核对，勿直接重发。',
+        timestamp: Date.now(),
+        streaming: false
+      })
+      return false
+    } finally {
+      closeSendTransport(session, 'transport-end', { abort: false })
+      if (isCurrentReplyTurn()) isSubmitting.value = false
+    }
+  }
+
+  const sendHallMessage = async (options = {}) => {
+    const isVoiceSend = options.source === 'voice'
+    if (isVoiceSend && typeof options.content !== 'string') return false
+    const content = String((options.content ?? draft.value) || '').trim()
+    if (disposed || !content || activeSendToken || isConversationBusy.value || conversationLoadError.value) return false
+    const sendToken = Object.freeze({ requestId: createStableRequestId(), generation: lifecycleGeneration })
+    activeSendToken = sendToken
+    hasPendingSendSession.value = ['public', 'private'].includes(scopeSnapshot()?.type)
+    isSubmitting.value = true
+    deliberationStatus.value = '正在提交，等待受理'
+    try {
+      return await performHallMessageSend(options, sendToken, content)
+    } finally {
+      if (activeSendToken === sendToken && (!activeSendSession?.roundCloseout || activeSendSession.token !== sendToken)) {
+        activeSendToken = null
+        if (activeSendSession?.token === sendToken) activeSendSession = null
+        hasPendingSendSession.value = false
+        isSubmitting.value = false
+        if (!activeRequest.value?.requestId && !isAwaitingReply.value && !isStreaming.value && deliberationStatus.value === '正在提交，等待受理') {
+          deliberationStatus.value = ''
+        }
+      }
+    }
+  }
+
+  const applyRequestView = (requestView, requestId, { authoritative = false } = {}) => {
+    const session = activeSendSession?.roundCloseout && activeSendSession.requestId === requestId ? activeSendSession : null
+    if (session && authoritative && !localRequestViewMatches(session, requestView)) return false
+    if (!requestView || typeof requestView !== 'object' || requestView.requestId !== requestId) return false
+    const requestRevision = canonicalWireString(requestView.requestRevision)
+    const requestStateVersion = canonicalWireString(requestView.stateVersion, { allowZero: true })
+    const requestConversationId = exactRuntimeId(requestView.conversationId)
+    if ((requestView.requestRevision !== undefined && !requestRevision) ||
+        (requestView.stateVersion !== undefined && !requestStateVersion) ||
+        (requestView.conversationId !== undefined && !requestConversationId)) return false
+    const nextTurns = []
+    for (const turn of Array.isArray(requestView.turns) ? requestView.turns : []) {
+      if (typeof turn?.turnId !== 'string' || !turn.turnId || (turn.requestId && turn.requestId !== requestId)) return false
+      const stateVersion = canonicalWireString(turn.stateVersion, { allowZero: true })
+      const lastDeltaSeq = canonicalWireString(turn.lastDeltaSeq, { allowZero: true })
+      const turnRevision = canonicalWireString(turn.requestRevision)
+      const turnConversationId = exactRuntimeId(turn.conversationId)
+      const finalMessageId = turn.finalMessageId == null ? null : exactRuntimeId(turn.finalMessageId)
+      if ((turn.stateVersion !== undefined && !stateVersion) || (turn.lastDeltaSeq !== undefined && !lastDeltaSeq) ||
+          (turn.requestRevision !== undefined && !turnRevision) || (turn.conversationId !== undefined && !turnConversationId) ||
+          (turn.finalMessageId != null && !finalMessageId)) return false
+      const normalizedTurn = { ...turn, requestId, requestRevision: turnRevision, conversationId: turnConversationId,
+        stateVersion, lastDeltaSeq, finalMessageId }
+      const previous = activeTurns.value.find(item => item.turnId === turn.turnId)
+      const staleVersion = previous?.stateVersion && stateVersion && BigInt(stateVersion) < BigInt(previous.stateVersion)
+      if (staleVersion || (isTerminalTurnState(previous?.state) && !isTerminalTurnState(normalizedTurn.state))) {
+        nextTurns.push(previous)
+      } else {
+        nextTurns.push(normalizedTurn)
+      }
+    }
+    activeRequest.value = { ...(activeRequest.value || {}), ...requestView, requestId,
+      requestRevision, stateVersion: requestStateVersion, conversationId: requestConversationId }
+    activeTurns.value = nextTurns
+    for (const turn of activeTurns.value) {
+      const tracker = turnStates.get(turn.turnId) || { lastDeltaSeq: '0', waitingFinal: false, terminal: false }
+      tracker.lastDeltaSeq = turn.lastDeltaSeq || tracker.lastDeltaSeq
+      tracker.terminal = isTerminalTurnState(turn.state)
+      tracker.waitingFinal = String(turn.state || '').toUpperCase() === 'RECOVERY_REQUIRED'
+      turnStates.set(turn.turnId, tracker)
+    }
+    if (session && authoritative) {
+      session.conversationId = requestConversationId
+      session.conversationGeneration = requestView.conversationGeneration
+      for (const turn of nextTurns) session.expectedTurnIds.add(turn.turnId)
+      if (!conversationId.value) conversationId.value = requestConversationId
+      settleCurrentRequest(session, requestView)
+    }
+    syncDurablePresentation()
+    return true
+  }
+
+  // Typed receipt adoption has a narrower authority contract than the legacy request reducer.
+  // Validate the admitted receipt and its exact one-turn request before touching shared state.
+  const typedAcceptedReceipt = (receipt, context) => {
+    const fields = ['schemaVersion', 'intent', 'requestId', 'userMessageId', 'turnIds', 'state', 'stateVersion', 'eventCursor', 'statusUrl', 'typedOutcomeUrl', 'replay', 'pendingQuestionId']
+    if (!receipt || Array.isArray(receipt) || typeof receipt !== 'object' || Object.keys(receipt).length !== fields.length ||
+        Object.keys(receipt).some(key => !fields.includes(key)) || receipt.schemaVersion !== 3 ||
+        !['DISCUSSION', 'CLARIFICATION_REPLY'].includes(receipt.intent) || !typedId(receipt.requestId) ||
+        !canonicalWireString(receipt.userMessageId) || !Array.isArray(receipt.turnIds) || receipt.turnIds.length !== 1 ||
+        !typedId(receipt.turnIds[0]) || receipt.state !== 'ADMITTED' || receipt.stateVersion !== '0' ||
+        !canonicalWireString(receipt.eventCursor, { allowZero: true }) ||
+        receipt.statusUrl !== `/chat/requests/${receipt.requestId}` ||
+        receipt.typedOutcomeUrl !== `/chat/conversations/${context.conversationId}/requests/${receipt.requestId}/typed-outcome` ||
+        typeof receipt.replay !== 'boolean') return null
+    if ((receipt.intent === 'CLARIFICATION_REPLY' && !typedId(receipt.pendingQuestionId)) ||
+        (receipt.intent === 'DISCUSSION' && receipt.pendingQuestionId !== null)) return null
+    return receipt
+  }
+
+  const typedRequestStates = new Set(['RUNNING', 'PARTIAL', 'COMPLETED', 'FAILED', 'CANCELLED'])
+  const typedTerminalRequestStates = new Set(['COMPLETED', 'FAILED', 'CANCELLED'])
+  const typedTurnStates = new Set(['RECEIVED', 'QUEUED', 'DISPATCHED', 'STREAMING', 'FINAL_PERSISTED', 'PUBLISHED', 'UNKNOWN', 'RECOVERY_REQUIRED', 'FAILED', 'CANCELLED'])
+
+  const typedAdmittedRequest = (value, receipt, context) => {
+    const requestRevision = canonicalWireString(value?.requestRevision)
+    const requestStateVersion = canonicalWireString(value?.stateVersion, { allowZero: true })
+    if (!value || Array.isArray(value) || typeof value !== 'object' || value.requestId !== receipt.requestId ||
+        requestRevision !== '1' || !requestStateVersion || !typedRequestStates.has(value.state) ||
+        typeof value.conversationId !== 'string' || exactRuntimeId(value.conversationId) !== context.conversationId ||
+        canonicalWireString(value.conversationGeneration) !== context.conversationGeneration ||
+        canonicalWireString(value.userMessageId) !== receipt.userMessageId ||
+        !Array.isArray(value.turns) || value.turns.length !== 1) return null
+    const turn = value.turns[0]
+    if (!turn || Array.isArray(turn) || typeof turn !== 'object' || turn.turnId !== receipt.turnIds[0] ||
+        turn.requestId !== value.requestId || canonicalWireString(turn.requestRevision) !== requestRevision ||
+        typeof turn.conversationId !== 'string' || exactRuntimeId(turn.conversationId) !== value.conversationId ||
+        canonicalWireString(turn.conversationGeneration) !== value.conversationGeneration ||
+        typedId(turn.targetAgentId) !== context.targetAgentId || !typedTurnStates.has(turn.state) ||
+        !canonicalWireString(turn.stateVersion, { allowZero: true }) || !canonicalWireString(turn.lastDeltaSeq, { allowZero: true }) ||
+        (turn.finalMessageId !== null && (typeof turn.finalMessageId !== 'string' || exactRuntimeId(turn.finalMessageId) === ''))) return null
+    return value
+  }
+
+  const typedReadbackCanReplaceCurrent = requestView => {
+    const currentRequest = activeRequest.value
+    if (currentRequest?.requestId !== requestView.requestId) return true
+    const currentStateVersion = canonicalWireString(currentRequest.stateVersion, { allowZero: true })
+    const nextStateVersion = canonicalWireString(requestView.stateVersion, { allowZero: true })
+    if (!currentStateVersion || !nextStateVersion || BigInt(nextStateVersion) < BigInt(currentStateVersion)) return false
+    return !typedTerminalRequestStates.has(currentRequest.state) || typedTerminalRequestStates.has(requestView.state)
+  }
+
+  // Typed discussion is already durably admitted. Re-read its authoritative request and the
+  // same scoped conversation; never synthesize a user message or send a second POST.
+  const adoptTypedDiscussionReceipt = async ({ receipt, context, isCurrent = () => true } = {}) => {
+    const expectedConversationId = typeof context?.conversationId === 'string' ? exactRuntimeId(context.conversationId) : ''
+    const expectedTaskId = typedId(context?.taskId)
+    const expectedTargetAgentId = typedId(context?.targetAgentId)
+    const expectedGeneration = canonicalWireString(context?.conversationGeneration)
+    const expectedAssignmentRevision = canonicalWireString(context?.assignmentRevision, { allowZero: true })
+    const typedContext = expectedConversationId && expectedTaskId && expectedTargetAgentId && expectedGeneration && expectedAssignmentRevision
+      ? { conversationId: expectedConversationId, conversationGeneration: expectedGeneration, taskId: expectedTaskId, targetAgentId: expectedTargetAgentId } : null
+    const acceptedReceipt = typedContext ? typedAcceptedReceipt(receipt, typedContext) : null
+    const requestId = acceptedReceipt?.requestId || ''
+    // Browsing selection is independent from the conversation subject. Bind adoption to
+    // the roster-filtered active discussion, including actual target changes during GET.
+    const discussionMatches = () => conversationId.value === expectedConversationId &&
+      chatContext.value?.taskId === expectedTaskId &&
+      bountyInteractionTargetId(chatContext.value) === expectedTargetAgentId
+    if (disposed || !acceptedReceipt || !requestId || !discussionMatches()) return false
+    const guard = captureGuard()
+    const current = () => guardCurrent(guard) && isCurrent?.() && discussionMatches()
+    try {
+      const response = await chatApi.get(`/requests/${encodeURIComponent(requestId)}`, {}, {
+        autoLoading: false, signal: lifecycleController.signal
+      })
+      if (!current()) return false
+      const requestView = typedAdmittedRequest(apiData(response), acceptedReceipt, typedContext)
+      if (!requestView || !typedReadbackCanReplaceCurrent(requestView)) return false
+      const loadGeneration = invalidateConversationLoads()
+      if (!applyRequestView(requestView, requestId) || !current()) return false
+      selectedHallConversationId.value = expectedConversationId
+      conversationLoadError.value = ''
+      await loadHallConversationContent(expectedConversationId, {
+        loadGeneration, scope: guard.scope, selection: true, identity: guard, adoptionCurrent: current
+      })
+      // A content read error must not reclassify an accepted receipt as UNKNOWN or replay it.
+      return current() && activeRequest.value?.requestId === requestId
+    } catch (error) {
+      if (error?.name !== 'AbortError' && current()) log.warn('核对已受理自然议事失败', error)
+      return false
+    }
+  }
+
+  const adoptBountyBootstrap = async (value) => {
+    const reference = bountyBootstrapReference(value)
+    const contextMatches = () => bountyBootstrapContextMatches(chatContext?.value, selectedTask?.value, selectedAgent?.value, reference)
+    if (disposed || !reference || !contextMatches() || isAdoptingBountyBootstrap.value || activeSendToken || isSubmitting.value) return false
+    const retry = sameBountyBootstrapReference(adoptedBootstrap, reference) &&
+      activeRequest.value?.requestId === reference.initialRequestId && conversationId.value === reference.conversationId
+    if (!retry && (isConversationBusy.value || pendingHallConversationLoad ||
+        (activeRequest.value?.requestId && activeRequest.value.requestId !== reference.initialRequestId))) return false
+    const job = { guard: captureGuard(), requestBefore: activeRequest.value?.requestId || '' }
+    bootstrapAdoptionToken = job
+    isAdoptingBountyBootstrap.value = true
+    const current = () => bootstrapAdoptionToken === job && guardCurrent(job.guard) && contextMatches()
+    try {
+      const response = await chatApi.get(`/requests/${encodeURIComponent(reference.initialRequestId)}`, {}, {
+        autoLoading: false, signal: lifecycleController.signal
+      })
+      if (!current() || (activeRequest.value?.requestId || '') !== job.requestBefore) return false
+      const requestView = validateBountyBootstrapRequest(apiData(response), reference)
+      if (!requestView || (retry && !bootstrapReadbackIsCurrent(activeRequest.value, requestView))) return false
+      let loadGeneration
+      if (!retry) {
+        loadGeneration = invalidateConversationLoads()
+        invalidateConversationHistoryLoads()
+        pendingHallConversationLoad = null
+        pendingHallConversationHistoryLoad = null
+        conversationHistoryLoading.value = false
+        resetLifecycle({ keepBootstrapAdoption: true })
+        stopHallEventStream()
+        stopHallReplyStreaming()
+        stopHallReplyPolling()
+        stopHallConversationSync()
+        clearBuiltInTurn()
+        job.guard = captureGuard()
+        conversationId.value = reference.conversationId
+        selectedHallConversationId.value = reference.conversationId
+        loadedConversationScopeSignature = ''
+        messages.value = []
+        suppressedRestoreScopes.delete(job.guard.signature)
+      } else loadGeneration = invalidateConversationLoads()
+      // Keep the accepted server fact even if the separate history read fails.
+      if (!applyRequestView(requestView, reference.initialRequestId)) return false
+      adoptedBootstrap = reference
+      conversationLoadError.value = ''
+      const loaded = await loadHallConversationContent(reference.conversationId, {
+        loadGeneration, scope: job.guard.scope, selection: true, identity: job.guard,
+        adoptionCurrent: () => current() && activeRequest.value?.requestId === reference.initialRequestId
+      })
+      if (!current()) return false
+      if (!loaded && activeRequest.value?.requestId === reference.initialRequestId) {
+        conversationLoadError.value = '首轮需求已受理，历史暂不可取；请核对原请求，勿重复生成。'
+        isConversationLoading.value = false
+      }
+      return loaded && activeRequest.value?.requestId === reference.initialRequestId
+    } catch (error) {
+      if (error?.name !== 'AbortError' && current()) log.warn('核对悬赏议事首轮失败', error)
+      return false
+    } finally {
+      if (bootstrapAdoptionToken === job) {
+        bootstrapAdoptionToken = null
+        isAdoptingBountyBootstrap.value = false
+        isConversationLoading.value = false
+      }
+    }
+  }
+
+  const readUnknownRequestOnce = async (requestId, guard) => {
+    const expected = activeRequest.value
+    const sameBinding = value => value && expected && ['requestId', 'requestRevision', 'conversationId', 'conversationGeneration']
+      .every(key => expected[key] == null || value[key] === expected[key])
+    try {
+      abortIfStale(guard)
+      const response = await chatApi.get(`/requests/${encodeURIComponent(requestId)}`, {}, { autoLoading: false, signal: lifecycleController.signal })
+      abortIfStale(guard)
+      if (activeRequest.value?.requestId !== requestId || !sameBinding(activeRequest.value)) return false
+      let requestView = apiData(response)
+      if (!sameBinding(requestView)) return false
+      // The aggregate version and each turn belong to this exact request generation.
+      const currentVersion = canonicalWireString(activeRequest.value.stateVersion, { allowZero: true })
+      const nextVersion = canonicalWireString(requestView?.stateVersion, { allowZero: true })
+      if (currentVersion && (!nextVersion || BigInt(nextVersion) < BigInt(currentVersion))) return false
+      if (!deliberationBusy(activeRequest.value, activeTurns.value) && deliberationBusy(requestView, requestView.turns)) return false
+      if (!Array.isArray(requestView.turns) || requestView.turns.some(turn => !sameBinding(turn))) return false
+      if (adoptedBootstrap?.initialRequestId === requestId) {
+        if (!bountyBootstrapContextMatches(chatContext?.value, selectedTask?.value, selectedAgent?.value, adoptedBootstrap)) return false
+        requestView = validateBountyBootstrapRequest(requestView, adoptedBootstrap)
+        if (!requestView || !bootstrapReadbackIsCurrent(activeRequest.value, requestView)) return false
+      }
+      if (!applyRequestView(requestView, requestId, { authoritative: true })) return false
+      // Final-reply observers can synchronously switch identity or start another round.
+      if (!guardCurrent(guard) || activeRequest.value?.requestId !== requestId) return false
+      const id = typeof requestView?.conversationId === 'string' ? requestView.conversationId : conversationId.value
+      if (id) conversationId.value = id
+      if (!hasPendingSendSession.value && !deliberationBusy(activeRequest.value, activeTurns.value)) stopHallReplyPolling()
+      return true
+    } catch (error) {
+      if (error?.name === 'AbortError' || !guardCurrent(guard)) return false
+      deliberationStatus.value = '需要恢复核对'
+      return false
+    }
+  }
+
+  const recoverUnknownRequest = (requestId, guard = captureGuard()) => requestReadback.readNow(requestId, guard)
+  const scheduleAuthoritativeRequestReadback = (requestId, options) => requestReadback.schedule(requestId, options)
+
+  const authoritativeResync = (id = conversationId.value, reason = 'resync_required', { restartStream = true, clearCursor = true } = {}) => {
+    const exactId = exactRuntimeId(id)
+    if (!exactId || disposed) return Promise.resolve(false)
+    if (authoritativeResyncPromise) return authoritativeResyncPromise
+    const guard = captureGuard()
+    if (clearCursor) eventCursors.delete(exactId)
+    messages.value = messages.value.filter(message => !message.streaming)
+    for (const tracker of turnStates.values()) tracker.waitingFinal = true
+    deliberationStatus.value = '正在拉取权威状态'
+    stopHallEventTransport()
+    if (!restartStream) hallEventTerminal = true
+    authoritativeResyncPromise = (async () => {
+      try {
+        if (activeRequest.value?.requestId) await recoverUnknownRequest(activeRequest.value.requestId, guard)
+        abortIfStale(guard)
+        if (conversationId.value === exactId) await loadHallConversationContent(exactId)
+        abortIfStale(guard)
+        if (restartStream) {
+          resetHallEventRecovery()
+          startHallEventStream()
+        } else {
+          eventStreamRecovering.value = false
+          if (deliberationBusy(activeRequest.value, activeTurns.value)) startHallReplyPolling(exactId)
+        }
+        return true
+      } catch (error) {
+        if (error?.name !== 'AbortError' && guardCurrent(guard)) log.warn('聚义厅权威恢复失败', { reason, error })
+        return false
+      } finally {
+        if (guardCurrent(guard)) authoritativeResyncPromise = null
+      }
+    })()
+    return authoritativeResyncPromise
+  }
+
+  const authoritativeTurnView = (view, expectedRequestId, expectedTurnId) => {
+    if (!view || Array.isArray(view) || typeof view !== 'object' ||
+        view.requestId !== expectedRequestId || view.turnId !== expectedTurnId) return null
+    const requiredStrings = ['targetAgentId', 'contextSnapshotId', 'dispatchId', 'route', 'state']
+    if (requiredStrings.some(key => typeof view[key] !== 'string' || !view[key])) return null
+    const requestRevision = canonicalWireString(view.requestRevision)
+    const conversationId = exactRuntimeId(view.conversationId)
+    const conversationGeneration = canonicalWireString(view.conversationGeneration, { allowZero: true })
+    const stateVersion = canonicalWireString(view.stateVersion, { allowZero: true })
+    const lastDeltaSeq = canonicalWireString(view.lastDeltaSeq, { allowZero: true })
+    const createdAt = canonicalWireString(view.createdAt, { allowZero: true })
+    const updatedAt = canonicalWireString(view.updatedAt, { allowZero: true })
+    const finalMessageId = view.finalMessageId == null ? null : exactRuntimeId(view.finalMessageId)
+    if (!requestRevision || !conversationId || !conversationGeneration || !stateVersion || !lastDeltaSeq ||
+        !createdAt || !updatedAt || (view.finalMessageId != null && !finalMessageId)) return null
+    if (view.terminalReason != null && typeof view.terminalReason !== 'string') return null
+    return { ...view, requestRevision, conversationId, conversationGeneration, stateVersion, lastDeltaSeq,
+      finalMessageId, createdAt, updatedAt }
+  }
+
+  const cancelDeliberation = async target => {
+    const request = activeRequest.value
+    const pendingJob = cancellationJobs.get(request?.requestId) || savedCancellation()
+    const selectedTarget = pendingJob?.unknown ? pendingJob.target : (target && typeof target === 'object' ? target : durableCancelTarget.value)
+    if (!request?.requestId || !selectedTarget) return false
+    const requestId = request.requestId
+    const guard = captureGuard()
+    const originalConversationId = conversationId.value
+    const current = () => guardCurrent(guard) && activeRequest.value?.requestId === requestId && conversationId.value === originalConversationId
+    const previous = pendingJob
+    if (previous?.inFlight) return false
+    const job = reactive({ inFlight: true, unknown: previous?.unknown === true, target: selectedTarget })
+    cancellationJobs.set(requestId, job)
+    const persistenceKey = cancellationKey()
+    const notice = text => {
+      if (!current()) return
+      deliberationStatus.value = text
+      showToast(text)
+    }
+    const reconcile = async () => {
+      const recovered = await recoverUnknownRequest(requestId, guard)
+      if (!current()) return false
+      if (!recovered) {
+        job.unknown = true
+        notice('停止结果尚未确认，请再次核对；不会重复提交')
+        return false
+      }
+      const turns = selectedTarget.turnId
+        ? activeTurns.value.filter(turn => turn.turnId === selectedTarget.turnId)
+        : activeTurns.value
+      if (!turns.length) {
+        job.unknown = true
+        notice('停止结果尚未确认，请再次核对；不会重复提交')
+        return false
+      }
+      if (turns.every(turn => isTerminalTurnState(turn.state))) {
+        job.unknown = false
+        syncDurablePresentation()
+        showToast(turns.every(turn => turn.state === 'CANCELLED') ? '本轮回复已停止，可以继续发送消息' : '本轮回话已结束，保留已有回复，无需再次停止')
+        return true
+      }
+      // A fresh pending read cannot prove a lost cancellation write was rejected.
+      notice(job.unknown ? '停止结果尚未确认，请稍后再次核对；不会重复提交' : '回话状态已更新，尚未停止；如仍需停止，请再次点击')
+      return false
+    }
+    try {
+      if (job.unknown) return await reconcile()
+      let response
+      if (selectedTarget.turnId) {
+        const turn = activeTurns.value.find(item => item.turnId === selectedTarget.turnId)
+        if (!turn) return false
+        if (!isPendingTurn(turn)) return true
+        const expectedStateVersion = canonicalWireString(turn.stateVersion, { allowZero: true })
+        if (!expectedStateVersion) return false
+        saveCancellation(persistenceKey, selectedTarget)
+        response = await chatApi.post(`/turns/${turn.turnId}/cancel`, { expectedStateVersion }, { autoLoading: false, signal: lifecycleController.signal })
+        if (!current()) return false
+        const view = authoritativeTurnView(apiData(response), requestId, turn.turnId)
+        if (!view || view.conversationId !== originalConversationId ||
+            (request.conversationGeneration && view.conversationGeneration !== request.conversationGeneration)) {
+          job.unknown = true
+          notice('停止结果尚未确认，请再次核对；不会重复提交')
+          return false
+        }
+        if (BigInt(view.stateVersion) < BigInt(expectedStateVersion)) {
+          job.unknown = true
+          notice('停止结果尚未确认，请再次核对；不会重复提交')
+          return false
+        }
+        // Equal-version terminal replies are idempotent success, not stale failure.
+        if (!applyDeliberationEvent(view)) return await reconcile()
+        const applied = activeTurns.value.find(item => item.turnId === turn.turnId)
+        if (applied?.stateVersion !== view.stateVersion || applied?.state !== view.state) return await reconcile()
+        activeTurns.value = activeTurns.value.map(item => item.turnId === turn.turnId ? view : item)
+        const tracker = turnStates.get(turn.turnId) || { lastDeltaSeq: '0', waitingFinal: false, terminal: false }
+        tracker.lastDeltaSeq = view.lastDeltaSeq
+        tracker.waitingFinal = view.state === 'RECOVERY_REQUIRED'
+        tracker.terminal = isTerminalTurnState(view.state)
+        turnStates.set(turn.turnId, tracker)
+      } else if (selectedTarget.allPending === true) {
+        saveCancellation(persistenceKey, selectedTarget)
+        response = await chatApi.post(`/requests/${requestId}/cancel?allPending=true`, { allPending: true }, { autoLoading: false, signal: lifecycleController.signal })
+        if (!current()) return false
+        if (!applyRequestView(apiData(response), requestId)) {
+          job.unknown = true
+          notice('停止结果尚未确认，请再次核对；不会重复提交')
+          return false
+        }
+      } else return false
+      syncDurablePresentation()
+      if (deliberationBusy(activeRequest.value, activeTurns.value) || hasPendingSendSession.value) return await reconcile()
+      showToast(activeTurns.value.every(turn => turn.state === 'CANCELLED') ? '本轮回复已停止，可以继续发送消息' : '本轮回话已结束，保留已有回复')
+      return true
+    } catch (error) {
+      if (error?.name === 'AbortError' || !current()) return false
+      log.warn('取消聚义厅回话失败', error)
+      const status = error?.status ?? error?.response?.status
+      if (status === 409 || error?.code === 'CHAT_REQUEST_CONFLICT') return await reconcile()
+      job.unknown = !status || status >= 500
+      if (job.unknown) return await reconcile()
+      notice('停止失败，本轮回复尚未停止；请核对后重试')
+      return false
+    } finally {
+      if (!current()) job.unknown = true
+      job.inFlight = false
+      if (!job.unknown) saveCancellation(persistenceKey, null)
+      if (!job.unknown && cancellationJobs.get(requestId) === job) cancellationJobs.delete(requestId)
+    }
+  }
+
+  const insertAgentMention = (agent, suffix = '') => {
+    const mention = `@${portraitShortName(agent)}`
+    const current = draft.value.trim()
+    const replacement = suffix ? `${mention} ${suffix}` : `${mention} `
+    if (!current) {
+      setDraft(replacement)
+      return
+    }
+    if (current.includes(mention)) {
+      setDraft(suffix && current === mention ? `${mention} ${suffix}` : draft.value)
+      return
+    }
+    if (/(^|\s)@\S*$/.test(current)) {
+      setDraft(current.replace(/(^|\s)@\S*$/, (_, prefix) => `${prefix}${replacement}`))
+      return
+    }
+    setDraft(`${current} ${mention}${suffix ? ` ${suffix}` : ' '}`)
+  }
+
+  const mentionAgent = (agent) => {
+    selectedAgent.value = agent
+    insertAgentMention(agent)
+  }
+
+  const startAgentConversation = (agent) => {
+    if (!agent) return
+    if (chatMode) chatMode.value = 'private'
+    selectedAgent.value = agent
+    openPanel('chat')
+    showToast(`正与 ${portraitShortName(agent)} 密议`)
+  }
+
+  return {
+    adoptBountyBootstrap,
+    refreshExecutionRequest,
+    refreshHallProjections,
+    adoptTypedDiscussionReceipt,
+    isAdoptingBountyBootstrap,
+    cancelHallReplyTurn,
+    cancelDeliberation,
+    durableCancelTarget,
+    replyCancellationState,
+    activeRequest,
+    activeTurns,
+    capabilityState,
+    chatConnectionStatus,
+    deliberationStatus,
+    conversationHistory,
+    conversationHistoryDeletingId,
+    conversationHistoryError,
+    conversationHistoryHasMore,
+    conversationHistoryLoading,
+    conversationId,
+    conversationLoadError,
+    clearDraft,
+    disposeHallConversation,
+    draft,
+    draftRevision,
+    deleteHallConversation,
+    eventStreamRecovering,
+    insertAgentMention,
+    isAwaitingReply,
+    isConversationBusy,
+    isSubmitting,
+    isStreaming,
+    loadHallConversationHistory,
+    loadHallMessages,
+    loadMoreHallConversationHistory,
+    loadOlderHallMessages: messagePages.loadOlder,
+    messageWindows: messagePages.windows,
+    messageWindowLoading: messagePages.windowLoading,
+    messageWindowErrors: messagePages.windowErrors,
+    retainMessageWindows: messagePages.retainWindows,
+    loadMessageWindow: messagePages.loadWindow,
+    messageRequestPage: messagePages.requestPage,
+    messageTypedOutcomes: messagePages.typedOutcomes,
+    refreshHallMessagePage: () => loadHallConversationContent(),
+    messagePageHasMore: messagePages.hasMore,
+    messagePageLoading: messagePages.loading,
+    messagePageError: messagePages.error,
+    mentionAgent,
+    messages,
+    newHallConversation,
+    pendingAgentName,
+    replyEventSequence,
+    retryHallConversation,
+    sendHallMessage,
+    senderText,
+    selectHallConversation,
+    selectedHallConversationId,
+    setDraft,
+    startAgentConversation,
+    stopHallEventStream,
+    stopHallReplyPolling,
+    stopHallReplyStreaming
+  }
+}
+
+function createStableRequestId () {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+function isTerminalHallEventError (error) {
+  return error?.status === 401 || error?.status === 403
+}
+
+function isPageVisible () {
+  return !browserDocument() || browserDocument().visibilityState !== 'hidden'
+}
+
+function boundedJitter () {
+  const random = Math.random()
+  return typeof random === 'number' && random >= 0 && random <= 1 ? random : 0
+}
+
+function browserWindow () {
+  return typeof window === 'undefined' ? null : window
+}
+
+function browserDocument () {
+  return typeof document === 'undefined' ? null : document
+}

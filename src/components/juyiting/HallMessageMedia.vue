@@ -1,0 +1,147 @@
+<template>
+  <div class="media-asset">
+    <p v-if="error" role="alert">{{ error }}</p>
+    <template v-if="previewUrl && mediaKind === 'image'">
+      <button type="button" class="image-button" aria-label="放大查看图片" @click="expanded = true"><img :src="previewUrl" :alt="part.filename || '会话图片'" /></button>
+
+    </template>
+    <template v-else-if="mediaKind === 'image'"><span>{{ loading ? '正在读取图片…' : '图片暂不可预览，请打开预览后重试。' }}</span></template>
+    <template v-if="mediaKind === 'audio'">
+      <audio v-if="previewUrl" :src="previewUrl" controls controlslist="nodownload" preload="none" aria-label="会话音频" />
+      <button v-else type="button" :disabled="loading" @click="loadPreview">{{ loading ? '正在读取音频…' : '播放音频' }}</button>
+    </template>
+    <div class="media-actions" role="group" aria-label="成果操作">
+      <button type="button" :disabled="loading" @click="expanded = true">预览</button>
+      <slot name="actions"></slot>
+    </div>
+    <Teleport to="body">
+      <dialog v-if="expanded" ref="previewDialog" class="image-overlay" aria-label="会话资料预览" @cancel.prevent="expanded = false" @click="closeOnBackdrop">
+        <header><strong>{{ part.filename || '资料预览' }}</strong><button type="button" class="media-preview-close" aria-label="关闭预览" title="关闭预览" @click="expanded = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
+        <img v-if="previewUrl && mediaKind === 'image'" :src="previewUrl" :alt="part.filename || '会话图片'" />
+        <audio v-else-if="previewUrl && mediaKind === 'audio'" :src="previewUrl" controls controlslist="nodownload" preload="none" aria-label="音频预览" />
+        <RichDocumentPreview v-else-if="previewBlob && documentKind" :text="previewText" :kind="documentKind" :title="part.filename" />
+        <pre v-else-if="previewBlob && mediaKind === 'text'" class="asset-text-preview" v-text="previewText"></pre>
+        <PdfDocumentPreview v-else-if="previewBlob && mediaKind === 'pdf'" :blob="previewBlob" />
+        <p v-else>{{ loading ? '正在读取…' : '此格式暂不支持在线预览。' }}</p>
+        <p v-if="error" role="alert">{{ error }}</p>
+        <footer v-if="!previewBlob && (mediaKind !== 'file' || documentKind)"><button type="button" :disabled="loading" @click="loadPreview">重试预览</button></footer>
+      </dialog>
+    </Teleport>
+  </div>
+</template>
+<script setup>
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
+import { richDocumentKind } from '../../utils/richDocumentPreview.js'
+import PdfDocumentPreview from '../workspace/PdfDocumentPreview.vue'
+import { createApi } from '../../composables/useHttp.js'
+import { conversationAssetContentPath, safeAssetPreviewKind } from '../../composables/juyiting/hallMessageParts.js'
+
+const props = defineProps({
+  part: { type: Object, required: true },
+  conversationId: { type: String, required: true },
+  identityKey: { type: String, required: true }
+})
+const api = createApi('/chat')
+const previewUrl = ref('')
+const previewBlob = ref(null)
+const previewText = ref('')
+const loading = ref(false)
+const error = ref('')
+const expanded = ref(false)
+const previewDialog = ref(null)
+let previewReturnFocus = null
+const closeOnBackdrop = event => { if (event.target === previewDialog.value) expanded.value = false }
+watch(expanded, async opened => {
+  if (opened) {
+    previewReturnFocus = document.activeElement
+    await nextTick()
+    if (!expanded.value) return
+    previewDialog.value?.showModal?.()
+    previewDialog.value?.querySelector('button')?.focus()
+    void loadPreview()
+  } else {
+    await nextTick()
+    if (previewReturnFocus?.isConnected) previewReturnFocus.focus()
+  }
+})
+const documentKind = computed(() => props.part.kind === 'file' ? richDocumentKind(props.part.mime, props.part.filename) : '')
+const mediaKind = computed(() => safeAssetPreviewKind(props.part))
+let controller = null
+let requestGeneration = 0
+const discard = () => {
+  requestGeneration++
+  controller?.abort()
+  controller = null
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+  previewBlob.value = null
+  previewText.value = ''
+  expanded.value = false
+  loading.value = false
+  error.value = ''
+}
+const getBlob = async signal => {
+  const url = conversationAssetContentPath({ conversationId: props.conversationId, assetId: props.part.assetId })
+  const response = await api.execute({ url, method: 'GET', responseType: 'blob', autoLoading: false, needAuth: true, signal })
+  if (!(response instanceof Blob)) throw new Error('无法读取会话资产。')
+  return response
+}
+const loadPreview = async () => {
+  if (previewBlob.value || loading.value || (mediaKind.value === 'file' && !documentKind.value)) return
+  const generation = ++requestGeneration
+  controller?.abort()
+  const pending = new AbortController()
+  controller = pending
+  loading.value = true
+  error.value = ''
+  try {
+    const blob = await getBlob(pending.signal)
+    if (pending.signal.aborted || generation !== requestGeneration) return
+    const actualMime = String(blob.type || '').toLowerCase().split(';')[0].trim()
+    if (actualMime !== props.part.mime || safeAssetPreviewKind({ ...props.part, mime: actualMime }) !== mediaKind.value) {
+      throw new Error('文件信息不一致，暂时无法预览。')
+    }
+    const text = mediaKind.value === 'text' || documentKind.value ? await blob.text() : ''
+    if (pending.signal.aborted || generation !== requestGeneration) return
+    previewBlob.value = blob
+    previewText.value = text
+    if (['image', 'audio'].includes(mediaKind.value)) previewUrl.value = URL.createObjectURL(blob)
+  } catch (cause) {
+    if (!pending.signal.aborted && generation === requestGeneration) error.value = cause?.message || '读取内容失败，请重试。'
+  } finally {
+    if (generation === requestGeneration) { loading.value = false; controller = null }
+  }
+}
+watch(() => `${props.identityKey}\u0000${props.conversationId}\u0000${props.part.partId}\u0000${props.part.revision}\u0000${props.part.assetId}`, () => {
+  discard()
+  if (mediaKind.value === 'image' && props.part.assetId) void loadPreview()
+}, { immediate: true })
+onBeforeUnmount(discard)
+</script>
+<style scoped>
+.media-asset { display: flex; flex-direction: column; gap: 8px; max-width: min(100%, 380px); }
+.media-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.media-actions > button { min-height: 40px; padding: 6px 12px; border: 1px solid var(--hall-border, #e3e5dc); border-radius: 7px; background: var(--hall-surface, #fffefa); color: var(--hall-text, #242e2b); font: inherit; cursor: pointer; }
+.media-asset p { color: #a14132; margin: 0; }
+.image-button { display: block; align-self: flex-start; width: fit-content; max-width: 100%; padding: 0; border: 0; box-shadow: none; background: transparent; cursor: zoom-in; }
+.image-button:focus-visible { outline: 2px solid #923f30; outline-offset: 2px; }
+.image-button img { display: block; max-width: min(100%, 280px); max-height: 230px; object-fit: contain; }
+.image-overlay { position:fixed; inset:0; z-index:1400; box-sizing:border-box; width:min(960px,calc(100vw - 32px)); max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); margin:auto; border:1px solid #d8d8ce; border-radius:12px; padding:16px; background:#fffefa; color:#242e2b; }
+.image-overlay[open] { display:flex; flex-direction:column; align-items:center; gap:12px; }
+.image-overlay::backdrop { background:#242e2baa; }
+.image-overlay header { display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; }
+.image-overlay header strong { overflow-wrap:anywhere; min-width:0; }
+.image-overlay .media-preview-close { display:inline-flex; align-items:center; justify-content:center; flex:none; width:40px; height:40px; padding:0; border:0; border-radius:7px; background:transparent; color:#68716b; cursor:pointer; }
+.media-preview-close svg { width:20px; height:20px; }
+.image-overlay img { width:100%; max-height:65dvh; min-height:0; object-fit:contain; }
+.image-overlay audio { max-width:100%; }
+.image-overlay footer { display:flex; justify-content:flex-end; width:100%; gap:8px; }
+.image-overlay footer button { min-height:40px; padding:6px 14px; border:1px solid #d8d8ce; border-radius:7px; background:#fffefa; color:#242e2b; cursor:pointer; }
+.image-overlay button:focus-visible { outline:2px solid #923f30; outline-offset:2px; }
+.media-asset audio { max-width: 100%; }
+</style>
+
+<style scoped>
+.asset-text-preview { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; width: 100%; min-height: 0; }
+</style>

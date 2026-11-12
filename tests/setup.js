@@ -1,0 +1,20 @@
+import { JSDOM } from 'jsdom'
+
+// 设置全局的 DOM 环境
+const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
+  url: 'http://localhost'
+})
+
+// 在 ES 模块中，我们需要更小心地设置全局属性
+Object.defineProperty(global, 'window', { value: dom.window, writable: true, configurable: true })
+Object.defineProperty(global, 'document', { value: dom.window.document, writable: true, configurable: true })
+Object.defineProperty(global, 'navigator', { value: dom.window.navigator, writable: true, configurable: true })
+Object.defineProperty(global, 'DOMParser', { value: dom.window.DOMParser, writable: true, configurable: true })
+for (const name of ['Element', 'HTMLElement', 'SVGElement', 'Node', 'XMLSerializer', 'localStorage', 'sessionStorage', 'location', 'history']) {
+  Object.defineProperty(global, name, { value: dom.window[name], writable: true, configurable: true })
+}
+
+// 导出轻量 cleanup，避免在 jsdom 初始化前加载 Vue runtime。
+export const cleanup = () => {
+  document.body.innerHTML = ''
+}

@@ -1,0 +1,226 @@
+import { computed, ref, unref, watch } from 'vue'
+import { bountyBootstrapReference } from './hallBountyBootstrap.js'
+import { isAvailableTaskQuote } from './hallAssigneeRecommendation.js'
+import { createPointAndStartIntentStore, exactPointAndStartId, exactPointAndStartScope, pointAndDeliberateBody,
+  pointAndStartReadPath, pointAndStartTarget, pointAndStartLong, pointAndStartProjection } from './hallPointAndStartIntent.js'
+
+const unwrap = result => result
+const clone = value => JSON.parse(JSON.stringify(value))
+const initialState = () => ({ status: 'IDLE', intent: null, projection: null, error: null })
+const statusForProjection = projection => !projection ? 'UNKNOWN' : !projection.currentAssignment ? 'HISTORICAL' :
+  projection.bootstrapState === 'ADMITTED' ? 'ADMITTED' : projection.bootstrapState === 'DEAD' ? 'FAILED' : 'PREPARING'
+
+/** Only a definitive first rejection can promise that this attempt did not reserve funds.
+ * Recovery/unknown results keep their existing guidance regardless of a later error code. */
+export const pointAndStartFeedback = state => {
+  if (state.status === 'REJECTED' && state.errorCode === 'TASK_FUNDS_INSUFFICIENT') {
+    return '可用文余额不足，无法确认承办；本次未预占费用。'
+  }
+  return ({
+    UNKNOWN: '正在确认点将结果，请刷新状态。',
+    PREPARING: '正在准备会话。',
+    ADMITTED: '需求已发送，正在进入会话。',
+    HISTORICAL: '本次指派已结束，可查看历史记录。',
+    FAILED: '点将未完成，请刷新状态查看详情。',
+    REJECTED: '委派未受理，候选已重新核对；请确认目标和事项状态。'
+  }[state.status] || '正在确认点将结果。')
+}
+
+/** Ordinary point-and-deliberate only. Existing records remain readable in their
+ * original slot; new requests never negotiate a drawing lane or paid authority. */
+export const useHallPointAndStart = ({ agentApi, actorScopeKey, storage = null,
+  canAssign = () => false, createIdempotencyKey = () => globalThis.crypto.randomUUID(),
+  getContextGeneration = () => 0, onAssignmentConfirmed = async () => {}, onAdmitted = async () => false, documentRef = globalThis.document }) => {
+  const scope = computed(() => unref(typeof actorScopeKey === 'function' ? actorScopeKey() : actorScopeKey))
+  const state = ref(initialState())
+  const busy = ref(false)
+  let generation = 0
+  let disposed = false
+  let observationTimer = null
+  let observationTaskId = null
+  let observationTick = null
+  let observationGeneration = 0
+  const confirmedAssignments = new Set()
+  const contextGeneration = computed(() => getContextGeneration())
+  const stopObservation = () => { observationGeneration++; observationTick = null; if (observationTimer !== null) clearTimeout(observationTimer); observationTimer = null; observationTaskId = null }
+  const current = (captured, epoch, contextEpoch) => !disposed && scope.value === captured && generation === epoch &&
+    contextGeneration.value === contextEpoch
+  const stopWatch = watch([scope, contextGeneration], () => { generation++; confirmedAssignments.clear(); stopObservation(); state.value = initialState(); busy.value = false }, { flush: 'sync' })
+  const store = (captured, taskId) => createPointAndStartIntentStore({ storage, scope: captured, taskId })
+  const readIntent = (captured, taskId) => {
+    const read = store(captured, taskId).read()
+    if (!['ABSENT', 'PRESENT'].includes(read.state)) throw new Error('原点将恢复记录损坏或不可用；未发送新的点将')
+    return read.record || null
+  }
+  const persist = (captured, intent) => {
+    const saved = store(captured, intent.taskId).write(intent)
+    if (saved.state !== 'PRESENT') throw new Error('原点将记录持久化核对失败；请核对原请求')
+    return saved.record
+  }
+  const options = key => ({ autoLoading: false, ...(key ? { headers: { 'Idempotency-Key': key } } : {}) })
+  const get = async (path, key) => unwrap(await agentApi.get(path, undefined, options(key)))
+  const project = async (intent, captured, epoch, contextEpoch, attach = true) => {
+    const value = await get(pointAndStartReadPath(intent), intent.key)
+    if (!current(captured, epoch, contextEpoch)) return null
+    const projection = pointAndStartProjection(value, intent, intent.projection)
+    if (!projection) throw new Error('承办信息已变化，请查询结果，勿重复交办。')
+    intent = persist(captured, { ...intent, projection })
+    state.value = { status: statusForProjection(projection), intent, projection, error: null }
+    if (projection.currentAssignment && projection.bootstrapState !== 'ADMITTED') {
+      const assignmentKey = `${projection.taskId}:${projection.assignmentRevision}:${projection.targetAgentId}`
+      if (!confirmedAssignments.has(assignmentKey)) {
+        confirmedAssignments.add(assignmentKey)
+        onAssignmentConfirmed({ taskId: projection.taskId, assignmentRevision: projection.assignmentRevision,
+          targetAgentId: projection.targetAgentId, bootstrapState: projection.bootstrapState,
+          isCurrent: () => current(captured, epoch, contextEpoch) })
+        if (!current(captured, epoch, contextEpoch)) return null
+      }
+    }
+    if (!projection.currentAssignment || projection.bootstrapState !== 'ADMITTED') return intent
+    const task = await get(`/tasks/${encodeURIComponent(intent.taskId)}`)
+    if (!current(captured, epoch, contextEpoch)) return null
+    if (task?.id !== intent.taskId || !pointAndStartLong(task.taskVersion, true) ||
+      BigInt(task.taskVersion) < BigInt(projection.taskVersion) || task.assignedAgentId !== pointAndStartTarget(intent) ||
+      !['assigned', 'running', 'reviewing', 'completed'].includes(task.status)) throw new Error('已确认承办，事项信息尚未更新，请重新加载。')
+    // A newer task snapshot may reflect reassignment; recheck the original action
+    // before attaching, instead of treating taskVersion as assignmentRevision.
+    if (task.taskVersion !== projection.taskVersion) {
+      const fresh = pointAndStartProjection(await get(pointAndStartReadPath(intent), intent.key), intent, projection)
+      if (!current(captured, epoch, contextEpoch)) return null
+      if (!fresh || !fresh.currentAssignment || fresh.taskVersion !== task.taskVersion) throw new Error('榜文已变化；请只读重查原点将')
+      intent = persist(captured, { ...intent, projection: fresh })
+      state.value = { ...state.value, intent, projection: fresh }
+    }
+    if (!current(captured, epoch, contextEpoch)) return null
+    // Passive snapshot checks must not reopen a conversation while the user navigates.
+    if (!attach) return intent
+    const adopted = await onAdmitted({ task: clone(task), targetAgentId: pointAndStartTarget(intent),
+      reference: bountyBootstrapReference(intent.projection), isCurrent: () => current(captured, epoch, contextEpoch) })
+    if (!current(captured, epoch, contextEpoch)) return null
+    state.value = { ...state.value, status: adopted === true ? 'ATTACHED' : 'ADMITTED' }
+    return intent
+  }
+  const send = async (intent, captured, epoch, contextEpoch) => {
+    if (intent.schemaVersion !== 3) throw new Error('历史点将仅可核对；不会改成新的议事请求')
+    const result = unwrap(await agentApi.create(`/tasks/${encodeURIComponent(intent.taskId)}/point-and-deliberate`, clone(intent.body), options(intent.key)))
+    if (!current(captured, epoch, contextEpoch)) return null
+    const projection = pointAndStartProjection(result, intent, intent.projection)
+    if (!projection) throw new Error('暂时无法确认承办结果，请查询结果，勿重复交办。')
+    intent = persist(captured, { ...intent, projection, postAcknowledged: true })
+    state.value = { status: statusForProjection(projection), intent, projection, error: null }
+    return project(intent, captured, epoch, contextEpoch)
+  }
+  const run = async (taskId, action) => {
+    if (disposed || busy.value || !exactPointAndStartId(taskId) || !exactPointAndStartScope(scope.value)) return false
+    const captured = scope.value
+    const epoch = generation
+    const contextEpoch = contextGeneration.value
+    busy.value = true
+    try { return Boolean(await action(captured, epoch, contextEpoch)) } catch (error) {
+      if (current(captured, epoch, contextEpoch)) state.value = { ...state.value,
+        status: state.value.intent?.postAcknowledged || state.value.projection ? state.value.status : state.value.intent ? 'UNKNOWN' : 'REJECTED', error: error.message, errorCode: error.code || null }
+      return false
+    } finally { if (current(captured, epoch, contextEpoch)) busy.value = false }
+  }
+  const checkOriginal = (taskId, { attach = true } = {}) => run(taskId, async (captured, epoch, contextEpoch) => {
+    const intent = readIntent(captured, taskId)
+    if (!intent) return false
+    if (intent.providerConsent && !intent.controlledImageBridge) {
+      state.value = { status: 'COST_CONSENT_PENDING', intent, projection: null, error: '费用意图须使用费用同意恢复；未调用旧点将' }
+      return false
+    }
+    state.value = { status: statusForProjection(intent.projection), intent, projection: intent.projection || null, error: null }
+    return project(intent, captured, epoch, contextEpoch, attach)
+  })
+  // Read-only observation has no retry budget or deadline. It ends only at a
+  // terminal/non-current projection, explicit stop, identity generation change, or disposal.
+  const visible = () => documentRef?.visibilityState !== 'hidden'
+  const observeOriginal = (taskId, schedule = callback => setTimeout(callback, 1000)) => {
+    stopObservation(); observationTaskId = taskId
+    const owner = observationGeneration
+    let inFlight = false
+    const currentObservation = () => !disposed && observationTaskId === taskId && owner === observationGeneration
+    const tick = async () => {
+      if (!currentObservation() || inFlight || !visible()) return
+      if (observationTimer !== null) clearTimeout(observationTimer); observationTimer = null
+      inFlight = true
+      try { await checkOriginal(taskId) } finally { inFlight = false }
+      if (!currentObservation()) return
+      if (state.value.status !== 'PREPARING') { stopObservation(); return }
+      if (visible()) observationTimer = schedule(() => { void tick() })
+    }
+    observationTick = tick
+    void tick()
+    return true
+  }
+  const onVisibility = () => {
+    if (observationTimer !== null) clearTimeout(observationTimer); observationTimer = null
+    if (visible()) void observationTick?.()
+  }
+  documentRef?.addEventListener?.('visibilitychange', onVisibility)
+  const start = ({ task, agent }) => {
+    // Capture the explicit clicked target and selection before any asynchronous
+    // read. Editing the draft while GET runs must never alter the admitted body.
+    const taskId = task?.id
+    const targetId = agent?.agentId
+    const selectedQuote = isAvailableTaskQuote(agent?.taskQuote) ? clone(agent.taskQuote) : null
+    return run(taskId, async (captured, epoch, contextEpoch) => {
+      if (task?.funding?.mode === 'FUNDED_SINGLE_AGENT' ||
+      !exactPointAndStartId(targetId)) throw new Error('此需求须指定一个可点将的普通任务目标')
+      const old = readIntent(captured, taskId)
+      if (old) {
+        const consentPending = Boolean(old.providerConsent)
+        state.value = { status: consentPending ? 'COST_CONSENT_PENDING' : 'UNKNOWN', intent: old, projection: consentPending ? null : old.projection || null,
+          error: consentPending ? '存在费用同意意图，请使用费用意图恢复；未调用旧点将' : null }
+        throw new Error(consentPending ? '存在费用同意意图，请使用费用意图恢复；未调用旧点将' : '存在原点将记录，请明确核对或恢复原操作')
+      }
+      if (!selectedQuote) throw new Error('请先取得该承办人的有效事项报价；未发送承办请求')
+      const requirement = await get(`/tasks/${encodeURIComponent(taskId)}/requirements/current`)
+      if (!current(captured, epoch, contextEpoch)) return false
+      if (task?.id !== taskId || agent?.agentId !== targetId) throw new Error('榜文或显式目标已变化；未发送点将')
+      const canonical = await get(`/tasks/${encodeURIComponent(taskId)}`)
+      if (!current(captured, epoch, contextEpoch)) return false
+      if (task?.id !== taskId || agent?.agentId !== targetId) throw new Error('榜文或显式目标已变化；未发送点将')
+      if (requirement?.taskId !== taskId || !pointAndStartLong(requirement.taskVersion, true) ||
+      !pointAndStartLong(requirement.requirementRevision) || typeof requirement.title !== 'string' || !requirement.title ||
+      !(requirement.description === null || typeof requirement.description === 'string') ||
+      !/^[a-f0-9]{64}$/.test(requirement.contentSha256) || !['CREATE', 'RECONFIRM'].includes(requirement.source) ||
+      canonical?.id !== taskId || canonical.taskVersion !== requirement.taskVersion ||
+      canonical.status !== 'open' || canonical.funding?.mode === 'FUNDED_SINGLE_AGENT' || canAssign(canonical, agent) !== true) throw new Error('真实需求修订、榜文版本或目标准入未能核对')
+      const body = pointAndDeliberateBody({ targetAgentId: targetId, expectedTaskVersion: requirement.taskVersion,
+        requirementRevision: requirement.requirementRevision, quoteId: selectedQuote.quoteId, recommendationId: selectedQuote.recommendationId })
+      if (!body) throw new Error('目标或版本无效；未发送点将')
+      const key = createIdempotencyKey()
+      if (!exactPointAndStartId(key)) throw new Error('原点将键无效；未发送点将')
+      const intent = persist(captured, { schemaVersion: 3, taskId, key, body, postAcknowledged: false })
+      state.value = { status: 'SENDING', intent, projection: null, error: null }
+      try { return await send(intent, captured, epoch, contextEpoch) } catch (error) {
+        // Only the first POST's definitive rejection can release a new intent.
+        // A timed-out original or recovery retry remains pinned to its old key.
+        if (error?.status === 409 && current(captured, epoch, contextEpoch) &&
+          !state.value.intent?.postAcknowledged && !state.value.projection &&
+          store(captured, taskId).forgetRejected(intent)) state.value = initialState()
+        throw error
+      }
+    })
+  }
+  // This method is ONLY for an explicit user recovery action. Refresh/mount uses
+  // checkOriginal; GET404 is not evidence that the POST was never admitted.
+  const resumeOriginal = taskId => run(taskId, async (captured, epoch, contextEpoch) => {
+    const intent = readIntent(captured, taskId)
+    if (!intent) return false
+    if (intent.providerConsent && !intent.controlledImageBridge) {
+      state.value = { status: 'COST_CONSENT_PENDING', intent, projection: null, error: '费用意图须使用费用同意恢复；未调用旧点将' }
+      return false
+    }
+    state.value = { status: intent.postAcknowledged && !intent.projection ? 'CONFIRMED' : statusForProjection(intent.projection), intent, projection: intent.projection || null, error: null }
+    try { return await project(intent, captured, epoch, contextEpoch) } catch (error) {
+      if (!current(captured, epoch, contextEpoch)) return false
+      if (error?.status !== 404 || error?.code !== 'ASSIGNMENT_OPERATION_UNAVAILABLE' ||
+        intent.schemaVersion !== 3 || intent.providerConsent || intent.postAcknowledged || intent.projection) throw error
+      return send(intent, captured, epoch, contextEpoch)
+    }
+  })
+  return { state, busy, start, checkOriginal, resumeOriginal, observeOriginal, stopObservation,
+    dispose: () => { documentRef?.removeEventListener?.('visibilitychange', onVisibility); disposed = true; generation++; stopObservation(); stopWatch(); busy.value = false } }
+}

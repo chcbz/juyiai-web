@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1664" height="928" viewBox="0 0 1664 928" data-generation-id="fd028fc9a9ea3f468994cd441ce54bbde5717570e52802ea20967b896911577b" data-task-id="E10B" role="img">
+  <title>Juyiting E10B: 37 legacy mask bindings to 32 canonical fragments</title>
+  <desc>37 audit bindings, 32 E9A/E9B canonical drawable fragments, 111 probes, constraints 0</desc>
+  <rect width="1664" height="928" fill="#17251d"/>
+  <rect data-fragment-id="jyt.occ.center.wall-sconce-01.v2" x="1112" y="230" width="18" height="54" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-lower.diagonal-brace-01.v2" x="1308" y="560" width="203" height="208" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-lower.diagonal-brace-02.v2" x="1351" y="691" width="24" height="50" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-lower.fabric-rack-01.v2" x="1598" y="748" width="66" height="82" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-lower.lantern-01.v2" x="1314" y="839" width="47" height="86" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-lower.railing-post-01.v2" x="1242" y="707" width="10" height="68" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-lower.worktable-01.v2" x="1499" y="574" width="120" height="127" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-upper.diagonal-brace-01.v2" x="1130" y="435" width="19" height="51" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-upper.pillar-01.v2" x="1158" y="305" width="46" height="159" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-upper.pillar-02.v2" x="1202" y="478" width="50" height="225" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-upper.scroll-table-front-01.v2" x="1384" y="255" width="95" height="29" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-upper.wall-panel-lower-01.v2" x="1256" y="477" width="408" height="71" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.east-upper.wall-panel-upper-01.v2" x="1197" y="342" width="467" height="117" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.entrance.hanging-banner-01.v2" x="767" y="722" width="48" height="72" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.entrance.hanging-banner-02.v2" x="931" y="733" width="40" height="63" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.entrance.lantern-post-01.v2" x="1052" y="674" width="41" height="104" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.entrance.lantern-post-02.v2" x="1004" y="678" width="31" height="77" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.diagonal-brace-02.v2" x="474" y="641" width="43" height="118" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.floor-lantern-01.v2" x="357" y="876" width="48" height="52" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.long-table-frame-01.v2" x="117" y="601" width="122" height="118" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.railing-01.v2" x="506" y="675" width="174" height="103" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.railing-02.v2" x="66" y="787" width="178" height="37" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.wall-bracket-01.v2" x="686" y="675" width="35" height="39" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.wall-lantern-01.v2" x="11" y="706" width="48" height="35" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-lower.wall-panel-assembly-01.v2" x="17" y="573" width="402" height="339" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.diagonal-brace-01.v2" x="600" y="432" width="16" height="57" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.lantern-01.v2" x="461" y="165" width="45" height="75" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.lantern-table-frame-01.v2" x="215" y="277" width="139" height="74" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.pillar-01.v2" x="543" y="306" width="56" height="163" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.wall-panel-assembly-01.v2" x="0" y="348" width="546" height="368" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.wall-sconce-01.v2" x="617" y="238" width="13" height="34" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <rect data-fragment-id="jyt.occ.west-upper.wall-sconce-02.v2" x="492" y="471" width="45" height="114" fill="#73d2de" fill-opacity=".10" stroke="#73d2de"/>
+  <polygon data-mask-tmx-id="48" data-binding-id="jyt.mask-binding.mask-48.v1" data-target-fragment-id="jyt.occ.west-upper.lantern-table-frame-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="233,350 215,347 241,277 353,280 353,294 253,291"/>
+  <circle data-probe-id="mask-48-behind" cx="337" cy="338" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-48-boundary" cx="332" cy="351" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-48-front" cx="332" cy="367" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="49" data-binding-id="jyt.mask-binding.mask-49.v1" data-target-fragment-id="jyt.occ.west-lower.long-table-frame-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="126,718 117,713 153,601 238,607 233,625 158,623"/>
+  <circle data-probe-id="mask-49-behind" cx="209" cy="704" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-49-boundary" cx="204" cy="719" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-49-front" cx="204" cy="735" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="50" data-binding-id="jyt.mask-binding.mask-50.v1" data-target-fragment-id="jyt.occ.west-lower.railing-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="243,823 238,790 66,787 66,806"/>
+  <circle data-probe-id="mask-50-behind" cx="206" cy="808" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-50-boundary" cx="206" cy="824" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-50-front" cx="216" cy="825" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="51" data-binding-id="jyt.mask-binding.mask-51.v1" data-target-fragment-id="jyt.occ.west-lower.wall-panel-assembly-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="42,845 58,845 52,873 238,878 259,832 260,845 268,844 247,760 270,731 262,706 269,701 276,729 289,720 292,725 276,736 286,745 335,593 350,593 358,573 375,574 386,578 351,700 367,762 341,759 299,911 17,911"/>
+  <circle data-probe-id="mask-51-behind" cx="254" cy="839" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-51-boundary" cx="249" cy="852" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-51-front" cx="249" cy="864" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="52" data-binding-id="jyt.mask-binding.mask-52.v1" data-target-fragment-id="jyt.occ.west-upper.wall-panel-assembly-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="479,550 447,379 444,359 437,348 405,348 395,371 392,393 394,395 154,396 147,372 133,369 124,383 132,389 132,395 105,393 39,438 -6,459 -4,723 76,548"/>
+  <circle data-probe-id="mask-52-behind" cx="274" cy="700" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-52-boundary" cx="274" cy="716" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-52-front" cx="274" cy="732" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="53" data-binding-id="jyt.mask-binding.mask-53.v1" data-target-fragment-id="jyt.occ.west-upper.wall-panel-assembly-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="450,401 460,451 545,455 533,396 533,384 522,384 518,400"/>
+  <circle data-probe-id="mask-53-behind" cx="492" cy="700" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-53-boundary" cx="492" cy="716" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-53-front" cx="489" cy="732" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="54" data-binding-id="jyt.mask-binding.mask-54.v1" data-target-fragment-id="jyt.occ.west-upper.pillar-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="557,463 543,354 543,337 543,325 554,314 554,307 563,306 566,315 572,316 572,340 588,448 598,468"/>
+  <circle data-probe-id="mask-54-behind" cx="577" cy="453" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-54-boundary" cx="577" cy="469" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-54-front" cx="590" cy="489" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="55" data-binding-id="jyt.mask-binding.mask-55.v1" data-target-fragment-id="jyt.occ.west-upper.diagonal-brace-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="601,488 600,432 615,484"/>
+  <circle data-probe-id="mask-55-behind" cx="618" cy="473" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-55-boundary" cx="618" cy="489" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-55-front" cx="618" cy="505" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="56" data-binding-id="jyt.mask-binding.mask-56.v1" data-target-fragment-id="jyt.occ.east-upper.diagonal-brace-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1130,484 1146,435 1148,485"/>
+  <circle data-probe-id="mask-56-behind" cx="1140" cy="470" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-56-boundary" cx="1140" cy="486" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-56-front" cx="1127" cy="502" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="57" data-binding-id="jyt.mask-binding.mask-57.v1" data-target-fragment-id="jyt.occ.east-upper.pillar-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1158,462 1170,350 1175,334 1175,321 1182,314 1182,305 1192,305 1192,315 1199,321 1203,331 1203,341 1203,351 1187,463"/>
+  <circle data-probe-id="mask-57-behind" cx="1181" cy="448" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-57-boundary" cx="1181" cy="464" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-57-front" cx="1188" cy="480" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="58" data-binding-id="jyt.mask-binding.mask-58.v1" data-target-fragment-id="jyt.occ.east-upper.wall-panel-upper-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1197,458 1208,396 1215,379 1223,388 1223,397 1285,396 1285,371 1288,353 1293,346 1303,343 1328,342 1333,355 1337,367 1340,376 1336,382 1336,395 1554,397 1560,372 1571,370 1577,375 1579,383 1574,396 1624,396 1662,406 1663,455"/>
+  <circle data-probe-id="mask-58-behind" cx="1430" cy="443" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-58-boundary" cx="1430" cy="459" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-58-front" cx="1430" cy="479" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="59" data-binding-id="jyt.mask-binding.mask-59.v1" data-target-fragment-id="jyt.occ.east-lower.worktable-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1499,625 1517,579 1576,577 1590,574 1618,673 1589,672 1569,612"/>
+  <circle data-probe-id="mask-59-behind" cx="1516" cy="686" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-59-boundary" cx="1520" cy="701" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-59-front" cx="1520" cy="717" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="60" data-binding-id="jyt.mask-binding.mask-60.v1" data-target-fragment-id="jyt.occ.east-lower.lantern-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1324,924 1328,905 1354,905 1360,843 1333,839 1314,921"/>
+  <circle data-probe-id="mask-60-behind" cx="1357" cy="836" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-60-boundary" cx="1357" cy="852" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-60-front" cx="1360" cy="864" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="61" data-binding-id="jyt.mask-binding.mask-61.v1" data-target-fragment-id="jyt.occ.entrance.lantern-post-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1084,777 1086,740 1085,705 1092,692 1079,687 1076,674 1067,674 1067,687 1055,690 1056,710 1055,740 1052,777"/>
+  <circle data-probe-id="mask-61-behind" cx="1073" cy="762" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-61-boundary" cx="1073" cy="778" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-61-front" cx="1073" cy="780" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="62" data-binding-id="jyt.mask-binding.mask-62.v1" data-target-fragment-id="jyt.occ.entrance.lantern-post-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1034,711 1030,686 1018,688 1018,678 1006,678 1004,690 1004,729 1004,754 1014,754 1014,711"/>
+  <circle data-probe-id="mask-62-behind" cx="1014" cy="739" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-62-boundary" cx="1014" cy="755" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-62-front" cx="1014" cy="771" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="63" data-binding-id="jyt.mask-binding.mask-63.v1" data-target-fragment-id="jyt.occ.entrance.hanging-banner-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="931,795 934,759 933,746 940,744 953,733 959,739 959,743 970,743 969,785"/>
+  <circle data-probe-id="mask-63-behind" cx="927" cy="780" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-63-boundary" cx="927" cy="796" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-63-front" cx="926" cy="811" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="64" data-binding-id="jyt.mask-binding.mask-64.v1" data-target-fragment-id="jyt.occ.entrance.hanging-banner-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="807,793 814,751 805,744 797,739 794,728 789,722 781,726 784,740 767,746 767,750 773,791"/>
+  <circle data-probe-id="mask-64-behind" cx="803" cy="778" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-64-boundary" cx="803" cy="794" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-64-front" cx="803" cy="810" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="65" data-binding-id="jyt.mask-binding.mask-65.v1" data-target-fragment-id="jyt.occ.west-lower.wall-bracket-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="720,713 720,698 720,686 719,675 711,675 703,675 703,685 690,687 686,703"/>
+  <circle data-probe-id="mask-65-behind" cx="717" cy="698" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-65-boundary" cx="717" cy="714" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-65-front" cx="717" cy="730" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="66" data-binding-id="jyt.mask-binding.mask-66.v1" data-target-fragment-id="jyt.occ.west-lower.railing-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="678,741 674,731 665,715 663,694 655,686 649,675 649,689 636,689 636,704 641,735 640,746 506,748 508,759 561,762 561,772 575,774 575,760 639,760 641,774 679,777"/>
+  <circle data-probe-id="mask-66-behind" cx="480" cy="762" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-66-boundary" cx="480" cy="778" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-66-front" cx="480" cy="794" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="67" data-binding-id="jyt.mask-binding.mask-67.v1" data-target-fragment-id="jyt.occ.west-lower.floor-lantern-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="404,924 390,876 357,876 362,907 390,908 395,928"/>
+  <circle data-probe-id="mask-67-behind" cx="351" cy="836" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-67-boundary" cx="351" cy="852" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-67-front" cx="348" cy="864" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="68" data-binding-id="jyt.mask-binding.mask-68.v1" data-target-fragment-id="jyt.occ.west-lower.wall-lantern-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="58,740 38,706 11,732 22,738"/>
+  <circle data-probe-id="mask-68-behind" cx="48" cy="725" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-68-boundary" cx="48" cy="741" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-68-front" cx="50" cy="743" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="69" data-binding-id="jyt.mask-binding.mask-69.v1" data-target-fragment-id="jyt.occ.west-upper.wall-sconce-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="503,584 497,535 492,520 492,490 501,497 509,471 536,474"/>
+  <circle data-probe-id="mask-69-behind" cx="511" cy="569" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-69-boundary" cx="511" cy="585" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-69-front" cx="507" cy="601" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="70" data-binding-id="jyt.mask-binding.mask-70.v1" data-target-fragment-id="jyt.occ.west-upper.lantern-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="505,239 492,166 461,165 471,239"/>
+  <circle data-probe-id="mask-70-behind" cx="490" cy="224" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-70-boundary" cx="490" cy="240" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-70-front" cx="486" cy="270" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="71" data-binding-id="jyt.mask-binding.mask-71.v1" data-target-fragment-id="jyt.occ.west-upper.wall-sconce-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="621,271 617,242 629,238"/>
+  <circle data-probe-id="mask-71-behind" cx="624" cy="256" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-71-boundary" cx="624" cy="272" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-71-front" cx="622" cy="288" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="72" data-binding-id="jyt.mask-binding.mask-72.v1" data-target-fragment-id="jyt.occ.center.wall-sconce-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1126,283 1129,253 1122,230 1112,254"/>
+  <circle data-probe-id="mask-72-behind" cx="1121" cy="268" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-72-boundary" cx="1121" cy="284" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-72-front" cx="1121" cy="300" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="73" data-binding-id="jyt.mask-binding.mask-73.v1" data-target-fragment-id="jyt.occ.east-upper.scroll-table-front-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1385,283 1384,257 1471,255 1478,275"/>
+  <circle data-probe-id="mask-73-behind" cx="1395" cy="268" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-73-boundary" cx="1395" cy="284" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-73-front" cx="1379" cy="285" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="74" data-binding-id="jyt.mask-binding.mask-74.v1" data-target-fragment-id="jyt.occ.east-lower.worktable-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1612,674 1599,700 1592,675"/>
+  <circle data-probe-id="mask-74-behind" cx="1602" cy="685" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-74-boundary" cx="1602" cy="701" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-74-front" cx="1602" cy="717" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="75" data-binding-id="jyt.mask-binding.mask-75.v1" data-target-fragment-id="jyt.occ.east-lower.fabric-rack-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1603,829 1616,787 1598,787 1602,767 1622,760 1629,748 1639,748 1631,767 1663,782"/>
+  <circle data-probe-id="mask-75-behind" cx="1611" cy="814" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-75-boundary" cx="1611" cy="830" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-75-front" cx="1602" cy="846" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="76" data-binding-id="jyt.mask-binding.mask-76.v1" data-target-fragment-id="jyt.occ.east-lower.diagonal-brace-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1510,763 1469,747 1464,729 1450,711 1419,713 1390,607 1365,560 1334,561 1389,767"/>
+  <circle data-probe-id="mask-76-behind" cx="1423" cy="752" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-76-boundary" cx="1423" cy="768" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-76-front" cx="1424" cy="769" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="77" data-binding-id="jyt.mask-binding.mask-77.v1" data-target-fragment-id="jyt.occ.east-upper.pillar-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1231,608 1240,531 1245,519 1245,505 1244,495 1239,486 1234,495 1232,478 1208,481"/>
+  <circle data-probe-id="mask-77-behind" cx="1215" cy="687" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-77-boundary" cx="1215" cy="703" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-77-front" cx="1215" cy="719" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="78" data-binding-id="jyt.mask-binding.mask-78.v1" data-target-fragment-id="jyt.occ.east-upper.wall-panel-lower-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1256,543 1270,480 1665,476 1666,548"/>
+  <circle data-probe-id="mask-78-behind" cx="1460" cy="532" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-78-boundary" cx="1460" cy="548" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-78-front" cx="1460" cy="549" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="79" data-binding-id="jyt.mask-binding.mask-79.v1" data-target-fragment-id="jyt.occ.east-lower.diagonal-brace-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1323,639 1329,612 1308,612 1320,562 1336,561 1341,590 1333,641"/>
+  <circle data-probe-id="mask-79-behind" cx="1325" cy="752" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-79-boundary" cx="1325" cy="768" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-79-front" cx="1325" cy="784" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="80" data-binding-id="jyt.mask-binding.mask-80.v1" data-target-fragment-id="jyt.occ.east-upper.pillar-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1251,702 1240,651 1240,629 1242,612 1228,606 1206,606 1206,621 1202,626 1202,639 1211,646 1222,647 1217,661 1225,689"/>
+  <circle data-probe-id="mask-80-behind" cx="1215" cy="687" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-80-boundary" cx="1215" cy="703" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-80-front" cx="1215" cy="719" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="81" data-binding-id="jyt.mask-binding.mask-81.v1" data-target-fragment-id="jyt.occ.east-lower.railing-post-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1251,711 1249,774 1242,707"/>
+  <circle data-probe-id="mask-81-behind" cx="1247" cy="759" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-81-boundary" cx="1247" cy="775" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-81-front" cx="1247" cy="791" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="82" data-binding-id="jyt.mask-binding.mask-82.v1" data-target-fragment-id="jyt.occ.east-lower.diagonal-brace-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="1351,740 1365,691 1374,723"/>
+  <circle data-probe-id="mask-82-behind" cx="1357" cy="725" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-82-boundary" cx="1357" cy="741" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-82-front" cx="1357" cy="757" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="83" data-binding-id="jyt.mask-binding.mask-83.v1" data-target-fragment-id="jyt.occ.west-lower.diagonal-brace-02.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="513,702 516,680 510,655 491,641 474,723 476,758 495,696"/>
+  <circle data-probe-id="mask-83-behind" cx="509" cy="743" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-83-boundary" cx="507" cy="759" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-83-front" cx="507" cy="775" r="3" fill="#ffd166"/>
+  <polygon data-mask-tmx-id="84" data-binding-id="jyt.mask-binding.mask-84.v1" data-target-fragment-id="jyt.occ.west-lower.wall-panel-assembly-01.v2" fill="#ff9f1c" fill-opacity=".14" stroke="#ff9f1c" points="405,641 405,617 418,617 410,575 382,579 396,643"/>
+  <circle data-probe-id="mask-84-behind" cx="412" cy="836" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-84-boundary" cx="412" cy="852" r="3" fill="#ffd166"/>
+  <circle data-probe-id="mask-84-front" cx="412" cy="864" r="3" fill="#ffd166"/>
+</svg>

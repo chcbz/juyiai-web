@@ -1,0 +1,192 @@
+import { isTerminalMatter } from '../src/composables/juyiting/useHallOrdinaryCancellation.js'
+import { before, after } from 'mocha'
+import { expect } from 'chai'
+import { readFileSync } from 'node:fs'
+import * as Vue from 'vue'
+import { mount, flushPromises } from '@vue/test-utils'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { useHallBountyAcceptance } from '../src/composables/juyiting/useHallBountyAcceptance.js'
+
+const scoped = (id = '101', taskId = 'task-1') => ({ id, conversationType: 'juyiting', conversationScopeType: 'bounty', conversationScopeKey: `task:${taskId}` })
+const request = (conversationId = '101', _taskId = 'task-1') => ({ requestId: 'request-1', requestRevision: '1', conversationId,
+  conversationGeneration: '1', userMessageId: '1', state: 'COMPLETED', stateVersion: '1', turns: [], steps: [] })
+const page = (conversationId = '101', taskId = 'task-1', entries = [{ ordinal: '1', request: request(conversationId, taskId) }]) => ({ schemaVersion: 1,
+  scope: { conversationId, conversationGeneration: '1', taskId }, after: '0', through: entries.length ? '1' : '0', nextAfter: null, hasMore: false, entries })
+const response = value => Array.isArray(value) ? { items: value } : value
+const deferred = () => { let resolve; return { promise: new Promise(done => { resolve = done }), resolve: value => resolve(value) } }
+
+describe('task acceptance original-conversation discovery', () => {
+  it('only discovers the original conversation; it never loads request or outcome history', async () => {
+    const calls = []
+    const source = useHallBountyAcceptance({ api: { list: async (path, body, options) => { calls.push(path); options.onSuccess({ items: [scoped()] }) },
+      get: async () => { throw new Error('No history reads during discovery') } }, taskId: () => 'task-1', identityKey: () => 'owner' })
+    try {
+      await flushPromises()
+      expect(source.scope.value).to.deep.equal({ taskId: 'task-1', conversationId: '101' })
+      expect(source.catalog.entries.value).to.deep.equal([]); expect(source.error.value).to.equal('')
+      expect(calls).to.deep.equal(['/conversation/list'])
+      expect(source).not.to.have.property('refreshCatalog')
+    } finally { source.dispose() }
+  })
+  it('defers hidden discovery and does not reread an existing scope on visibility changes', async () => {
+    const doc = new EventTarget(); doc.visibilityState = 'hidden'; let calls = 0
+    const source = useHallBountyAcceptance({ documentRef: doc, api: { list: async () => { calls++; return response([scoped()]) } }, taskId: () => 'task-1', identityKey: () => 'owner' })
+    try {
+      await flushPromises(); expect(calls).to.equal(0)
+      doc.visibilityState = 'visible'; doc.dispatchEvent(new Event('visibilitychange')); await flushPromises()
+      expect(calls).to.equal(1)
+      doc.dispatchEvent(new Event('visibilitychange')); await flushPromises(); expect(calls).to.equal(1)
+    } finally { source.dispose() }
+  })
+  it('finds the explicitly requested original on a later discovery page', async () => {
+    const calls = []
+    const source = useHallBountyAcceptance({ api: { list: async (_path, body) => { calls.push(body.pageNum); return response(body.pageNum === 1
+      ? Array.from({ length: 100 }, (_, i) => scoped(String(i + 1))) : [scoped('999')]) } },
+      taskId: () => 'task-1', identityKey: () => 'owner', conversationId: () => '999' })
+    try { await flushPromises(); expect(calls).to.deep.equal([1, 2]); expect(source.scope.value.conversationId).to.equal('999') }
+    finally { source.dispose() }
+  })
+  for (const [label, rows, wanted] of [['ambiguous', [scoped('101'), scoped('102')], ''], ['foreign', [scoped('101', 'foreign')], ''],
+    ['missing original', [scoped('102')], '101'], ['unsafe id', [scoped('1')], 'bad-id']]) {
+    it(`rejects ${label} without substituting another conversation`, async () => {
+      const source = useHallBountyAcceptance({ api: { list: async () => response(rows) }, taskId: () => 'task-1', identityKey: () => 'owner', conversationId: () => wanted })
+      try { await flushPromises(); expect(source.scope.value).to.equal(null); expect(source.error.value).not.to.equal(''); expect(source.legacy.value).to.equal(false) }
+      finally { source.dispose() }
+    })
+  }
+  it('marks verified absence separately from a failed discovery and allows retry', async () => {
+    let failed = true
+    const source = useHallBountyAcceptance({ api: { list: async () => { if (failed) throw new Error('offline'); return response([]) } }, taskId: () => 'task-1', identityKey: () => 'owner' })
+    try {
+      await flushPromises(); expect(source.error.value).to.equal('offline'); expect(source.legacy.value).to.equal(false)
+      failed = false; expect(await source.refresh()).to.equal(true); expect(source.legacy.value).to.equal(true)
+    } finally { source.dispose() }
+  })
+  it('aborts and fences delayed discovery after identity/task changes', async () => {
+    const pending = deferred(); const owner = Vue.ref('a'); const task = Vue.ref('task-1'); let first = true; let signal
+    const source = useHallBountyAcceptance({ api: { list: async (_path, _body, options) => {
+      if (first) { first = false; signal = options.signal; return pending.promise }
+      return response([scoped('202', 'task-2')])
+    } }, taskId: () => task.value, identityKey: () => owner.value })
+    try {
+      owner.value = 'b'; task.value = 'task-2'; await flushPromises(); expect(signal.aborted).to.equal(true)
+      pending.resolve(response([scoped()])); await flushPromises()
+      expect(source.scope.value).to.deep.equal({ conversationId: '202', taskId: 'task-2' })
+    } finally { source.dispose() }
+  })
+})
+
+const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+const returnBody = hall.slice(hall.indexOf('const continueBountyModification = async'), hall.indexOf('\nconst openTaskWorkspace ='))
+const returnToDiscussion = deps => new Function('deps', 'isTerminalMatter', `var { openPanel, apiStore, hallIdentityScope, chatMode, conversationTask, conversationId,
+  isConversationBusy, enterBountyDiscussion, loadHallConversationHistory, conversationHistory, conversationHistoryHasMore,
+  conversationHistoryError, loadMoreHallConversationHistory, selectHallConversation, showToast, loadHallMessages } = deps;
+  ${returnBody}; return continueBountyModification`)(deps, isTerminalMatter)
+
+describe('task acceptance return to original discussion', () => {
+  const deps = () => ({ openPanel: () => true, apiStore: { authorizationGeneration: 1 }, hallIdentityScope: Vue.ref('owner'),
+    chatMode: Vue.ref('bounty'), conversationTask: Vue.ref({ id: 'task-1' }), conversationId: Vue.ref('101'), isConversationBusy: Vue.ref(false),
+    conversationHistory: Vue.ref([]), conversationHistoryHasMore: Vue.ref(false), conversationHistoryError: Vue.ref(''),
+    enterBountyDiscussion: () => { throw new Error('do not reset same discussion target or draft') },
+    loadHallConversationHistory: async () => {}, selectHallConversation: async () => true,
+    showToast: () => {}, loadHallMessages: async () => { throw new Error('no latest conversation substitution') } })
+  it('never resumes discussion for a cancelled task while preserving completed receipt viewing separately', async () => {
+    const state = deps(); let opens = 0; state.openPanel = () => { opens++; return true }
+    expect(await returnToDiscussion(state)({ id: 'task-1', status: 'cancelled' }, null)).to.equal(false)
+    expect(opens).to.equal(0)
+  })
+  it('allows completed task history navigation without resuming or creating a discussion', async () => {
+    const state = deps()
+    state.loadHallConversationHistory = () => { throw new Error('already in the exact original') }
+    expect(await returnToDiscussion(state)({ id: 'task-1', status: 'completed' }, { taskId: 'task-1', conversationId: '101' })).to.equal(true)
+    expect(await returnToDiscussion(state)({ id: 'task-1', status: 'completed' }, { taskId: 'foreign', conversationId: '101' })).to.equal(false)
+  })
+  it('returns to an already active original without resets, draft changes, polling restarts or new sends', async () => {
+    const state = deps(); state.isConversationBusy.value = true
+    state.loadHallConversationHistory = () => { throw new Error('must preserve active discussion') }
+    expect(await returnToDiscussion(state)({ id: 'task-1' }, { taskId: 'task-1', conversationId: '101' })).to.equal(true)
+  })
+  it('returns only to a verified exact original beyond the first history page', async () => {
+    const state = deps(); const calls = []
+    state.conversationHistoryHasMore.value = true
+    state.loadHallConversationHistory = async () => { state.conversationHistory.value = [{ id: '202' }] }
+    state.loadMoreHallConversationHistory = async () => { calls.push('page'); state.conversationHistory.value.push({ id: '999' }); state.conversationHistoryHasMore.value = false }
+    state.selectHallConversation = async id => { calls.push(id); return true }
+    expect(await returnToDiscussion(state)({ id: 'task-1' }, { taskId: 'task-1', conversationId: '999' })).to.equal(true)
+    expect(calls).to.deep.equal(['page', '999'])
+  })
+  it('does not adopt an old identity response, foreign task, or switch away from a busy conversation', async () => {
+    const state = deps(); let selections = 0
+    state.selectHallConversation = async () => { selections++; return true }
+    state.loadHallConversationHistory = async () => { state.apiStore.authorizationGeneration++ }
+    expect(await returnToDiscussion(state)({ id: 'task-1' }, { taskId: 'task-1', conversationId: '999' })).to.equal(false)
+    expect(await returnToDiscussion(state)({ id: 'task-1' }, { taskId: 'foreign', conversationId: '999' })).to.equal(false)
+    state.isConversationBusy.value = true
+    expect(await returnToDiscussion(state)({ id: 'task-1' }, { taskId: 'task-1', conversationId: '999' })).to.equal(false)
+    expect(selections).to.equal(0)
+  })
+  it('does not guess a latest conversation when no original was identified', async () => {
+    const state = deps(); state.conversationId.value = ''; let selections = 0
+    state.loadHallConversationHistory = async () => { state.conversationHistory.value = [{ id: '202' }, { id: '303' }] }
+    state.selectHallConversation = async () => { selections++; return true }
+    expect(await returnToDiscussion(state)({ id: 'task-1' }, null)).to.equal(false)
+    expect(selections).to.equal(0)
+  })
+  it('routes focused, ordinary and funded results through the single shell review owner', () => {
+    const start = hall.indexOf('<BountyAcceptancePanel'); const end = hall.indexOf('</BountyAcceptancePanel>', start)
+    const integration = hall.slice(start, end)
+    expect(integration).to.include(':review-context="deliveryReview.historyContext.value"')
+    expect(integration).to.include('@review-delivery="openDeliveryReview()"')
+    expect(integration).to.include('@preview-output="previewReviewOutput"')
+    expect(integration).not.to.include('<FormalTaskDeliveryPanel').and.not.to.include('@task-completed')
+    expect(returnBody).not.to.match(/setDraft|pointAnd|sendMessage|createTask/)
+  })})
+
+describe('mounted task acceptance panel', () => {
+  const installed = []
+  before(() => { for (const name of ['Element', 'HTMLElement', 'SVGElement', 'Node']) if (!globalThis[name]) {
+    installed.push(name); Object.defineProperty(globalThis, name, { value: window[name], configurable: true })
+  } })
+  after(() => { for (const name of installed) delete globalThis[name] })
+  const filename = new URL('../src/components/juyiting/BountyAcceptancePanel.vue', import.meta.url)
+  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename: filename.pathname })
+  const script = compileScript(descriptor, { id: 'acceptance-panel-test', inlineTemplate: true }).content
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
+    .replace(/^import\s+\{\s*(createApi|useHallBountyAcceptance)\s*\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, name) => `var { ${name} } = deps`)
+    .replace(/^import\s+BountyExecutionOutputs\s+from\s+['"][^'"]+['"];?\s*$/gm, 'var { BountyExecutionOutputs } = deps')
+    .replace('export default', 'return')
+  it('uses the original read-only source and task version, and emits only explicit review or discussion navigation', async () => {
+    const scope = Object.freeze({ taskId: 'task-1', conversationId: '101' }); const receipt = Object.freeze({ taskId: 'task-1', operationId: 'accepted' })
+    const Gallery = Vue.defineComponent({ props: { acceptance: Boolean, enabled: Boolean, taskVersion: String, conversationId: String, catalog: Array }, emits: ['task-completed', 'continue-modification'],
+      setup: (_props, { emit }) => () => Vue.h('button', { onClick: () => { emit('task-completed', receipt); emit('continue-modification') } }, '操作') })
+    const source = { scope: Vue.ref(scope), loading: Vue.ref(false), error: Vue.ref(''), legacy: Vue.ref(false),
+      catalog: { entries: Vue.ref([{ ordinal: '1', request: request() }]), error: Vue.ref('') } }
+    const Component = new Function('Vue', 'deps', script)(Vue, { createApi: () => ({}), useHallBountyAcceptance: () => source, BountyExecutionOutputs: Gallery })
+    const wrapper = mount(Component, { props: { taskId: 'task-1', identityKey: 'owner-1', taskVersion: '9', reviewContext: { currentDelivery: { summary: '正式交付', items: [], allowedActions: ['ACCEPT'] }, history: [] } },
+      slots: { legacy: '<div class="legacy-domain">旧成果</div>' } })
+    try {
+      expect(wrapper.findComponent(Gallery).exists()).to.equal(false)
+      await wrapper.setProps({ historyLoaded: false })
+      expect(wrapper.emitted('load-history')).to.equal(undefined)
+      const history = wrapper.get('details'); history.element.open = true; await history.trigger('toggle')
+      expect(wrapper.emitted('open-history')).to.have.length(1)
+      await wrapper.findAll('button').find(b => b.text() === '读取历史交付').trigger('click')
+      expect(wrapper.emitted('load-history')).to.have.length(1)
+      await wrapper.setProps({ historyError: '历史页失败' })
+      expect(wrapper.text()).to.include('历史页失败').and.include('正式交付')
+
+      await wrapper.findAll('button').find(button => button.text() === '继续议事').trigger('click')
+      expect(wrapper.emitted('continue-modification')).to.deep.equal([[scope]])
+      await wrapper.findAll('button').find(button => button.text() === '查看成果并验收').trigger('click')
+      expect(wrapper.emitted('review-delivery')).to.have.length(1)
+      source.error.value = '原议事来源暂不可读取'; await Vue.nextTick()
+      expect(wrapper.text()).to.include('原议事来源暂不可读取').and.include('正式交付')
+      source.error.value = ''; source.legacy.value = true; await Vue.nextTick()
+      expect(wrapper.findComponent(Gallery).exists()).to.equal(false)
+      expect(wrapper.find('.legacy-domain').exists()).to.equal(false)
+      expect(wrapper.text()).to.include('正式交付')
+      source.loading.value = true; await Vue.nextTick()
+      expect(wrapper.text()).to.include('正在确认原议事入口').and.include('正式交付')
+    } finally { wrapper.unmount() }
+  })
+})

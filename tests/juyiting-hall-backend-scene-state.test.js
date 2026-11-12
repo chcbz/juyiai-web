@@ -1,0 +1,601 @@
+import { expect } from 'chai'
+
+import { useHallBackendSceneState } from '../src/composables/juyiting/useHallBackendSceneState.js'
+
+const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+
+function snapshot (sceneVersion) {
+  return { sceneId: 'juyiting-main', sceneVersion: String(sceneVersion), generatedAt: 1000, agents: [], states: [] }
+}
+
+function event (sceneVersion) {
+  return {
+    sceneVersion: String(sceneVersion),
+    eventType: 'agent-scene-state-updated',
+    occurredAt: 1200,
+    state: { agentId: 'agent-songjiang', personaCode: 'songjiang', stateVersion: String(sceneVersion) }
+  }
+}
+
+function envelope(data) { return { protocolVersion: 1, requestId: 'scene-test', messageId: `scene:juyiting-main:${data.sceneVersion}`, messageType: data.eventType === 'resync-required' ? 'scene.resync.required' : 'scene.event', data } }
+function frame(data) { const message=envelope(data); return `id:${message.messageId}\nevent:${message.messageType}\ndata:${JSON.stringify(message)}\n\n` }
+
+function harness ({ snapshots = [snapshot(128)], sseEnabled = true } = {}) {
+  const calls = []
+  const streams = []
+  const appliedSnapshots = []
+  const appliedEvents = []
+  const agentApi = {
+    execute: async (request) => {
+      calls.push(request)
+      if (request.method === 'GET') {
+        const value = snapshots.shift()
+        return value
+      }
+      return { result: 'accepted' }
+    }
+  }
+  const streamFactory = (options) => {
+    const stream = {
+      ...options,
+      closed: false,
+      close () {
+        this.closed = true
+      }
+    }
+    streams.push(stream)
+    options.onOpen?.()
+    return stream
+  }
+  const state = useHallBackendSceneState({
+    agentApi,
+    streamFactory,
+    sseEnabled,
+    now: () => 5000,
+    onSnapshot: value => appliedSnapshots.push(value),
+    onEvent: value => appliedEvents.push(value)
+  })
+  return { state, calls, streams, appliedSnapshots, appliedEvents, agentApi }
+}
+
+describe('backend scene state', () => {
+  it('allows a failed initial start to be retried by a manual refresh', async () => {
+    let snapshotCalls = 0
+    const backend = useHallBackendSceneState({
+      agentApi: {
+        execute: async ({ url }) => {
+          if (!url.endsWith('/snapshot')) throw new Error('unexpected request')
+          snapshotCalls += 1
+          if (snapshotCalls === 1) throw new Error('temporary snapshot failure')
+          return { sceneId: 'juyiting-main', sceneVersion: '7', states: [] }
+        }
+      },
+      sseEnabled: false,
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {}
+    })
+
+    let firstError
+    try { await backend.start() } catch (error) { firstError = error }
+
+    expect(firstError?.message).to.equal('temporary snapshot failure')
+    expect(backend.snapshotError.value).to.equal('temporary snapshot failure')
+    expect(backend.snapshotLoading.value).to.equal(false)
+
+    const recovered = await backend.start()
+    expect(snapshotCalls).to.equal(2)
+    expect(recovered).to.include({ sceneId: 'juyiting-main', sceneVersion: '7' })
+    expect(backend.snapshotReady.value).to.equal(true)
+    expect(backend.snapshotError.value).to.equal('')
+    expect(backend.snapshotLoading.value).to.equal(false)
+    backend.stop()
+  })
+  it('loads the REST snapshot and parses resumable complete SSE records once', async () => {
+    const { state, calls, streams, appliedEvents } = harness()
+
+    await state.start()
+
+    expect(calls[0]).to.include({
+      url: '/agent/scenes/juyiting-main/snapshot',
+      method: 'GET'
+    })
+    expect(streams[0].url).to.equal('/agent/scenes/juyiting-main/events')
+    expect(streams[0].params).to.deep.equal({ sinceVersion: '128' })
+    expect(streams[0].headers).to.deep.include({ 'Last-Event-ID': 'scene:juyiting-main:128' })
+    const payload = JSON.stringify(envelope(event(129)))
+    streams[0].onChunk(`id: scene:juyiting-main:129\r\nevent: scene.event\r\ndata: ${payload.slice(0, 20)}`)
+    streams[0].onChunk(`${payload.slice(20)}\r\ndata:\r\n\r\n`)
+    streams[0].onChunk(frame(event(129)))
+    await tick()
+
+    expect(state.snapshotReady.value).to.equal(true)
+    expect(state.sseConnected.value).to.equal(true)
+    expect(state.sceneVersion.value).to.equal('129')
+    expect(state.lastEventAt.value).to.equal(5000)
+    expect(appliedEvents).to.have.length(1)
+    state.stop()
+  })
+
+  it('closes and resynchronizes on a version gap before reopening from the snapshot cursor', async () => {
+    const { state, calls, streams, appliedEvents } = harness({
+      snapshots: [snapshot(10), snapshot(20)]
+    })
+    await state.start()
+
+    streams[0].onChunk(frame(event(12)))
+    await tick()
+
+    expect(streams[0].closed).to.equal(true)
+    expect(calls.filter(call => call.method === 'GET')).to.have.length(2)
+    expect(state.resyncCount.value).to.equal(1)
+    expect(state.sceneVersion.value).to.equal('20')
+    expect(appliedEvents).to.have.length(0)
+    expect(streams[1].params).to.deep.equal({ sinceVersion: '20' })
+    state.stop()
+  })
+
+  it('never applies a truncated SSE record when the stream closes', async () => {
+    const { state, streams, appliedEvents } = harness()
+    await state.start()
+
+    streams[0].onChunk(frame(event(129)).trimEnd())
+    streams[0].onClose()
+    await tick()
+
+    expect(state.sceneVersion.value).to.equal('128')
+    expect(appliedEvents).to.have.length(0)
+    state.stop()
+  })
+
+  it('resynchronizes when the server sends resync-required', async () => {
+    const { state, streams } = harness({ snapshots: [snapshot(4), snapshot(9)] })
+    await state.start()
+
+    streams[0].onChunk(frame({sceneVersion:'8',eventType:'resync-required'}))
+    await tick()
+
+    expect(state.resyncCount.value).to.equal(1)
+    expect(state.sceneVersion.value).to.equal('9')
+    expect(streams[0].closed).to.equal(true)
+    state.stop()
+  })
+
+  it('polls without SSE, refreshes immediately on focus, and tears lifecycle resources down', async () => {
+    const intervalCallbacks = []
+    const cleared = []
+    const calls = []
+    const values = [snapshot(1), snapshot(2), snapshot(3)]
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: async request => {
+          calls.push(request)
+          return values.shift()
+        }
+      },
+      sseEnabled: false,
+      setIntervalFn: callback => {
+        intervalCallbacks.push(callback)
+        return 77
+      },
+      clearIntervalFn: id => cleared.push(id)
+    })
+
+    await state.start()
+    expect(intervalCallbacks).to.have.length(1)
+    await intervalCallbacks[0]()
+    window.dispatchEvent(new window.Event('focus'))
+    await tick()
+    expect(calls).to.have.length(3)
+    expect(state.sceneVersion.value).to.equal('3')
+
+    state.stop()
+    expect(cleared).to.deep.equal([77])
+    expect(state.sseConnected.value).to.equal(false)
+    window.dispatchEvent(new window.Event('focus'))
+    await tick()
+    expect(calls).to.have.length(3)
+  })
+
+  it('reconnects a disconnected stream on focus and cancels it on stop', async () => {
+    const { state, streams } = harness()
+    await state.start()
+    streams[0].onClose?.()
+    expect(state.sseConnected.value).to.equal(false)
+
+    window.dispatchEvent(new window.Event('focus'))
+    await tick()
+    expect(streams).to.have.length(2)
+
+    state.stop()
+    expect(streams[1].closed).to.equal(true)
+  })
+
+  it('uses the authenticated HTTP stream path and aborts its fetch on stop', async () => {
+    const calls = []
+    const agentApi = {
+      execute: async request => {
+        calls.push(request)
+        if (request.method === 'GET' && request.responseType !== 'stream') {
+          return snapshot(3)
+        }
+        request.onStreamOpen?.({ cancel () {} })
+        return { data: null }
+      }
+    }
+    const state = useHallBackendSceneState({ agentApi })
+
+    await state.start()
+    const streamRequest = calls.find(call => call.responseType === 'stream')
+    expect(streamRequest).to.include({
+      url: '/agent/scenes/juyiting-main/events',
+      method: 'GET',
+      needAuth: true,
+      streamChunks: true
+    })
+    expect(streamRequest.signal.aborted).to.equal(false)
+    expect(state.sseConnected.value).to.equal(true)
+
+    state.stop()
+    expect(streamRequest.signal.aborted).to.equal(true)
+  })
+
+  it('retries phase reports after one and two seconds and records a bounded warning', async () => {
+    const attempts = []
+    const delays = []
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: async request => {
+          attempts.push(request)
+          throw new Error('offline secret detail')
+        }
+      },
+      streamFactory: () => ({ close () {} }),
+      setTimeoutFn: (callback, delay) => {
+        delays.push(delay)
+        queueMicrotask(callback)
+        return delays.length
+      }
+    })
+
+    const result = await state.reportPhase({
+      reportId: 'report-1', agentId: 'agent-songjiang', stateVersion: '7',
+      phase: 'arrived', regionId: 'council-table', occurredAt: 1234
+    })
+
+    expect(result).to.equal(null)
+    expect(attempts).to.have.length(3)
+    expect(attempts[0]).to.include({
+      url: '/agent/scenes/juyiting-main/phases', method: 'POST'
+    })
+    expect(delays).to.deep.equal([1000, 2000])
+    expect(state.warnings.value).to.deep.equal([{
+      code: 'PHASE_REPORT_FAILED', message: 'Failed to report scene phase after 3 attempts'
+    }])
+  })
+
+  it('publishes one frozen allowlisted phase payload with epoch-millisecond time across retries', async () => {
+    const attempts = []
+    const timers = []
+    const source = {
+      reportId: 'report-wire', agentId: 'agent-songjiang', stateVersion: '7',
+      phase: 'arrived', regionId: 'council-table',
+      occurredAt: '2026-07-17T08:00:00.123Z', path: [{ x: 1, y: 2 }], token: 'secret'
+    }
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: async request => {
+          attempts.push(request)
+          if (attempts.length < 3) throw new Error('offline')
+          return { result: 'accepted' }
+        }
+      },
+      setTimeoutFn: callback => {
+        timers.push(callback)
+        return timers.length
+      }
+    })
+
+    const resultPromise = state.reportPhase(source)
+    await tick()
+    source.occurredAt = '2040-01-01T00:00:00.000Z'
+    source.regionId = 'mutated-region'
+    timers.shift()()
+    await tick()
+    timers.shift()()
+    const result = await resultPromise
+
+    expect(result).to.deep.equal({ result: 'accepted' })
+    expect(attempts).to.have.length(3)
+    expect(attempts.map(item => item.data)).to.satisfy(values => values.every(value => value === values[0]))
+    expect(Object.isFrozen(attempts[0].data)).to.equal(true)
+    expect(attempts[0].data).to.deep.equal({
+      reportId: 'report-wire', agentId: 'agent-songjiang', stateVersion: '7',
+      phase: 'arrived', regionId: 'council-table', occurredAt: 1784275200123
+    })
+  })
+
+  it('switches a controlled events-disabled response to polling and focus refresh', async () => {
+    const calls = []
+    const intervals = []
+    const values = [snapshot(4), snapshot(5), snapshot(6)]
+    const disabled = Object.assign(new Error('disabled'), {
+      status: 503, code: 'SCENE_EVENTS_DISABLED'
+    })
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: async request => {
+          calls.push(request)
+          if (request.responseType === 'stream') throw disabled
+          return values.shift()
+        }
+      },
+      setIntervalFn: (callback, delay) => {
+        intervals.push({ callback, delay })
+        return 91
+      }
+    })
+
+    await state.start()
+    await tick()
+
+    expect(intervals).to.have.length(1)
+    expect(intervals[0].delay).to.equal(15000)
+    expect(state.sseConnected.value).to.equal(false)
+    await intervals[0].callback()
+    window.dispatchEvent(new window.Event('focus'))
+    await tick()
+    expect(calls.filter(call => call.method === 'GET' && call.responseType !== 'stream')).to.have.length(3)
+    expect(state.sceneVersion.value).to.equal('6')
+    state.stop()
+  })
+
+  it('cancels phase retry timers and requests on stop without publishing a warning', async () => {
+    const attempts = []
+    const timers = new Map()
+    const cleared = []
+    let timerId = 0
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: async request => {
+          attempts.push(request)
+          if (request.url.endsWith('/snapshot')) return snapshot(1)
+          throw new Error('offline')
+        }
+      },
+      streamFactory: () => ({ close () {} }),
+      setTimeoutFn: callback => {
+        timerId += 1
+        timers.set(timerId, callback)
+        return timerId
+      },
+      clearTimeoutFn: id => {
+        cleared.push(id)
+        timers.delete(id)
+      }
+    })
+    await state.start()
+
+    const resultPromise = state.reportPhase({
+      reportId: 'report-cancel', agentId: 'agent-songjiang', stateVersion: '7',
+      phase: 'blocked', regionId: 'council-table', occurredAt: 1234
+    })
+    await tick()
+    expect(attempts.filter(call => call.method === 'POST')).to.have.length(1)
+    state.stop()
+
+    expect(await resultPromise).to.equal(null)
+    expect(cleared).to.have.length(1)
+    expect(timers.size).to.equal(0)
+    expect(attempts.filter(call => call.method === 'POST')).to.have.length(1)
+    expect(state.warnings.value).to.deep.equal([])
+  })
+
+  it('ignores a snapshot that completes after stop', async () => {
+    let resolveSnapshot
+    const applied = []
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: () => new Promise(resolve => { resolveSnapshot = resolve })
+      },
+      streamFactory: () => ({ close () {} }),
+      onSnapshot: value => applied.push(value)
+    })
+
+    const starting = state.start()
+    state.stop()
+    resolveSnapshot(snapshot(9))
+    await starting
+
+    expect(state.snapshotReady.value).to.equal(false)
+    expect(state.sceneVersion.value).to.equal(0)
+    expect(state.latestSnapshot.value).to.equal(null)
+    expect(applied).to.deep.equal([])
+  })
+
+  it('preserves Java Long snapshot and SSE cursors without Number narrowing', async () => {
+    const streams = []
+    const beforeMax = '9223372036854775806'
+    const max = '9223372036854775807'
+    const state = useHallBackendSceneState({
+      agentApi: {
+        execute: async () => snapshot(beforeMax)
+      },
+      streamFactory: options => {
+        streams.push(options)
+        options.onOpen()
+        return { close () {} }
+      }
+    })
+
+    await state.start()
+    expect(state.sceneVersion.value).to.equal(beforeMax)
+    expect(streams[0].params).to.deep.equal({ sinceVersion: beforeMax })
+    expect(streams[0].headers).to.deep.include({ 'Last-Event-ID': `scene:juyiting-main:${beforeMax}` })
+
+    streams[0].onChunk(frame(event(max)))
+    expect(state.sceneVersion.value).to.equal(max)
+    state.stop()
+  })
+})
+
+describe('backend scene disposal', () => {
+  it('dispose stops timers, aborts requests, unregisters identity cleanup, and is idempotent', async () => {
+    const intervals = []
+    const cleared = []
+    const state = useHallBackendSceneState({
+      agentApi: { execute: async () => snapshot(1) },
+      sseEnabled: false,
+      setIntervalFn: callback => { intervals.push(callback); return 17 },
+      clearIntervalFn: id => cleared.push(id)
+    })
+    await state.start()
+    state.dispose()
+    state.dispose()
+    expect(cleared).to.deep.equal([17])
+    expect(await state.start()).to.equal(null)
+  })
+})
+
+describe('backend scene stream recovery policy', () => {
+  it('deduplicates one session stream and uses capped exponential jittered reconnect delays', async () => {
+    const timers = []
+    const streams = []
+    const state = useHallBackendSceneState({
+      agentApi: { execute: async () => snapshot(1) },
+      streamFactory: options => {
+        const stream = { ...options, close () { this.closed = true } }
+        streams.push(stream)
+        options.onOpen()
+        return stream
+      },
+      jitter: () => 0.5,
+      setTimeoutFn: (callback, delay) => { const timer = { callback, delay, active: true }; timers.push(timer); return timer },
+      clearTimeoutFn: timer => { timer.active = false }
+    })
+
+    await state.start()
+    streams[0].onClose()
+    window.dispatchEvent(new window.Event('focus'))
+    expect(streams).to.have.length(2)
+    expect(timers.map(timer => [timer.delay, timer.active])).to.deep.equal([[1500, false]])
+
+    streams[1].onClose()
+    expect(timers.map(timer => [timer.delay, timer.active])).to.deep.equal([[1500, false], [3000, true]])
+    state.stop()
+  })
+
+  it('pauses scene SSE while hidden and resumes one deduplicated Last-Event-ID stream when visible', async () => {
+    const documentRef = new EventTarget()
+    documentRef.visibilityState = 'visible'
+    const { state, streams } = harness()
+    // Recreate the state with the owned document so visibility state is deterministic.
+    state.stop()
+    const resumed = useHallBackendSceneState({
+      agentApi: { execute: async () => snapshot(128) },
+      documentRef,
+      streamFactory: options => {
+        const stream = { ...options, close () { this.closed = true } }
+        streams.push(stream)
+        options.onOpen()
+        return stream
+      }
+    })
+
+    await resumed.start()
+    documentRef.visibilityState = 'hidden'
+    documentRef.dispatchEvent(new Event('visibilitychange'))
+    expect(streams[0].closed).to.equal(true)
+
+    documentRef.visibilityState = 'visible'
+    documentRef.dispatchEvent(new Event('visibilitychange'))
+    expect(streams).to.have.length(2)
+    expect(streams[1].headers['Last-Event-ID']).to.equal('scene:juyiting-main:128')
+    resumed.stop()
+  })
+
+  it('stops retrying scene SSE for 401 or 403 until an explicit retry', async () => {
+    for (const status of [401, 403]) {
+      const timers = []
+      const streams = []
+      const state = useHallBackendSceneState({
+        agentApi: { execute: async () => snapshot(1) },
+        streamFactory: options => {
+          streams.push(options)
+          options.onError(Object.assign(new Error('denied'), { status }))
+          return { close () {} }
+        },
+        setTimeoutFn: (callback, delay) => { timers.push({ callback, delay }); return timers.length },
+        clearTimeoutFn: () => {}
+      })
+      await state.start()
+      window.dispatchEvent(new window.Event('focus'))
+      expect({ status, streams: streams.length, timers: timers.length }).to.deep.equal({ status, streams: 1, timers: 0 })
+      await state.retry()
+      expect(streams).to.have.length(2)
+      state.stop()
+    }
+  })
+})
+
+
+describe('scene fallback polling lifecycle', () => {
+  it('skips hidden ticks and shares slow snapshot reads with foreground/retry', async () => {
+    const listeners = new Map()
+    const documentRef = { visibilityState: 'visible',
+      addEventListener: (name, fn) => listeners.set(name, fn),
+      removeEventListener: name => listeners.delete(name) }
+    let poll; let calls = 0; let release
+    const state = useHallBackendSceneState({
+      sseEnabled: false, documentRef,
+      setIntervalFn: fn => { poll = fn; return 1 }, clearIntervalFn: () => {},
+      agentApi: { execute: async () => {
+        calls++
+        if (calls === 1) return snapshot(1)
+        return new Promise(resolve => { release = resolve })
+      } }
+    })
+    try {
+      await state.start()
+      documentRef.visibilityState = 'hidden'
+      await poll()
+      expect(calls).to.equal(1)
+      documentRef.visibilityState = 'visible'
+      listeners.get('visibilitychange')()
+      const tick1 = poll(); const tick2 = poll(); const retry = state.retry()
+      expect(calls).to.equal(2)
+      release(snapshot(2))
+      await Promise.all([tick1, tick2, retry])
+      expect(state.sceneVersion.value).to.equal('2')
+      state.stop()
+      await poll()
+      expect(calls).to.equal(2)
+      expect(listeners.size).to.equal(0)
+    } finally { state.dispose() }
+  })
+
+  it('does not share or publish a stopped lifecycle read after restart', async () => {
+    let poll; let calls = 0; let rejectOld
+    const state = useHallBackendSceneState({
+      sseEnabled: false, documentRef: { visibilityState: 'visible' },
+      setIntervalFn: fn => { poll = fn; return 1 }, clearIntervalFn: () => {},
+      agentApi: { execute: async () => {
+        calls++
+        if (calls === 2) return new Promise((resolve, reject) => { rejectOld = reject })
+        return snapshot(calls)
+      } }
+    })
+    try {
+      await state.start()
+      const old = poll()
+      window.dispatchEvent(new window.Event('focus')) // joins the same old read
+      state.stop()
+      await state.start()
+      rejectOld(new Error('late old failure'))
+      await old
+      expect(calls).to.equal(3)
+      expect(state.sceneVersion.value).to.equal('3')
+      expect(state.snapshotError.value).to.equal('')
+      expect(state.degraded.value).to.equal(false)
+    } finally { state.dispose() }
+  })
+})

@@ -1,0 +1,244 @@
+<template>
+  <section class="bounty-discussion-panel discussion-panel">
+    <BountyDeliberationStatus v-if="!taskCompleted" :presentation="v2Presentation" />
+    <p v-if="typedInspectionStatus" class="typed-inspection-status" role="status">{{ typedInspectionStatus }}</p>
+    <button
+      v-if="typedRecoveryAvailable && !taskCompleted"
+      type="button"
+      class="typed-recovery"
+      @click="$emit('typed-resume')"
+    >刷新处理状态</button>
+    <ChatPanel
+      discussion-variant="bounty"
+      empty-text="可以补充要求、添加资料，或向好汉提问。"
+      placeholder="补充要求、提问，或说明需要怎样修改…"
+      :subtitle="bountySubtitle"
+      title="事项议事"
+      v-bind="chatProps"
+      :output-candidates="messageOutputs"
+      :output-review-enabled="deliberationV2Enabled && !taskCompleted"
+      :output-review-busy="reviewBusy || Boolean(outputGallery?.loading)"
+      @update:draft="$emit('update:draft', $event)"
+      @accept-output="$emit('accept-output', $event)"
+      @cancel-deliberation="$emit('cancel-deliberation', $event)"
+      @clear-target="$emit('clear-target', $event)"
+      @delete-conversation="$emit('delete-conversation', $event)"
+      @load-history="$emit('load-history')"
+      @load-more-history="$emit('load-more-history')"
+      @load-older-messages="$emit('load-older-messages')"
+      @retain-message-windows="$emit('retain-message-windows', $event)"
+      @load-message-window="$emit('load-message-window', $event)"
+      @load-messages="refreshMessages"
+      @mention-agent="$emit('mention-agent', $event)"
+      @new-conversation="$emit('new-conversation')"
+      @open-workspace="$emit('open-workspace')"
+      @retry-conversation="$emit('retry-conversation')"
+      @select-conversation="$emit('select-conversation', $event)"
+      @send-message="$emit('send-message', $event)"
+      @voice-apply="$emit('voice-apply', $event)"
+      @typed-reply="$emit('typed-reply', $event)"
+    >
+      <template #after-toolbar>
+        <label v-if="typedEnabled && !taskCompleted && (deliveryChoices.length > 1 || deliveryHasMore || selectedDeliveryId)" class="media-basis-choice">
+          <span>本轮成果</span>
+          <select
+            :value="selectedDeliveryId"
+            aria-label="本轮成果"
+            :disabled="conversationBusy"
+            @change="$emit('choose-delivery', $event.target.value)"
+          >
+            <option value="">请选择要继续议事的成果</option>
+            <option v-for="choice in deliveryChoices" :key="choice.outcomeId" :value="choice.outcomeId">{{ choice.label }}</option>
+          </select>
+        </label>
+        <button
+          v-if="typedEnabled && !taskCompleted && deliveryHasMore"
+          type="button"
+          :disabled="deliveryLoading || conversationBusy"
+          @click="$emit('load-more-deliveries')"
+        >{{ deliveryLoading ? '正在加载…' : '加载更多成果' }}</button>
+        <p v-if="typedEnabled && deliveryError" role="status">
+          {{ deliveryError }}
+          <button type="button" :disabled="deliveryLoading" @click="$emit('refresh-deliveries')">重试</button>
+        </p>
+        <TaskSkillCapabilities
+          v-if="typedEnabled"
+          :projection="skillDirectory"
+          :error="skillDirectoryError"
+          :loading="skillDirectoryLoading"
+          @refresh="$emit('skill-directory-refresh')"
+        />
+      </template>
+      <template #turn-actions="{ requestIds }">
+        <BountyExecutionTermination
+          v-if="requestIds.length"
+          :enabled="deliberationV2Enabled && !taskCompleted"
+          :controller="abandonment"
+          :requests="executionRequests"
+          :request-ids="requestIds"
+          :conversation-id="conversationId"
+          :identity-key="`${identityEpoch}\u0000${identityScope}`"
+          @settled="$emit('execution-settled', $event)"
+        />
+      </template>
+      <template #bounty-results>
+        <BountyExecutionTermination
+          :enabled="deliberationV2Enabled && !taskCompleted"
+          :controller="abandonment"
+          :requests="executionRequests"
+          :excluded-request-ids="boundRequestIds"
+          :conversation-id="conversationId"
+          :identity-key="`${identityEpoch}\u0000${identityScope}`"
+          @settled="$emit('execution-settled', $event)"
+        />
+        <BountyExecutionOutputs
+          ref="outputGallery"
+          :review-busy="reviewBusy || conversationBusy"
+          :inline="true"
+          :represented-execution-ids="representedExecutionIds"
+          :enabled="deliberationV2Enabled"
+          :task-completed="taskCompleted"
+          :request="activeRequest"
+          :catalog="requestCatalog"
+          :typed-outcomes="typedOutcomes"
+          :task-id="selectedTask?.id || ''"
+          :conversation-generation="conversationGeneration"
+          :conversation-id="conversationId"
+          :identity-key="`${identityEpoch}\u0000${identityScope}`"
+          :task-version="selectedTask?.taskVersion ?? selectedTask?.version"
+          @outputs-change="updateMessageOutputs"
+          @accept-output="$emit('accept-output', $event)"
+          @preview-ready="$emit('preview-ready', $event)"
+        />
+      </template>
+    </ChatPanel>
+  </section>
+</template>
+
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { discussionTurns } from '../../composables/juyiting/hallDiscussionTurns.js'
+import { useHallExecutionAbandonment } from '../../composables/juyiting/useHallExecutionAbandonment.js'
+import ChatPanel from './ChatPanel.vue'
+import TaskSkillCapabilities from './TaskSkillCapabilities.vue'
+import { discussionPanelProps, discussionPanelEmits } from './discussionPanelContract.js'
+import BountyDeliberationStatus from './BountyDeliberationStatus.vue'
+import BountyExecutionTermination from './BountyExecutionTermination.vue'
+import BountyExecutionOutputs from './BountyExecutionOutputs.vue'
+import { bountyDeliberationPresentation } from '../../composables/juyiting/hallMultimediaDeliberationUi.js'
+
+const props = defineProps({
+  ...discussionPanelProps,
+  deliveryHasMore: { type: Boolean, default: false },
+  deliveryLoading: { type: Boolean, default: false },
+  deliveryError: { type: String, default: '' },
+  deliveryChoices: { type: Array, default: () => [] },
+  selectedDeliveryId: { type: String, default: '' },
+  reviewContext: { type: Object, default: null },
+  reviewBusy: { type: Boolean, default: false },
+  activeRequest: { type: Object, default: null },
+  requestCatalog: { type: Array, default: () => [] },
+  activeTurns: { type: Array, default: () => [] },
+  capabilityState: { type: Object, default: null },
+  deliberationV2Enabled: { type: Boolean, default: false },
+  conversationGeneration: { type: String, default: '' },
+  typedOutcomes: { type: Array, default: () => [] },
+  typedPendingQuestion: { type: Object, default: null },
+  typedEnabled: { type: Boolean, default: false },
+  skillDirectory: { type: Object, default: null }, skillDirectoryError: { type: String, default: '' }, skillDirectoryLoading: { type: Boolean, default: false },
+  typedRecoveryAvailable: { type: Boolean, default: false },
+  typedInspectionStatus: { type: String, default: '' },
+  identityScope: { type: String, default: '' },
+})
+
+const emit = defineEmits([...discussionPanelEmits, 'execution-settled', 'typed-reply', 'typed-resume', 'skill-directory-refresh', 'choose-delivery', 'load-more-deliveries', 'refresh-deliveries', 'outputs-change', 'accept-output', 'preview-ready'])
+
+const messageOutputs = ref([])
+const updateMessageOutputs = items => {
+  messageOutputs.value = items
+  emit('outputs-change', items)
+}
+watch(() => `${props.identityEpoch}\u0000${props.identityScope}\u0000${props.conversationId}\u0000${props.selectedTask?.id || ''}`, () => { messageOutputs.value = [] }, { flush: 'sync' })
+const outputGallery = ref(null)
+const refreshMessages = () => {
+  outputGallery.value?.refresh()
+  emit('load-messages')
+}
+defineExpose({ previewSelected: item => outputGallery.value?.previewSelected(item) })
+
+const v2Presentation = computed(() => bountyDeliberationPresentation({
+  enabled: props.deliberationV2Enabled,
+  capability: props.capabilityState,
+  request: props.activeRequest,
+  turns: props.activeTurns,
+  messages: props.messages
+}))
+
+const bountySubtitle = computed(() => {
+  const taskName = props.selectedTask?.title || props.selectedTask?.id || '当前榜文'
+  const countText = props.agents.length ? ` / ${props.agents.length} 位领令好汉` : ''
+  return `${taskName}${countText}`
+})
+
+const taskCompleted = computed(() => props.selectedTask?.status === 'completed' ||
+  Boolean(props.selectedTask?.id && props.reviewContext?.taskId === props.selectedTask.id && props.reviewContext.taskState === 'COMPLETED'))
+
+const executionRequests = computed(() => props.requestCatalog.length ? props.requestCatalog.map(entry => entry.request) : props.activeRequest ? [props.activeRequest] : [])
+const visibleTurns = computed(() => discussionTurns({ messages: props.messages, projections: props.typedOutcomes,
+  conversationId: props.conversationId, taskId: String(props.selectedTask?.id || '') }))
+const boundRequestIds = computed(() => visibleTurns.value.flatMap(message => message.turnRequestIds))
+const representedExecutionIds = computed(() => visibleTurns.value.flatMap(message => message.turnProjections.map(projection => projection.actionProgress?.executionId)).filter(Boolean))
+const abandonment = useHallExecutionAbandonment({
+  conversationId: () => props.deliberationV2Enabled && !taskCompleted.value ? props.conversationId : null,
+  identityKey: () => `${props.identityEpoch}\u0000${props.identityScope}`
+})
+
+// A linked skill result is more precise than the legacy request's RUNNING flag.
+// Display only: keep the existing busy fence and never resubmit unknown work.
+const activeExecutionUnknown = computed(() => {
+  const request = props.activeRequest
+  if (!props.typedEnabled || props.isStreaming || !request?.requestId ||
+    request.conversationId !== props.conversationId ||
+    request.conversationGeneration !== props.conversationGeneration ||
+    (props.activeTurns.length && request.state !== 'COMPLETED')) return false
+  const linked = props.typedOutcomes.filter(card => card.conversationId === props.conversationId &&
+    card.conversationGeneration === props.conversationGeneration &&
+    card.outcome?.taskId === String(props.selectedTask?.id || '') && card.outcome.kind === 'ACTION_REQUEST' &&
+    (card.actionProgress?.childRequestId === request.requestId ||
+      (card.requestId === request.requestId && request.state === 'COMPLETED')) && card.actionProgress?.childRoute === 'EXECUTE')
+  return linked.length === 1 && linked[0].actionProgress.state === 'RESULT_UNKNOWN'
+})
+
+const chatProps = computed(() => {
+  const panelOnly = ['deliveryHasMore', 'deliveryLoading', 'deliveryError', 'deliveryChoices', 'selectedDeliveryId',
+    'reviewContext', 'reviewBusy', 'activeRequest', 'requestCatalog', 'activeTurns', 'capabilityState', 'deliberationV2Enabled',
+    'typedRecoveryAvailable', 'typedInspectionStatus']
+  const chat = Object.fromEntries(Object.entries(props).filter(([key]) => !panelOnly.includes(key)))
+  return { ...chat, ...(activeExecutionUnknown.value ? { isAwaitingReply: false, deliberationStatus: '结果待核实' } : {}),
+    matterReadOnly: chat.matterReadOnly || taskCompleted.value, connectionStatus: taskCompleted.value ? '事项已完成' : activeExecutionUnknown.value ? '结果待核实' : chat.connectionStatus }
+})
+</script>
+
+<style scoped>
+.typed-recovery { align-self: flex-end; margin: 6px 12px 0; border: 1px solid #6b8d7e; border-radius: 5px; padding: 5px 8px; color: #294c3d; background: #fff; }
+
+.discussion-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: #fffaf0;
+}
+
+</style>
+
+<style scoped>
+.typed-inspection-status{margin:8px 0;padding:8px 10px;border-left:3px solid #6f8c81;background:#f3f8f4;color:#3f6254;font-size:12px;line-height:1.5}
+</style>
+
+<style scoped>
+.media-basis-choice{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12px;color:var(--hall-text-muted,#68716b)}
+.media-basis-choice span{flex:none}
+.media-basis-choice select{min-width:0;max-width:100%;flex:1;border:1px solid var(--hall-border,#e3e5dc);border-radius:6px;padding:5px 8px;background:var(--hall-surface,#fffefa);color:var(--hall-text,#242e2b);font:inherit}
+</style>

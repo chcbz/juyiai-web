@@ -1,0 +1,252 @@
+#!/usr/bin/env node
+// ── E11 Constraint Calibration Validator ──
+// Validates the E11 calibration report against frozen inputs.
+// Verifies: zones=0 proof, probe coverage, no crosses, no cycles, 3px hysteresis.
+//
+// Usage (CLI):
+//   node scripts/juyiting/validate-constraint-calibration.mjs [report-path]
+// Default report: tests/fixtures/juyiting/occlusion-v2-constraint/calibration-report.json
+//
+// Importable:
+//   import { validateCalibrationReport } from './validate-constraint-calibration.mjs'
+
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.resolve(__dirname, '..', '..')
+
+function sha256(buf) {
+  return createHash('sha256').update(buf).digest('hex')
+}
+
+function sha256File(filePath) {
+  return sha256(readFileSync(filePath))
+}
+
+// ── Frozen constants ──
+const EXPECTED_LEDGER_WHOLE_SHA = '700b2ac6d27ceb58ce5fe0dd92b3f0dc7012a6ecafd03f7c23a9d3a3c42704b1'
+const EXPECTED_MANIFEST_WHOLE_SHA = 'f5ea1d0a349d9d4e5cbae3a3904f7576cdca5339226cf164bcbf214d813c2439'
+const EXPECTED_TMX_SHA = '7b304c11fd4a121d92f5fb1430f8073d4d590b3d42eb9b9a18e0e0c9bd22ff53'
+const EXPECTED_E10A_GENERATION_ID = 'fc855f90cbfc13c5ad8b24659825bc1dccaa03ec17866735fd923452dbdc7611'
+const EXPECTED_E10B_GENERATION_ID = 'fd028fc9a9ea3f468994cd441ce54bbde5717570e52802ea20967b896911577b'
+
+const CONTRACT_SOURCES = {
+  'src/game/occlusion/schema.ts': '172a293a9b873482be25fed706da05e49ddcc02cfa8717ff329311159e51b9d1',
+  'src/game/occlusion/worldOrder.ts': 'ccb3bc5eaa55055c78f04090a74f0fea4b37e36780349f09eff4ac9f9249942c',
+  'src/game/occlusion/constraintResolver.ts': 'fe2e2903c1830b402db3ca18edfdbd132306ffbde3523397a356bb3541ca88bd',
+  'src/game/occlusion/polygonGeometry.ts': '586c716e541e874776ab28aed60212f2550957ab3df5661443d931653dc31a4e',
+  'src/game/occlusion/validation.ts': '7b4bcfed5ec2cb39003d2f06709113c837b89600138e991a0aec60d1903b0eeb',
+}
+
+/**
+ * Validate a calibration report object.
+ *
+ * @param {object} report - parsed calibration report JSON
+ * @param {object} [opts] - options
+ * @param {Record<string,string>} [opts.liveContractHashes] - live contract path→sha256 map
+ * @param {number} [opts.schemaHysteresisPx] - HYSTERESIS_PX from live schema.js
+ * @param {number} [opts.polygonHysteresisPx] - HYSTERESIS_WORLD_PX from live polygonGeometry.js
+ * @returns {{ passed: boolean, errors: string[], warnings: string[] }}
+ */
+export function validateCalibrationReport(report, opts = {}) {
+  const errors = []
+  const warnings = []
+
+  function error(msg) { errors.push(msg) }
+  function warn(msg) { warnings.push(msg) }
+  function check(condition, msg) { if (!condition) error(msg) }
+
+  // ── Hysteresis cross-check: both live sources must be 3 and equal ──
+  const schemaHpx = opts.schemaHysteresisPx
+  const polyHpx = opts.polygonHysteresisPx
+  if (schemaHpx !== undefined && polyHpx !== undefined) {
+    check(schemaHpx === 3,
+      `HYSTERESIS_PX from schema.js must be 3, got ${schemaHpx}`)
+    check(polyHpx === 3,
+      `HYSTERESIS_WORLD_PX from polygonGeometry.js must be 3, got ${polyHpx}`)
+    check(schemaHpx === polyHpx,
+      `HYSTERESIS_PX (${schemaHpx}) !== HYSTERESIS_WORLD_PX (${polyHpx}) — fail closed`)
+  }
+
+  // ── Schema check ──
+  check(report.$schema === 'juyiting-occlusion-constraint-calibration-v1',
+    `Invalid $schema: ${report.$schema}`)
+  check(report.schemaVersion === 1, `Invalid schemaVersion: ${report.schemaVersion}`)
+  check(report.taskId === 'E11', `Invalid taskId: ${report.taskId}`)
+  check(report.conclusion === 'zones=0', `Invalid conclusion: ${report.conclusion}`)
+
+  // ── Provenance verification ──
+  const prov = report.provenance
+  if (!prov) { error('Missing provenance'); return { passed: false, errors, warnings } }
+
+  check(prov.e10aLedger?.wholeFileSha256 === EXPECTED_LEDGER_WHOLE_SHA,
+    `Ledger SHA mismatch: ${prov.e10aLedger?.wholeFileSha256}`)
+  check(prov.e10aLedger?.generationId === EXPECTED_E10A_GENERATION_ID,
+    `Ledger generationId mismatch: ${prov.e10aLedger?.generationId}`)
+
+  check(prov.e10bManifest?.wholeFileSha256 === EXPECTED_MANIFEST_WHOLE_SHA,
+    `Manifest SHA mismatch: ${prov.e10bManifest?.wholeFileSha256}`)
+  check(prov.e10bManifest?.generationId === EXPECTED_E10B_GENERATION_ID,
+    `Manifest generationId mismatch: ${prov.e10bManifest?.generationId}`)
+
+  check(prov.tmx?.sha256 === EXPECTED_TMX_SHA,
+    `TMX SHA mismatch: ${prov.tmx?.sha256}`)
+
+  // Verify contract hashes in report match expected
+  const reportContracts = prov.e4e5Contracts || {}
+  for (const [relPath, expectedHash] of Object.entries(CONTRACT_SOURCES)) {
+    check(reportContracts[relPath] === expectedHash,
+      `Report contract hash mismatch for ${relPath}`)
+  }
+
+  // Cross-check live contract hashes if provided
+  if (opts.liveContractHashes) {
+    for (const [relPath, expectedHash] of Object.entries(CONTRACT_SOURCES)) {
+      const liveHash = opts.liveContractHashes[relPath]
+      check(liveHash === expectedHash,
+        `Live contract hash mismatch for ${relPath}: expected ${expectedHash}, got ${liveHash}`)
+    }
+  }
+
+  // ── Proofs verification ──
+  const proofs = report.proofs
+  if (!proofs) { error('Missing proofs'); return { passed: false, errors, warnings } }
+
+  // Zones
+  check(proofs.zones?.count === 0, `Zones count should be 0, got ${proofs.zones?.count}`)
+  check(Array.isArray(proofs.zones?.canonicalParseZones) && proofs.zones.canonicalParseZones.length === 0,
+    `canonicalParseZones should be [], got ${JSON.stringify(proofs.zones?.canonicalParseZones)}`)
+
+  // Relations
+  check(proofs.relations?.count === 0, `Relations count should be 0, got ${proofs.relations?.count}`)
+
+  // Edges
+  check(proofs.edges?.count === 0, `Edges count should be 0, got ${proofs.edges?.count}`)
+  check(Array.isArray(proofs.edges?.oppositeOverlapSet) && proofs.edges.oppositeOverlapSet.length === 0,
+    'oppositeOverlapSet should be empty')
+  check(Array.isArray(proofs.edges?.staticEdgeSet) && proofs.edges.staticEdgeSet.length === 0,
+    'staticEdgeSet should be empty')
+  check(Array.isArray(proofs.edges?.activationEdgeSet) && proofs.edges.activationEdgeSet.length === 0,
+    'activationEdgeSet should be empty')
+  check(Array.isArray(proofs.edges?.runtimeEdgeSet) && proofs.edges.runtimeEdgeSet.length === 0,
+    'runtimeEdgeSet should be empty')
+
+  // Conflicts
+  check(proofs.conflicts?.count === 0, `Conflicts count should be 0, got ${proofs.conflicts?.count}`)
+
+  // Cycles
+  check(proofs.cycles?.count === 0, `Cycles count should be 0, got ${proofs.cycles?.count}`)
+
+  // Target coverage
+  const tc = proofs.targetCoverage
+  check(tc?.uniqueTargetFragments === 32, `Unique target fragments: expected 32, got ${tc?.uniqueTargetFragments}`)
+  check(tc?.totalCanonicalFragments === 32, `Total canonical: expected 32, got ${tc?.totalCanonicalFragments}`)
+  check(Array.isArray(tc?.uncoveredTargets) && tc.uncoveredTargets.length === 0,
+    `Uncovered targets should be empty, got ${JSON.stringify(tc?.uncoveredTargets)}`)
+
+  // Probes
+  check(proofs.probes?.total === 111, `Probe total: expected 111, got ${proofs.probes?.total}`)
+  check(proofs.probes?.passed === 111, `Probes passed: expected 111, got ${proofs.probes?.passed}`)
+  check(proofs.probes?.failed === 0, `Probes failed: expected 0, got ${proofs.probes?.failed}`)
+
+  // Global semantics
+  check(proofs.globalSemantics?.hasGlobalBehindMask === false, 'hasGlobalBehindMask should be false')
+  check(proofs.globalSemantics?.hasLegacyDepthHalving === false, 'hasLegacyDepthHalving should be false')
+  check(proofs.globalSemantics?.hasGlobalCharacterState === false, 'hasGlobalCharacterState should be false')
+
+  // Hysteresis
+  check(proofs.hysteresis?.contractPx === 3,
+    `Hysteresis contract: expected 3, got ${proofs.hysteresis?.contractPx}`)
+  check(proofs.hysteresis?.membershipState === 'none (zones=0)',
+    `Membership state should be 'none (zones=0)', got ${proofs.hysteresis?.membershipState}`)
+
+  // Overhead targets
+  check(proofs.overheadTargets?.count === 0, `Overhead targets: expected 0, got ${proofs.overheadTargets?.count}`)
+
+  // Cross-scene/floor
+  check(proofs.crossSceneTargets?.count === 0, `Cross-scene targets: expected 0, got ${proofs.crossSceneTargets?.count}`)
+  check(proofs.crossFloorTargets?.count === 0, `Cross-floor targets: expected 0, got ${proofs.crossFloorTargets?.count}`)
+
+  // ── Binding summary ──
+  const bs = report.bindingSummary
+  check(bs?.totalBindings === 37, `Total bindings: expected 37, got ${bs?.totalBindings}`)
+  check(bs?.allConstraintDecisionNone === true, 'allConstraintDecisionNone should be true')
+  check(bs?.probeResults?.total === 111, `Probe results total: expected 111, got ${bs?.probeResults?.total}`)
+  check(bs?.probeResults?.pass === 111, `Probe results pass: expected 111, got ${bs?.probeResults?.pass}`)
+  check(bs?.probeResults?.fail === 0, `Probe results fail: expected 0, got ${bs?.probeResults?.fail}`)
+  check(bs?.uniqueTargetFragments?.length === 32, `Unique targets: expected 32, got ${bs?.uniqueTargetFragments?.length}`)
+
+  return { passed: errors.length === 0, errors, warnings }
+}
+
+// ── CLI entry point ──
+function main() {
+  const reportPath = process.argv[2] ||
+    path.join(ROOT, 'tests/fixtures/juyiting/occlusion-v2-constraint/calibration-report.json')
+
+  console.error(`Validating: ${reportPath}`)
+
+  let report
+  try {
+    report = JSON.parse(readFileSync(reportPath, 'utf-8'))
+  } catch (e) {
+    console.error(`ERROR: Cannot parse report: ${e.message}`)
+    process.exit(1)
+  }
+
+  // Compute live contract hashes for CLI validation
+  const liveContractHashes = {}
+  for (const relPath of Object.keys(CONTRACT_SOURCES)) {
+    liveContractHashes[relPath] = sha256File(path.join(ROOT, relPath))
+  }
+
+  // Extract hysteresis constants from frozen source text (CLI runs without tsx)
+  let schemaHysteresisPx
+  let polygonHysteresisPx
+  try {
+    const schemaSrc = readFileSync(path.join(ROOT, 'src/game/occlusion/schema.ts'), 'utf-8')
+    const schemaMatch = schemaSrc.match(/export\s+const\s+HYSTERESIS_PX\s*=\s*(\d+)/)
+    if (!schemaMatch) throw new Error('Cannot find HYSTERESIS_PX in schema.ts')
+    schemaHysteresisPx = parseInt(schemaMatch[1], 10)
+
+    const polySrc = readFileSync(path.join(ROOT, 'src/game/occlusion/polygonGeometry.ts'), 'utf-8')
+    const polyMatch = polySrc.match(/export\s+const\s+HYSTERESIS_WORLD_PX\s*=\s*(\d+)/)
+    if (!polyMatch) throw new Error('Cannot find HYSTERESIS_WORLD_PX in polygonGeometry.ts')
+    polygonHysteresisPx = parseInt(polyMatch[1], 10)
+  } catch (e) {
+    console.error(`ERROR: Cannot extract hysteresis constants from frozen sources: ${e.message}`)
+    process.exit(1)
+  }
+
+
+  const result = validateCalibrationReport(report, {
+    liveContractHashes,
+    schemaHysteresisPx,
+    polygonHysteresisPx,
+  })
+
+  for (const w of result.warnings) {
+    console.error(`WARN: ${w}`)
+  }
+  for (const e of result.errors) {
+    console.error(`ERROR: ${e}`)
+  }
+
+  console.error('')
+  if (!result.passed) {
+    console.error(`VALIDATION FAILED: ${result.errors.length} error(s), ${result.warnings.length} warning(s)`)
+    process.exit(1)
+  } else {
+    console.error(`VALIDATION PASSED: 0 errors, ${result.warnings.length} warning(s)`)
+    console.log('PASS')
+  }
+}
+
+// Only run CLI when executed directly (not imported)
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+if (isMain) {
+  main()
+}

@@ -1,0 +1,619 @@
+import { expect } from 'chai'
+import { ref } from 'vue'
+
+import { projectHallTask } from '../src/composables/juyiting/hallTaskPresentation.js'
+
+import { useHallData } from '../src/composables/juyiting/useHallData.js'
+
+describe('useHallData bounty status counts', () => {
+  it('keeps status counts based on the full task set after switching filters', async () => {
+    const allTasks = [
+      { id: 'task-open', status: 'open', requiredAbilities: ['plan'] },
+      { id: 'task-assigned', status: 'assigned', requiredAbilities: ['plan'] },
+      { id: 'task-running', status: 'running', requiredAbilities: ['execute'] },
+      { id: 'task-completed', status: 'completed', requiredAbilities: ['review'] }
+    ]
+    const calls = []
+    const rawStatusCounts = { total: String(allTasks.length) }
+    const phaseCounts = { PENDING_ASSIGNMENT: '0', IN_PROGRESS: '0', PENDING_ACCEPTANCE: '0', COMPLETED: '0', HISTORY: '0', UNKNOWN: '0', total: String(allTasks.length) }
+    allTasks.forEach(task => {
+      rawStatusCounts[task.status] = String(BigInt(rawStatusCounts[task.status] || '0') + 1n)
+      const phase = projectHallTask({ task }).phase
+      phaseCounts[phase] = String(BigInt(phaseCounts[phase]) + 1n)
+    })
+    const agentApi = {
+      search: async (url, params, options) => {
+        calls.push({ url, params })
+        if (url === '/tasks/status-counts') {
+          options.onSuccess({ phaseCounts, rawStatusCounts })
+          return
+        }
+        const data = params.phase
+          ? allTasks.filter(task => projectHallTask({ task }).phase === params.phase)
+          : allTasks
+        options.onSuccess({ items: data, pageNum: 1, pageSize: 100, total: "0" })
+      },
+      get: async () => {}
+    }
+
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadTasks()
+
+    expect(hallData.taskStatusCount('IN_PROGRESS')).to.equal('2')
+    expect(hallData.taskStatusCount('PENDING_ASSIGNMENT')).to.equal('1')
+    expect(hallData.taskStatusCount('COMPLETED')).to.equal('1')
+
+    await hallData.setTaskStatusFilter('IN_PROGRESS')
+
+    expect(hallData.tasks.value.map(task => task.id)).to.deep.equal(['task-assigned', 'task-running'])
+    expect(hallData.taskStatusCount('IN_PROGRESS')).to.equal('2')
+    expect(hallData.taskStatusCount('PENDING_ASSIGNMENT')).to.equal('1')
+    expect(hallData.taskStatusCount('COMPLETED')).to.equal('1')
+    expect(calls.map(call => call.url)).to.deep.equal([
+      '/tasks/search',
+      '/tasks/status-counts',
+      '/tasks/search',
+      '/tasks/status-counts'
+    ])
+    expect(calls[2].params).to.include({ phase: 'IN_PROGRESS' })
+  })
+})
+
+describe('useHallData operable roster', () => {
+  it('loads an unfiltered current-user operable roster separately from map and visible roster state', async () => {
+    const calls = []
+    const roster = [
+      { agentId: 'huyanzhuo', boundToMe: true, canOperate: true, status: 'offline' },
+      { agentId: 'linchong', boundToMe: true, canOperate: false, status: 'online' },
+      { agentId: 'wuyong', boundToMe: false, canOperate: true, status: 'online' },
+      { agentId: 'missing-contract', boundToMe: true, status: 'online' },
+      { agentId: 'songjiang', boundToMe: true, canOperate: true, systemAgent: true, status: 'online' },
+      { agentId: 'stale-persona-agent', personaCode: 'stale-persona', boundToMe: true, canOperate: true, status: 'offline' },
+      { agentId: 'personal-runtime', boundToMe: true, canOperate: true, status: 'offline' }
+    ]
+    const agentApi = {
+      search: async (url, params, options) => {
+        calls.push({ url, params })
+        options.onSuccess({ items: roster, pageNum: 1, pageSize: 100, total: "0" })
+      },
+      get: async (url, _params, options) => options.onSuccess((url === '/personas/catalog' ? [
+        { personaCode: 'huyanzhuo', boundToMe: true },
+        { personaCode: 'stale-persona', boundToMe: false }
+      ] : []))
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadAgents()
+
+    expect(hallData.operableRosterAgents.value.map(agent => agent.agentId)).to.deep.equal(['huyanzhuo', 'personal-runtime'])
+    expect(calls.filter(call => call.url === '/roster')).to.have.length(1)
+    expect(calls.find(call => call.params.status === undefined && call.params.pageSize === 100)).to.exist
+  })
+
+  it('keeps an explicitly operable offline roster selection when the shared map refresh omits it', async () => {
+    const selectedAgent = ref({ agentId: 'huyanzhuo', boundToMe: true, canOperate: true, status: 'offline' })
+    const agentApi = {
+      get: async (url, _params, options) => options.onSuccess((url === '/personas/catalog' ? [] : [])),
+      search: async (_url, _params, options) => options.onSuccess({ items: [selectedAgent.value], pageNum: 1, pageSize: 100, total: "0" })
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent,
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadAgents()
+
+    expect(hallData.mapAgents.value).to.deep.equal([])
+    expect(hallData.operableRosterAgents.value.map(agent => agent.agentId)).to.deep.equal(['huyanzhuo'])
+    expect(selectedAgent.value?.agentId).to.equal('huyanzhuo')
+  })
+
+  it('denies persona runtimes absent from catalog, preserves non-persona runtimes, and refreshes filtered and operable projections together', async () => {
+    const first = [
+      { agentId: 'huyanzhuo-old', personaCode: 'huyanzhuo', boundToMe: true, canOperate: true, status: 'offline' },
+      { agentId: 'runtime-only', boundToMe: true, canOperate: true, status: 'offline' }
+    ]
+    const refreshed = [
+      { agentId: 'huyanzhuo-old', personaCode: 'huyanzhuo', boundToMe: true, canOperate: true, status: 'online', fresh: true },
+      { agentId: 'runtime-only', boundToMe: true, canOperate: true, status: 'offline' }
+    ]
+    const selectedAgent = ref(first[0])
+    let rosterReads = 0
+    const agentApi = {
+      get: async (url, _params, options) => options.onSuccess((url === '/personas/catalog' ? [{ personaCode: 'huyanzhuo', boundToMe: true }] : [])),
+      search: async (url, _params, options) => {
+        if (url !== '/roster') throw new Error(`unexpected ${url}`)
+        rosterReads += 1
+        options.onSuccess({ items: rosterReads === 1 ? first : refreshed, pageNum: 1, pageSize: 100, total: "0" })
+      }
+    }
+    const hallData = useHallData({ agentApi, log: { warn: () => {} }, normalizeStatus: (status = '') => status.toLowerCase(), selectedAgent, selectedTask: ref(null), taskAgentMatchScore: () => 0 })
+
+    await hallData.loadAgents()
+    expect(hallData.operableRosterAgents.value.map(agent => agent.agentId)).to.deep.equal(['huyanzhuo-old', 'runtime-only'])
+    expect(selectedAgent.value).to.equal(hallData.operableRosterAgents.value[0])
+    await hallData.setAgentFilter('online')
+    expect(hallData.agents.value.map(agent => agent.agentId)).to.deep.equal(['huyanzhuo-old'])
+    expect(hallData.operableRosterAgents.value.map(agent => agent.agentId)).to.deep.equal(['huyanzhuo-old', 'runtime-only'])
+    expect(selectedAgent.value?.fresh).to.equal(true)
+    expect(rosterReads).to.equal(2)
+
+    const omittedCatalogData = useHallData({
+      agentApi: { get: async (_url, _params, options) => options.onSuccess(([])), search: async (_url, _params, options) => options.onSuccess({ items: first, pageNum: 1, pageSize: 100, total: "0" }) },
+      log: { warn: () => {} }, normalizeStatus: (status = '') => status.toLowerCase(), selectedAgent: ref(null), selectedTask: ref(null), taskAgentMatchScore: () => 0
+    })
+    await omittedCatalogData.loadAgents()
+    expect(omittedCatalogData.operableRosterAgents.value.map(agent => agent.agentId)).to.deep.equal(['runtime-only'])
+  })
+
+  it('replaces a formerly operable selection with its fresh map object when a refresh revokes operation', async () => {
+    const oldSelection = { agentId: 'huyanzhuo', boundToMe: true, canOperate: true, status: 'online', staleFlag: true }
+    const freshMapAgent = { agentId: 'huyanzhuo', boundToMe: true, canOperate: false, status: 'busy' }
+    const selectedAgent = ref(oldSelection)
+    const agentApi = {
+      get: async (url, _params, options) => options.onSuccess((url === '/personas/catalog' ? [] : [freshMapAgent])),
+      search: async (_url, _params, options) => options.onSuccess({ items: [{ ...freshMapAgent }], pageNum: 1, pageSize: 100, total: "0" })
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent,
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadAgents()
+
+    expect(hallData.operableRosterAgents.value).to.deep.equal([])
+    expect(selectedAgent.value).to.equal(hallData.mapAgents.value[0])
+    expect(selectedAgent.value).to.not.have.property('staleFlag')
+    expect(selectedAgent.value).to.include({ agentId: 'huyanzhuo', canOperate: false, status: 'busy' })
+  })
+
+  it('surfaces an application-level unbind rejection instead of showing a success toast path', async () => {
+    const calls = []
+    const agentApi = {
+      delete: async (url) => {
+        calls.push(url)
+        throw Object.assign(new Error('Confirmed lease no longer belongs to this binding'), { status: 404, code: 'HOSTING_RENT_NOT_FOUND_OR_FORBIDDEN' })
+      },
+      get: async () => { throw new Error('refresh must not run after rejected DELETE') },
+      search: async () => { throw new Error('refresh must not run after rejected DELETE') }
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    let failure
+    try {
+      await hallData.unbindPersona({ personaCode: 'huyanzhuo', agentId: 'agent-hyz', boundToMe: true }, { personaCode: 'huyanzhuo', agentId: 'agent-hyz', leaseId: 'lease-old', identity: '0\u0000' })
+    } catch (error) {
+      failure = error
+    }
+    expect(failure?.message).to.equal('Confirmed lease no longer belongs to this binding')
+    expect(failure?.code).to.equal('HOSTING_RENT_NOT_FOUND_OR_FORBIDDEN')
+    expect(failure?.status).to.equal(404)
+    expect(calls).to.deep.equal(['/personas/huyanzhuo/bind'])
+  })
+
+  it('does not refresh after the HTTP boundary rejects an application error', async () => {
+    const agentApi = {
+      delete: async () => { throw Object.assign(new Error('stale lease'), { status: 404, code: 'HOSTING_RENT_NOT_FOUND_OR_FORBIDDEN' }) },
+      get: async () => { throw new Error('refresh must not run after rejected DELETE') },
+      search: async () => { throw new Error('refresh must not run after rejected DELETE') }
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    let failure
+    try {
+      await hallData.unbindPersona({ personaCode: 'huyanzhuo', agentId: 'agent-hyz', boundToMe: true }, { personaCode: 'huyanzhuo', agentId: 'agent-hyz', leaseId: 'lease-old', identity: '0\u0000' })
+    } catch (error) {
+      failure = error
+    }
+    expect(failure?.code).to.equal('HOSTING_RENT_NOT_FOUND_OR_FORBIDDEN')
+    expect(failure?.status).to.equal(404)
+  })
+
+  it('reports an unbind no-op truthfully and refreshes every roster projection after DELETE', async () => {
+    const calls = []
+    const agentApi = {
+      delete: async (url, options) => { calls.push({ options, url }); return { ...options.data, status: 'FINISHING' } },
+      get: async (_url, _params, options) => options.onSuccess(([])),
+      search: async (url, _params, options) => {
+        calls.push({ url })
+        options.onSuccess({ items: [], pageNum: 1, pageSize: 100, total: "0" })
+      }
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    expect(await hallData.unbindPersona({ personaCode: 'huyanzhuo', boundToMe: false })).to.equal(false)
+    expect(calls).to.deep.equal([])
+    expect(await hallData.unbindPersona({ personaCode: 'huyanzhuo', agentId: 'agent-hyz', boundToMe: true }, { personaCode: 'huyanzhuo', agentId: 'agent-hyz', leaseId: 'lease-old', identity: '0\u0000' })).to.equal(true)
+    expect(calls[0].url).to.equal('/personas/huyanzhuo/bind')
+    expect(calls[0].options.data).to.deep.equal({ agentId: 'agent-hyz', leaseId: 'lease-old' })
+    expect(calls.filter(call => call.url === '/roster')).to.have.length(1)
+  })
+})
+
+describe('useHallData deferred Juyi Hall sources', () => {
+  it('loads map independently before optional roster, catalog, tasks, and counts', async () => {
+    const calls = []
+    const hallData = useHallData({
+      agentApi: {
+        get: async (url, _params, options) => {
+          calls.push(url)
+          if (url !== '/map') throw new Error(`unexpected get ${url}`)
+          options.onSuccess(([{ agentId: 'map-agent', status: 'online' }]))
+        },
+        search: async url => {
+          calls.push(url)
+          throw new Error(`unexpected search ${url}`)
+        }
+      },
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadMapAgents()
+
+    expect(calls).to.deep.equal(['/map'])
+    expect(hallData.mapAgents.value.map(agent => agent.agentId)).to.deep.equal(['map-agent'])
+    expect(hallData.mapLoading.value).to.equal(false)
+    expect(hallData.mapError.value).to.equal('')
+    expect(hallData.rosterLoading.value).to.equal(false)
+    expect(hallData.catalogLoading.value).to.equal(false)
+    expect(hallData.tasksLoading.value).to.equal(false)
+    expect(hallData.taskCountsLoading.value).to.equal(false)
+  })
+
+  it('keeps a successful task list when independent status-count loading fails', async () => {
+    const hallData = useHallData({
+      agentApi: {
+        search: async (url, _params, options) => {
+          if (url === '/tasks/search') {
+            options.onSuccess({ items: [{ id: 'task-1', status: 'open' }], pageNum: 1, pageSize: 100, total: "0" })
+            return
+          }
+          if (url === '/tasks/status-counts') throw new Error('counts offline')
+          throw new Error(`unexpected search ${url}`)
+        }
+      },
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadTasks()
+
+    expect(hallData.tasks.value.map(task => task.id)).to.deep.equal(['task-1'])
+    expect(hallData.tasksError.value).to.equal('')
+    expect(hallData.taskCountsError.value).to.equal('counts offline')
+    expect(hallData.tasksLoading.value).to.equal(false)
+    expect(hallData.taskCountsLoading.value).to.equal(false)
+    expect(hallData.taskStatusCount('PENDING_ASSIGNMENT')).to.equal('—')
+  })
+
+  it('records a failed roster independently without clearing the map source state', async () => {
+    const hallData = useHallData({
+      agentApi: {
+        get: async (url, _params, options) => {
+          if (url !== '/map') throw new Error(`unexpected get ${url}`)
+          options.onSuccess(([{ agentId: 'map-agent', status: 'online' }]))
+        },
+        search: async () => { throw new Error('roster offline') }
+      },
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadMapAgents()
+    await hallData.loadRosterAgents()
+
+    expect(hallData.mapAgents.value.map(agent => agent.agentId)).to.deep.equal(['map-agent'])
+    expect(hallData.mapError.value).to.equal('')
+    expect(hallData.rosterError.value).to.equal('roster offline')
+    expect(hallData.rosterLoading.value).to.equal(false)
+  })
+})
+
+describe('useHallData bounty title reload', () => {
+  it('keeps the persisted bounty title returned by task search after a refresh', async () => {
+    const persistedTask = {
+      id: '42',
+      title: '夜探祝家庄榜文',
+      description: '先探路，再回厅前公议',
+      status: 'open',
+      requiredAbilities: ['planning']
+    }
+    const agentApi = {
+      search: async (url, _params, options) => {
+        options.onSuccess({ items: url === '/tasks/search' ? [persistedTask] : { total: 1, open: 1 }, pageNum: 1, pageSize: 100, total: "0" })
+      },
+      get: async () => {}
+    }
+    const hallData = useHallData({
+      agentApi,
+      log: { warn: () => {} },
+      normalizeStatus: (status = '') => status.toLowerCase(),
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      taskAgentMatchScore: () => 0
+    })
+
+    await hallData.loadTasks()
+    await hallData.loadTasks()
+
+    expect(hallData.tasks.value).to.deep.equal([persistedTask])
+    expect(hallData.tasks.value[0].title).to.equal('夜探祝家庄榜文')
+  })
+})
+
+describe('Hall roster request wire types', () => {
+  it('sends bounded page integers, not int64 decimal strings', async () => {
+    const calls = []
+    const hall = useHallData({
+      agentApi: { search: async (url, data, options) => {
+        calls.push({ url, data })
+        options.onSuccess({ items: [], pageNum: 1, pageSize: 100, total: '0' })
+      } },
+      log: { warn: () => {} }, selectedAgent: ref(null), selectedTask: ref(null),
+      normalizeStatus: value => value, taskAgentMatchScore: () => 0
+    })
+    await hall.loadRosterAgents({ derive: false })
+    expect(calls).to.deep.equal([{ url: '/roster', data: { pageNum: 1, pageSize: 100 } }])
+  })
+})
+
+
+describe('Hall assignment uses the same authoritative projection as the task view', () => {
+  it('never assigns a raw-open task with UNKNOWN or contradictory server phase', async () => {
+    const selectedTask = ref({ id: 'a', status: 'open', phase: 'PENDING_ASSIGNMENT' })
+    const hall = useHallData({ agentApi: { get: async () => ({ items: [{ agentId: 'wuyong', displayName: '吴用', providerDisplayName: null, isMine: true, availability: 'offline' }], nextAfterAgentId: null }) }, log: { warn: () => {} },
+      selectedAgent: ref(null), selectedTask, normalizeStatus: value => value,
+      taskAgentMatchScore: () => 0 })
+    await hall.loadAssigneeCandidates()
+    const agent = { agentId: 'wuyong', status: 'online', canOperate: true }
+    try {
+      for (const phase of ['UNKNOWN', 'IN_PROGRESS', 'PENDING_ACCEPTANCE', 'unsupported']) {
+        expect(hall.canAssign({ id: 'a', status: 'open', phase }, agent), phase).to.equal(false)
+      }
+      expect(hall.canAssign({ id: 'a', status: 'open', phase: 'PENDING_ASSIGNMENT' }, agent)).to.equal(true)
+    } finally { hall.dispose() }
+  })
+})
+
+describe('selected matter leaving the filtered page after acceptance', () => {
+  const counts = { PENDING_ASSIGNMENT: '0', IN_PROGRESS: '0', PENDING_ACCEPTANCE: '0', COMPLETED: '1', HISTORY: '0', UNKNOWN: '0', total: '1' }
+  const fixture = get => {
+    const selectedTask = ref({ id: 'accepted-task', status: 'reviewing', taskVersion: '3' })
+    const identity = ref('owner-a')
+    const calls = []
+    const hall = useHallData({ selectedTask, selectedAgent: ref(null), identityScope: identity,
+      agentApi: { get: async (...args) => { calls.push(args); return get(...args) }, search: async (path, _params, options) => {
+        options.onSuccess(path === '/tasks/status-counts' ? { phaseCounts: counts, rawStatusCounts: { completed: '1', total: '1' } } : { items: [], pageNum: 1, pageSize: 30, total: '0' })
+      } }, log: { warn: () => {} }, normalizeStatus: value => value, taskAgentMatchScore: () => 0 })
+    return { hall, selectedTask, identity, calls }
+  }
+  it('refreshes the original selected ID once although the completed task is outside the current filter', async () => {
+    const f = fixture(async () => ({ id: 'accepted-task', status: 'completed', taskVersion: '4' }))
+    try {
+      await f.hall.loadTasks({ refreshTaskId: 'accepted-task', minimumTaskVersion: '4' })
+      expect(f.selectedTask.value.status).to.equal('completed')
+      expect(f.hall.tasks.value).to.deep.equal([])
+      expect(f.calls.map(call => call[0])).to.deep.equal(['/tasks/accepted-task'])
+      expect(f.hall.tasksError.value).to.equal('')
+    } finally { f.hall.dispose() }
+  })
+  it('does not replace a different selected matter with a late exact read', async () => {
+    let finish
+    const f = fixture(path => path.endsWith('/assignee-candidates') ? Promise.resolve({ items: [], nextAfterAgentId: null }) : new Promise(resolve => { finish = resolve }))
+    try {
+      const pending = f.hall.loadTasks()
+      while (!finish) await Promise.resolve()
+      f.selectedTask.value = { id: 'other', status: 'open', taskVersion: '1' }
+      finish({ id: 'accepted-task', status: 'completed', taskVersion: '4' }); await pending
+      expect(f.selectedTask.value.id).to.equal('other')
+    } finally { f.hall.dispose() }
+  })
+  it('rejects a stale root version and preserves the original matter with a visible read error', async () => {
+    const f = fixture(async () => ({ id: 'accepted-task', status: 'reviewing', taskVersion: '3' }))
+    try {
+      await f.hall.loadTasks({ refreshTaskId: 'accepted-task', minimumTaskVersion: '4' })
+      expect(f.selectedTask.value.taskVersion).to.equal('3')
+      expect(f.hall.tasksError.value).to.include('版本尚未核对')
+    } finally { f.hall.dispose() }
+  })
+  it('ignores an old-account read after identity changes', async () => {
+    let finish
+    const f = fixture(path => path.endsWith('/assignee-candidates') ? Promise.resolve({ items: [], nextAfterAgentId: null }) : new Promise(resolve => { finish = resolve }))
+    try {
+      const pending = f.hall.loadTasks()
+      while (!finish) await Promise.resolve()
+      f.identity.value = 'owner-b'; await Promise.resolve()
+      finish({ id: 'accepted-task', status: 'completed', taskVersion: '4' }); await pending
+      expect(f.selectedTask.value?.id).not.to.equal('accepted-task')
+    } finally { f.hall.dispose() }
+  })
+})
+
+
+describe('D3.1 assigned list rows versus authoritative detail', () => {
+  it('does not replace assignedTarget with a thin search row on refresh', async () => {
+    const row = { id: 'task', status: 'assigned', taskVersion: '2', assignedAgentId: 'external' }
+    const assignedTarget = { agentId: 'external', displayName: '承办', providerDisplayName: null, isMine: false, availability: 'offline' }
+    const selectedTask = ref({ ...row, assignedTarget })
+    const reads = []
+    const hall = useHallData({ selectedTask, selectedAgent: ref(null), log: { warn() {} }, normalizeStatus: value => value,
+      agentApi: {
+        get: async path => { reads.push(path); return { ...row, assignedTarget } },
+        search: async (path, _params, options) => options.onSuccess(path.endsWith('/status-counts') ? null : { items: [row], pageNum: 1, pageSize: 30, total: '1' })
+      } })
+    try {
+      await hall.loadTasks()
+      expect(reads).to.deep.equal(['/tasks/task'])
+      expect(selectedTask.value.assignedTarget).to.deep.equal(assignedTarget)
+    } finally { hall.dispose() }
+  })
+})
+
+describe('useHallData actual assignee filter', () => {
+  const zeroCounts = { phaseCounts: { PENDING_ASSIGNMENT: '0', IN_PROGRESS: '0', PENDING_ACCEPTANCE: '0', COMPLETED: '0', HISTORY: '0', UNKNOWN: '0', total: '0' }, rawStatusCounts: { total: '0' } }
+  const make = (agentApi, identityScope = ref('owner-a')) => useHallData({ agentApi, identityScope,
+    log: { warn: () => {} }, normalizeStatus: value => value, selectedAgent: ref(null), selectedTask: ref(null) })
+
+  it('sends exact Agent ID and keyword to page and full counts, never ability or client-side page filtering', async () => {
+    const calls = []
+    const hall = make({ search: async (url, params, options) => {
+      calls.push({ url, params })
+      options.onSuccess(url === '/tasks/status-counts' ? zeroCounts : { items: [{ id: 'server-authoritative' }], total: '31' })
+    } })
+    try {
+      hall.taskAgentFilter.value = 'Agent-0'
+      hall.taskKeyword.value = '事项'
+      await hall.setTaskStatusFilter('IN_PROGRESS')
+      expect(calls).to.have.length(2)
+      for (const { params } of calls) {
+        expect(params).to.include({ assignedAgentId: 'Agent-0', keyword: '事项' })
+        expect(params).not.to.have.property('ability')
+      }
+      expect(calls[0].params).to.include({ phase: 'IN_PROGRESS', pageSize: 30 })
+      expect(calls[1].params).not.to.have.property('phase')
+      expect(hall.tasks.value.map(task => task.id)).to.deep.equal(['server-authoritative'])
+      hall.taskAgentFilter.value = ''
+      await hall.loadTasks()
+      expect(calls[2].params.assignedAgentId).to.equal(undefined)
+    } finally { hall.dispose() }
+  })
+
+  it('keeps same-name IDs distinct and actual external assignees across phase changes, resets at identity boundary', async () => {
+    const identity = ref('owner-a')
+    let phase = 0
+    const hall = make({ search: async (url, params, options) => {
+      if (url === '/roster') return options.onSuccess({ items: [{ agentId: '0', name: '同名' }, { agentId: 'a', name: '同名' }] })
+      if (url === '/tasks/status-counts') return options.onSuccess(zeroCounts)
+      options.onSuccess({ items: phase++ === 0 ? [{ id: 'external-task', assignedAgentIds: ['external'], assignedAgentName: '外部承接者', requiredAbilities: ['never-an-agent'] }] : [], pageNum: 1, pageSize: 30, total: phase === 1 ? '1' : '0' })
+    }, get: async (_url, _params, options) => options.onSuccess([]) }, identity)
+    try {
+      await hall.loadAgents()
+      await hall.loadTasks()
+      expect(hall.taskAgentOptions.value.map(agent => agent.agentId).sort()).to.deep.equal(['0', 'a', 'external'])
+      await hall.setTaskStatusFilter('COMPLETED')
+      expect(hall.taskAgentOptions.value.map(agent => agent.agentId)).to.include('external')
+      hall.taskAgentFilter.value = 'external'
+      identity.value = 'owner-b'
+      expect(hall.taskAgentFilter.value).to.equal('')
+      expect(hall.taskAgentOptions.value).to.deep.equal([])
+    } finally { hall.dispose() }
+  })
+
+  it('ignores page/count responses from the previous assignee selection', async () => {
+    const pending = []
+    const hall = make({ search: (url, params, options) => new Promise(resolve => pending.push({ url, params, finish: result => { options.onSuccess(result); resolve() } })) })
+    try {
+      hall.taskAgentFilter.value = 'old'
+      const old = hall.loadTasks()
+      hall.taskAgentFilter.value = 'new'
+      const fresh = hall.loadTasks()
+      pending[2].finish({ items: [{ id: 'new-task' }], pageNum: 1, pageSize: 30, total: '1' })
+      pending[3].finish(zeroCounts)
+      await fresh
+      pending[0].finish({ items: [{ id: 'old-task' }], pageNum: 1, pageSize: 30, total: '1' })
+      pending[1].finish(zeroCounts)
+      await old
+      expect(hall.tasks.value.map(task => task.id)).to.deep.equal(['new-task'])
+      expect(hall.taskAgentFilter.value).to.equal('new')
+    } finally { hall.dispose() }
+  })
+})
+
+
+describe('exact rental removal snapshot', () => {
+  const persona = { personaCode: 'wuyong', agentId: 'agent-wy', boundToMe: true }
+  const lookup = leaseId => ({ managed: true, lease: { ...persona, leaseId, status: 'ACTIVE' } })
+  const create = (agentApi, extra = {}) => useHallData({ agentApi, log: { warn() {} },
+    normalizeStatus: value => value, selectedAgent: ref(null), selectedTask: ref(null), ...extra })
+  it('freezes the read lease and submits it without substituting a later lease', async () => {
+    const calls = []
+    const data = create({ get: async (url, _params, options) => {
+      if (url.endsWith('/hosting-lease')) { calls.push(url); return lookup('lease-before-confirmation') }
+      options.onSuccess([])
+    }, delete: async (url, options) => { calls.push(options.data); return { ...options.data, status: 'FINISHING' } },
+    search: async (_url, _params, options) => options.onSuccess({ items: [], pageNum: 1, pageSize: 100, total: '0' }) })
+    const snapshot = await data.preparePersonaRemoval(persona)
+    expect(Object.isFrozen(snapshot)).to.equal(true)
+    expect(await data.unbindPersona(persona, snapshot)).to.equal(true)
+    expect(calls).to.deep.equal(['/agent-wy/hosting-lease', { agentId: 'agent-wy', leaseId: 'lease-before-confirmation' }])
+  })
+  it('never falls back to destructive unbind for unavailable or unmanaged rental', async () => {
+    for (const result of [{ managed: false }, lookup(''), { ...lookup('lease'), lease: { ...lookup('lease').lease, agentId: 'different' } }]) {
+      let deletes = 0
+      const data = create({ get: async () => result, delete: async () => { deletes++ } })
+      let error
+      try { await data.preparePersonaRemoval(persona) } catch (cause) { error = cause }
+      expect(error).to.be.instanceOf(Error)
+      expect(await data.unbindPersona(persona)).to.equal(false)
+      expect(deletes).to.equal(0)
+    }
+  })
+  it('discards a late read and a confirmed snapshot after identity changes', async () => {
+    const identity = ref('first'); let resolve
+    const data = create({ get: () => new Promise(done => { resolve = done }) }, { identityScope: identity })
+    const reading = data.preparePersonaRemoval(persona); identity.value = 'second'; resolve(lookup('lease'))
+    expect(await reading).to.equal(null)
+    expect(await data.unbindPersona(persona, { ...persona, leaseId: 'lease', identity: '0\u0000first' })).to.equal(false)
+  })
+  it('does not report success for a mismatched removal receipt', async () => {
+    const data = create({ get: async () => lookup('lease'), delete: async () => ({ agentId: 'agent-wy', leaseId: 'other', status: 'FINISHING' }) })
+    const snapshot = await data.preparePersonaRemoval(persona)
+    let error
+    try { await data.unbindPersona(persona, snapshot) } catch (cause) { error = cause }
+    expect(error?.message).to.include('尚未确认')
+  })
+})

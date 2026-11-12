@@ -1,0 +1,99 @@
+import { defineStore } from 'pinia'
+import { useUtilStore } from './util'
+import { log } from '../utils/logger.js'
+
+const runtimeEnv = import.meta.env ?? {}
+
+const anonymousUser = () => ({
+  id: null,
+  appid: runtimeEnv.VITE_WXMP_APPID,
+  username: null,
+  nickname: null,
+  openid: null,
+  jiacn: null,
+  avatar: null,
+  wxToken: null
+})
+
+export const useGlobalStore = defineStore('global', {
+  state: () => ({
+    user: anonymousUser(),
+    menu: {},
+    title: runtimeEnv.VITE_APP_TITLE,
+    showBack: false,
+    showAppBar: true,
+    showMore: false,
+    showSideMenu: false,
+    showRightSidebar: false,
+    copyright: runtimeEnv.VITE_COPYRIGHT,
+    copyrightLink: runtimeEnv.VITE_COPYRIGHT_LINK
+  }),
+  getters: {
+    getOpenid () {
+      const utilStore = useUtilStore()
+      return utilStore.getLocalStorage('openid') || this.user.openid
+    },
+    getJiacn () {
+      const utilStore = useUtilStore()
+      return utilStore.getLocalStorage('jiacn') || this.user.jiacn
+    },
+    getWxToken () {
+      const utilStore = useUtilStore()
+      return utilStore.getLocalStorage('wxToken') || this.user.wxToken
+    },
+    getUserId () {
+      const utilStore = useUtilStore()
+      return utilStore.getLocalStorage('userId') || this.user.id
+    }
+  },
+  actions: {
+    clearUserIdentity () {
+      this.user = anonymousUser()
+    },
+    setUser (user = {}) {
+      if (user.id) {
+        const utilStore = useUtilStore()
+        utilStore.setLocalStorage('userId', user.id, new Date().getTime() + 7 * 24 * 60 * 60 * 1000)
+      }
+      this.user = {
+        ...this.user,
+        ...user
+      }
+    },
+    setOpenid (id) {
+      log.debug('Setting openid:', id)
+      const utilStore = useUtilStore()
+      utilStore.setLocalStorage('openid', id, new Date().getTime() + 7 * 24 * 60 * 60 * 1000)
+      this.user.openid = id
+    },
+    setWxToken (payload) {
+      const utilStore = useUtilStore()
+      utilStore.setLocalStorage('wxToken', payload.accessToken, new Date().getTime() + payload.expiresIn * 1000 - 60000)
+      this.user.wxToken = payload.accessToken
+    },
+    setJiacn (id) {
+      log.debug('Setting jiacn:', id)
+      const utilStore = useUtilStore()
+      utilStore.setLocalStorage('jiacn', id, new Date().getTime() + 7 * 24 * 60 * 60 * 1000)
+      this.user.jiacn = id
+    },
+    setTitle (title) {
+      this.title = title
+    },
+    setShowBack (showBack) {
+      this.showBack = showBack
+    },
+    setShowAppBar (showAppBar) {
+      this.showAppBar = showAppBar
+    },
+    setShowMore (showMore) {
+      this.showMore = showMore
+    },
+    toggleSideMenu () {
+      this.showSideMenu = !this.showSideMenu
+    },
+    toggleRightSidebar () {
+      this.showRightSidebar = !this.showRightSidebar
+    }
+  }
+})

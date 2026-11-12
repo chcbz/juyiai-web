@@ -1,0 +1,229 @@
+<template>
+  <section class="hall-draft-editor" :class="`hall-draft-editor--${activeView}`" :aria-label="windowTitle">
+    <p v-if="sourceReadState === 'loading'" role="status">正在核对原事项…</p>
+    <p v-else-if="sourceReadState === 'error'" class="draft-error" role="alert">暂时无法加载原事项，请重试。</p>
+
+    <template v-else-if="activeView === 'draft'">
+      <div v-if="!initialRef || drafts.summaries.value.length" class="draft-recovery"><button v-if="!initialRef" type="button" :disabled="busy" @click="loadRecoverable">恢复草稿</button><button v-for="item in drafts.summaries.value" :key="item.draftId" type="button" :disabled="busy" @click="openDraft(item.draftId)">{{ item.title || '未命名草稿' }} · r{{ item.revision }}</button><button v-if="drafts.nextCursor.value" type="button" :disabled="busy" @click="drafts.loadMore">读取更多</button></div><p class="draft-intro">先说明想得到什么。资料可选；开始办事后再确认承办好汉。</p>
+      <form @submit.prevent="persist">
+        <label v-if="!isTaskCreate"><span>事项名称</span><input v-model="form.title" :maxlength="isTaskCreate ? 200 : null" :placeholder="isTaskCreate ? '给这件事起个名字，最多200字' : '给这件事起个名字'" /></label>
+        <label><span>需求描述</span><textarea v-model="form.instruction" :maxlength="isTaskCreate ? 20000 : null" :placeholder="isTaskCreate ? '描述目标与要求；最多20000字' : '例如：把会议纪要整理成一页简报，列出结论和待办。'"></textarea></label>
+        <p v-if="!isTaskCreate" class="draft-hint">事项名称最多200字，需求描述最多20000字；超出时保留原文，不会截短保存。</p><p v-if="drafts.draft.value?.state === 'EDITING'" class="draft-hint">草稿已保存，尚未交办。</p>
+
+        <template v-if="isTaskCreate">
+          <p>保存需求不会启动办理；确认承办后，再将需求交给好汉。</p>
+          <p v-if="formalValidationError" class="draft-error" role="alert">{{ formalValidationError }}</p>
+          <section v-if="hasUnsupportedFormalFields" class="draft-note" aria-label="原有内容保留"><p>原稿包含此入口不支持的选人或格式，已原样保留，尚不能确认提交。</p><p v-if="form.outputMime">原期望格式：{{ form.outputMime }}</p><button type="button" :disabled="busy" @click="removeUnsupportedFormalFields">移除原承办人和格式设置</button></section>
+          <p v-if="hasUnsupportedFormalSource" class="draft-error" role="alert">原稿关联了资料来源或议事会话，此处不能改变该关联。请回原正式入口处理。</p>
+        </template>
+        <div class="draft-material-section">
+          <section class="draft-materials" aria-labelledby="hall-draft-materials-title">
+            <h4 id="hall-draft-materials-title">参考资料 <small>可选</small></h4>
+            <HallMaterialPicker
+              v-model="selectedMaterials"
+              :identity-scope="identityScope"
+              :identity-epoch="identityEpoch"
+              :disabled="busy || formalStarting"
+            />
+          </section>
+          <label v-if="!isTaskCreate"><span>交付格式 <small>可选；默认文本</small></span><select v-model="form.outputMime" aria-label="期望格式"><option value="">{{ defaultOutputMime ? `可选：${formatText(defaultOutputMime)}（默认）` : '正在读取可选格式' }}</option><option v-if="form.outputMime && !drafts.allowedMimeTypes.value.includes(form.outputMime)" :value="form.outputMime">保留原格式：{{ formatText(form.outputMime) }} · {{ form.outputMime }}（未确认支持）</option><option v-for="mime in drafts.allowedMimeTypes.value" :key="mime" :value="mime">{{ formatText(mime) }}</option></select></label>
+          <p v-if="!isTaskCreate && formatHint" class="draft-hint" role="status">{{ formatHint }}</p>
+        </div>
+        <details v-if="isTaskCreate" class="draft-optional-title">
+          <summary>事项名称（可选）</summary>
+          <label>
+            <input
+              v-model="form.title"
+              maxlength="200"
+              aria-label="事项名称"
+              placeholder="不填写时，按需求自动命名"
+            />
+          </label>
+        </details>
+        <p v-if="drafts.error.value" class="draft-error" role="alert">{{ drafts.error.value }}</p>
+        <p v-if="drafts.reloadRequired.value" class="draft-error" role="alert">草稿已有更新，本次修改未保存。重新载入会替换当前输入，请先复制需要保留的内容。</p>
+        <div class="draft-actions"><span v-if="needsSave" class="muted">未保存；可确认保存草稿。</span><span v-else-if="isCurrentDraftSaved" class="draft-saved">已保存到账号，尚未交办。</span><button v-if="drafts.draft.value?.state === 'EDITING'" type="button" :disabled="busy" @click="discard">放弃草稿</button><button type="submit" :disabled="busy">{{ isTaskCreate ? '保存草稿' : revisionSource ? '保存修改草稿' : drafts.draft.value ? '保存修改' : '确认保存草稿' }}</button><button v-if="isTaskCreate" type="button" class="primary" :disabled="busy || formalStarting || !canProceed || Boolean(drafts.unresolvedIntent.value)" @click="startFormalTask">开始办事</button><button v-else-if="!isTaskAction" type="button" class="primary" :disabled="busy || !canProceed" @click="nextToConfirm">下一步：确认交办</button></div>
+        <p v-if="isTaskAction" role="status">这是正式事项草稿；此处只保存编辑。正式张榜和返工请使用原正式入口。</p>
+      </form>
+    </template>
+
+    <template v-else-if="activeView === 'confirm'">
+      <p class="draft-intro">确认前核对目标、好汉、固定版本与范围；确认才会请求交办。</p>
+      <dl class="confirmation-grid"><div><dt>本次目标</dt><dd>{{ form.instruction || form.title || '尚未填写' }}</dd></div><div v-if="!isTaskCreate"><dt>执行好汉</dt><dd><select v-model="form.targetAgentId" aria-label="执行好汉"><option value="">请选择执行好汉</option><option v-for="agent in agents" :key="agent.agentId" :value="agent.agentId">{{ agentName(agent) }}</option></select></dd></div><div v-if="!isTaskCreate"><dt>交付格式</dt><dd>{{ effectiveOutputMime ? `${formatText(effectiveOutputMime)}${form.outputMime ? '' : '（默认）'} · ${effectiveOutputMime}` : '暂未取得可提交的交付格式' }}</dd></div><div><dt>资料版本</dt><dd><div class="draft-chips"><span v-for="input in form.inputs" :key="`${input.fileId}:${input.version}`">{{ materialName(input) }} · v{{ input.version }}</span><span v-if="!form.inputs.length" class="muted">未引用资料</span></div></dd></div><div><dt>可见范围</dt><dd>{{ isTaskCreate ? '正式任务按原正式服务的实际可见范围处理。' : '私人交办，仅当前身份范围可见；所选版本只用于这次执行。' }}</dd></div><div><dt>授权</dt><dd>{{ isTaskCreate ? '创建正式任务不会启动执行。' : '确认后会将本轮需求、所选资料版本交给所选好汉及其配置的外部 Provider；可能产生费用，费用未知。' }}</dd></div></dl>
+      <p v-if="formatHint && !isTaskCreate" class="draft-hint" role="status">{{ formatHint }}</p>
+      <p v-if="drafts.error.value" class="draft-error" role="alert">{{ drafts.error.value }}</p>
+      <label v-if="!isTaskAction" class="authorization"><input v-model="authorizationAcknowledgement" :disabled="!canConfirm" type="checkbox" /> <span>{{ isTaskCreate ? '我已确认创建无悬赏金额、未指派的正式任务；这不会启动执行。' : '我已确认所选好汉、固定资料版本与私人交办范围。' }}</span></label>
+      <div class="draft-actions"><span v-if="needsSave" class="muted">修改尚未保存；保存后才能授权。</span><button type="button" :disabled="busy" @click="goBack">返回修改</button><button v-if="needsSave" type="button" :disabled="busy" @click="persist">保存更改</button><button type="button" class="primary" :disabled="busy || !canConfirm || !authorizationAcknowledgement || Boolean(drafts.unresolvedIntent.value)" @click="submit">{{ isTaskCreate ? '确认创建正式任务' : revisionSource ? '确认修改并执行' : '确认授权并交办' }}</button></div>
+    </template>
+
+    <template v-else-if="activeView === 'receipt'">
+      <section class="case-receipt" aria-label="事项进展"><div><strong>{{ currentExecution ? executionText(currentExecution.state) : displayedRef?.sourceType === 'TASK' ? '正式任务已创建' : '状态待核对' }}</strong><p>{{ currentExecution ? executionSummary(currentExecution) : displayedRef?.sourceType === 'TASK' ? '正式任务已创建，尚未指派或启动执行。' : '尚未取得成果。' }}</p></div><button v-if="['PRIVATE_CASE', 'LEGACY_EXECUTION'].includes(displayedRef?.sourceType)" type="button" :disabled="busy" @click="refreshCase">核对进展</button></section>
+      <HallPrivateMark v-if="['PRIVATE_CASE', 'LEGACY_EXECUTION'].includes(displayedRef?.sourceType)" :source-ref="displayedRef" :result-ref="markableResult" :identity-scope="identityScope" :identity-epoch="identityEpoch" @changed="emit('changed')" /><button v-if="drafts.submissionRecovery.value" type="button" :disabled="busy" @click="reconcile">核对原交办</button><nav class="case-tabs" aria-label="事项内容"><button v-for="tab in caseTabs" :key="tab.id" type="button" :aria-pressed="caseTab === tab.id" @click="caseTab = tab.id">{{ tab.label }}</button></nav>
+      <section v-if="caseTab === 'progress'" class="case-body"><p>{{ displayedRef?.sourceType === 'TASK' ? '事项已创建，请确认承办后继续办理。' : executionSummary(currentExecution) }}</p><button v-if="currentExecution?.state === 'OUTPUT_COMMITTED'" type="button" :disabled="busy" @click="openResults(currentExecution)">查看成果</button><button v-if="displayedRef?.sourceType === 'TASK'" type="button" :disabled="busy" @click="openFormalTask">打开正式事项</button><template v-else><p v-for="item in drafts.caseView.value?.executions || []" :key="`${item.revisionNo}:${item.execution.executionId}`">第 {{ item.revisionNo }} 次执行 · {{ executionText(item.execution.state) }}</p></template></section>
+      <section v-else-if="caseTab === 'materials'" class="case-body"><p>已提交执行使用的是固定版本；上传新版本不会悄悄改写本次输入。</p><div class="draft-chips"><span v-for="input in receiptInputs" :key="`${input.fileId}:${input.version}`">{{ materialName(input) }} · v{{ input.version }}</span><span v-if="!receiptInputs.length" class="muted">原执行未返回输入版本；请核对原执行，不据此断言没有资料。</span></div></section>
+      <section v-else class="case-body"><p v-if="downloadError" class="draft-error" role="alert">{{ downloadError }}</p><p v-if="!drafts.executionResults.value">尚未加载成果。</p><button v-if="currentExecution?.state === 'OUTPUT_COMMITTED' && !drafts.executionResults.value" type="button" class="primary" :disabled="busy" @click="openResults(currentExecution)">查看成果</button><template v-else-if="drafts.executionResults.value"><p v-if="!drafts.executionResults.value.items.length">该执行尚无可用成果。</p><article v-for="item in drafts.executionResults.value.items" :key="item.outputId" class="hall-result-item"><strong>{{ item.filename }}</strong><small>v{{ item.fileVersion }} · {{ item.mime }} · {{ item.availability === 'AVAILABLE' ? '可用' : '当前不可用' }}</small><div v-if="item.availability === 'AVAILABLE'" class="result-actions"><button type="button" :disabled="busy" @click="previewResult(item)" class="hall-tool" aria-label="预览成果" title="预览成果"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button><button type="button" :disabled="busy" @click="downloadResult(item)" class="hall-tool" aria-label="下载成果" title="下载成果"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></button><button v-if="canCreateRevision" type="button" :disabled="busy" @click="startRevision(item)">提出修改</button></div></article><section v-if="resultPreviewItem" class="case-result-preview" aria-label="成果固定版本预览"><div class="preview-meta"><strong>{{ resultPreviewItem.filename }}</strong><label v-if="resultVersions.length">版本 <select v-model="resultPreviewVersion" @change="previewResultVersion"><option v-for="version in resultVersions" :key="version.version" :value="version.version">v{{ version.version }} · {{ version.originalFilename }}</option></select></label></div><template v-if="workspace.hasMoreVersions.value"><button type="button" :disabled="workspace.versionsState.value === 'loading'" @click="workspace.loadMoreVersions">{{ workspace.versionsState.value === 'loading' ? '正在读取历史版本…' : '读取更早版本' }}</button></template><p v-if="workspace.versionsError.value" role="alert">{{ workspace.versionsError.value }}</p><template v-if="workspace.preview.value?.kind === 'parts'"><div class="result-actions"><button type="button" :disabled="workspace.preview.value.selectedIndex === 0" @click="workspace.selectPreviewPart(workspace.preview.value.selectedIndex - 1)" class="hall-tool" aria-label="上一页" title="上一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button><span>第 {{ workspace.preview.value.selectedIndex + 1 }} / {{ workspace.preview.value.parts.length }} 页</span><button type="button" :disabled="workspace.preview.value.selectedIndex >= workspace.preview.value.parts.length - 1" @click="workspace.selectPreviewPart(workspace.preview.value.selectedIndex + 1)" class="hall-tool" aria-label="下一页" title="下一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div><RichDocumentPreview v-if="selectedPreviewPart?.kind === 'document'" :text="selectedPreviewPart.text" :kind="selectedPreviewPart.documentKind" :title="resultPreviewItem.filename" /><PdfDocumentPreview v-else-if="selectedPreviewPart?.kind === 'pdf'" :blob="selectedPreviewPart.blob" /><pre v-else-if="selectedPreviewPart?.kind === 'text'" class="draft-preview">{{ selectedPreviewPart.text }}</pre><img v-else-if="selectedPreviewPart?.kind === 'image'" class="draft-preview-image" :src="selectedPreviewPart.url" alt="成果固定版本预览" /></template><RichDocumentPreview v-else-if="workspace.preview.value?.kind === 'document'" :text="workspace.preview.value.text" :kind="workspace.preview.value.documentKind" :title="resultPreviewItem.filename" /><PdfDocumentPreview v-else-if="workspace.preview.value?.kind === 'pdf'" :blob="workspace.preview.value.blob" /><p v-else-if="workspace.preview.value?.kind === 'text'" class="draft-preview">{{ workspace.preview.value.text }}</p><img v-else-if="workspace.preview.value?.kind === 'image'" class="draft-preview-image" :src="workspace.preview.value.url" alt="成果固定版本预览" /><p v-else class="draft-preview">{{ workspace.preview.value?.message || '预览暂不可用，可下载固定版本。' }}</p><p v-if="workspace.preview.value?.message && ['parts', 'document', 'text', 'audio', 'image', 'pdf'].includes(workspace.preview.value.kind)" class="draft-hint" role="status">{{ workspace.preview.value.message }}</p></section></template><p v-if="drafts.resultsError.value" class="draft-error" role="alert">{{ drafts.resultsError.value }}</p></section>
+    </template>
+  </section>
+</template>
+
+<script setup>
+import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
+import PdfDocumentPreview from '../workspace/PdfDocumentPreview.vue'
+import { validMaterialVersion } from '../../composables/juyiting/materialVersion.js'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { savePersonalWorkspaceBlob, usePersonalWorkspace } from '@/composables/usePersonalWorkspace'
+import { useHallDrafts } from '@/composables/juyiting/useHallDrafts'
+import HallPrivateMark from './HallPrivateMark.vue'
+import HallMaterialPicker from './HallMaterialPicker.vue'
+import { deliveryTypeText } from '@/utils/executionFormats'
+
+const props = defineProps({ initialRef: { type: Object, default: null }, initialContext: { type: Object, default: null }, initialKind: { type: String, default: 'CREATE', validator: value => ['CREATE', 'TASK_CREATE'].includes(value) }, agents: { type: Array, default: () => [] }, selectedAgent: { type: Object, default: null }, identityEpoch: { type: [Number, String], default: 0 }, identityScope: { type: String, default: '' } })
+const emit = defineEmits(['close', 'open-task', 'changed'])
+const drafts = useHallDrafts({ identityEpoch: () => props.identityEpoch, identityScope: () => props.identityScope })
+const workspace = usePersonalWorkspace({ identityEpoch: () => `${props.identityEpoch}\u0000${props.identityScope}` })
+const form = reactive({ title: '', instruction: '', targetAgentId: '', outputMime: '', inputs: [] })
+const view = ref('draft')
+const caseTab = ref('progress')
+const materialLabels = ref({})
+const revisionSource = ref(null)
+const sourceReadState = ref('idle')
+const authorizationAcknowledgement = ref(false)
+const formalStarting = ref(false)
+const savedFormSnapshot = ref('')
+const caseTabs = [{ id: 'progress', label: '进展' }, { id: 'materials', label: '资料' }, { id: 'results', label: '成果' }]
+const draftKind = computed(() => revisionSource.value ? 'REVISION' : drafts.draft.value?.kind || props.initialKind)
+const isTaskCreate = computed(() => draftKind.value === 'TASK_CREATE')
+const isTaskAction = computed(() => draftKind.value === 'TASK_ACTION')
+const displayedRef = computed(() => drafts.receipt.value?.ref || (props.initialRef?.sourceType === 'PRIVATE_CASE' && drafts.caseView.value?.caseId === props.initialRef.sourceId ? props.initialRef : null) || (props.initialRef?.sourceType === 'LEGACY_EXECUTION' && drafts.executionView?.value?.executionId === props.initialRef.sourceId ? props.initialRef : null))
+const activeView = computed(() => displayedRef.value && !revisionSource.value ? 'receipt' : view.value)
+const currentExecution = computed(() => drafts.receipt.value?.execution || drafts.executionView?.value || [...(drafts.caseView.value?.executions || [])].sort((a, b) => b.revisionNo - a.revisionNo)[0]?.execution || null)
+const receiptInputs = computed(() => drafts.receipt.value?.inputs || currentExecution.value?.inputs || drafts.caseView.value?.inputs || drafts.draft.value?.editableFields?.inputs || [])
+const resultPreviewItem = ref(null)
+const resultPreviewVersion = ref(null)
+const resultVersions = computed(() => workspace.detail.value?.file?.fileId === resultPreviewItem.value?.fileId ? (workspace.detail.value.versions || []).filter(version => validMaterialVersion(version.version) && BigInt(version.version) <= BigInt(resultPreviewItem.value.fileVersion)) : [])
+const selectedPreviewPart = computed(() => workspace.preview.value?.parts?.[workspace.preview.value?.selectedIndex] || null)
+const busy = computed(() => sourceReadState.value === 'loading' || ['creating', 'saving', 'loading', 'discarding'].includes(drafts.state.value) || ['submitting', 'reconciling'].includes(drafts.submissionState.value))
+const formSnapshot = () => JSON.stringify({ title: form.title, instruction: form.instruction, targetAgentId: form.targetAgentId, outputMime: form.outputMime, inputs: form.inputs.map(input => ({ fileId: input.fileId, version: input.version })) })
+const isCurrentDraftSaved = computed(() => drafts.draft.value?.state === 'EDITING' && savedFormSnapshot.value === formSnapshot())
+const editableSession = computed(() => !displayedRef.value || Boolean(revisionSource.value))
+const needsSave = computed(() => editableSession.value && !isCurrentDraftSaved.value && Boolean(revisionSource.value || form.title || form.instruction || form.targetAgentId || form.outputMime || form.inputs.length || drafts.draft.value))
+const hasUnsupportedFormalFields = computed(() => Boolean(form.targetAgentId || form.outputMime))
+const hasUnsupportedFormalSource = computed(() => Boolean(drafts.draft.value?.sourceSummary?.sourceRef || drafts.draft.value?.sourceSummary?.conversationId))
+const formalValidationError = computed(() => !isTaskCreate.value ? '' : form.title.length > 200 || form.instruction.length > 20000 ? '事项名称最多200字、需求描述最多20000字；原文仍保留，请修改后再开始办事。' : '')
+const defaultOutputMime = computed(() => {
+  if (drafts.capabilityState.value !== 'ready') return ''
+  return drafts.allowedMimeTypes.value.includes('text/plain') ? 'text/plain' : drafts.allowedMimeTypes.value[0] || ''
+})
+const effectiveOutputMime = computed(() => form.outputMime || defaultOutputMime.value)
+const formatSupported = computed(() => drafts.capabilityState.value === 'ready' && Boolean(effectiveOutputMime.value) && drafts.allowedMimeTypes.value.includes(effectiveOutputMime.value))
+const formatText = mime => mime === 'text/plain' ? '文本' : deliveryTypeText(mime)
+const formatHint = computed(() => drafts.capabilityState.value === 'loading' ? '正在读取当前支持的交付格式…' : drafts.capabilityError.value || (!drafts.allowedMimeTypes.value.length ? '当前未取得可用交付格式，可保留草稿，尚不能交办。' : form.outputMime && !formatSupported.value ? '原格式当前不受支持，仍原样保留；请明确选择支持的格式后再交办。' : !form.inputs.length && !drafts.generationEnabled.value ? '当前尚未开放无资料生成；请选取固定资料后再交办。' : !form.outputMime && effectiveOutputMime.value === 'text/plain' ? '交付格式可选；未选择时将按文本（默认）提交。' : !form.outputMime ? `交付格式可选；未选择时将按${formatText(effectiveOutputMime.value)}（默认）提交。` : ''))
+const canProceed = computed(() => isTaskCreate.value ? Boolean(form.instruction.trim() || form.inputs.length) && !formalValidationError.value && !hasUnsupportedFormalFields.value && !hasUnsupportedFormalSource.value : formatSupported.value && (form.inputs.length > 0 || drafts.generationEnabled.value))
+const canConfirm = computed(() => isCurrentDraftSaved.value && !isTaskAction.value && canProceed.value && (isTaskCreate.value || Boolean(form.targetAgentId)))
+const canCreateRevision = computed(() => Boolean(drafts.caseView.value?.caseId) && drafts.executionResults.value?.allowedActions?.includes('CREATE_REVISION') === true)
+const markableResult = computed(() => { const results = drafts.executionResults.value; const latest = [...(drafts.caseView.value?.executions || [])].sort((a, b) => b.revisionNo - a.revisionNo)[0]?.execution || currentExecution.value; return results && results.state === 'OUTPUT_COMMITTED' && results.manifestId && results.items.length && results.items.every(item => item.availability === 'AVAILABLE') && results.executionId === latest?.executionId ? { executionId: results.executionId, manifestId: results.manifestId } : null })
+const navigationDepth = computed(() => 1)
+const canGoBack = computed(() => activeView.value === 'confirm')
+const windowTitle = computed(() => ({ draft: revisionSource.value ? '修改原事项' : '提出需求', confirm: revisionSource.value ? '确认这次修改' : isTaskCreate.value ? '确认创建正式任务' : '确认交办', receipt: '事项进展' })[activeView.value])
+const agentName = agent => agent?.name || agent?.personaName || agent?.agentId || '未知好汉'
+const materialName = input => materialLabels.value[input.fileId] || workspace.items.value.find(file => file.fileId === input.fileId)?.displayName || input.fileId
+// MaterialPicker owns staging/preview/cancel; only Done updates fixed draft inputs.
+// UI names are not persisted in the signed demand or its optimistic version.
+const selectedMaterials = computed({
+  get: () => form.inputs.map(input => ({ ...input, displayName: materialName(input) })),
+  set: materials => {
+    materialLabels.value = { ...materialLabels.value, ...Object.fromEntries(materials.map(item => [item.fileId, item.displayName || item.fileId])) }
+    form.inputs = materials.map(({ fileId, version }) => ({ fileId, version }))
+  }
+})
+const fill = fields => { form.title = fields?.title || ''; form.instruction = fields?.instruction || ''; form.targetAgentId = fields?.targetAgentId || ''; form.outputMime = fields?.outputMime || ''; form.inputs = Array.isArray(fields?.inputs) ? fields.inputs.map(input => ({ fileId: input.fileId, version: input.version })) : []; savedFormSnapshot.value = fields ? formSnapshot() : ''; authorizationAcknowledgement.value = false }
+const persist = async () => { if (!editableSession.value || busy.value || drafts.unresolvedIntent.value) return false; const snapshot = formSnapshot(); const payload = { ...form, title: isTaskCreate.value ? (form.title.trim() || [...form.instruction.trim()].slice(0, 36).join('') || '资料处理') : form.title, outputMime: isTaskCreate.value ? form.outputMime : effectiveOutputMime.value, inputs: form.inputs.map(input => ({ ...input })) }; const saved = revisionSource.value ? await drafts.create({ kind: 'REVISION', caseId: drafts.caseView.value?.caseId || null, sourceOutputRef: revisionSource.value, ...payload }) : drafts.draft.value ? await drafts.save(payload) : await drafts.create({ kind: props.initialKind, originRef: props.initialContext?.originRef || 'juyiting', sourceRef: props.initialContext?.sourceRef || null, ...payload }); if (!saved) return false; revisionSource.value = null; if (snapshot === formSnapshot()) fill(saved.editableFields); else savedFormSnapshot.value = JSON.stringify(saved.editableFields); return isCurrentDraftSaved.value }
+// This click acknowledges creation only, never assignment, paid execution or Provider use.
+const startFormalTask = async () => {
+  if (!isTaskCreate.value || !canProceed.value || busy.value || formalStarting.value || drafts.unresolvedIntent.value) return false
+  const scope = props.identityScope
+  const epoch = props.identityEpoch
+  const current = () => scope === props.identityScope && epoch === props.identityEpoch
+  formalStarting.value = true
+  try {
+    if (!isCurrentDraftSaved.value && !await persist()) return false
+    if (!current() || !isCurrentDraftSaved.value || !canProceed.value) return false
+    const receipt = await drafts.submit({ authorizationAcknowledgement: true })
+    if (!current() || receipt?.ref?.sourceType !== 'TASK' || receipt.execution !== null || !receipt.task) return false
+    const task = await drafts.loadFormalTask()
+    if (!current() || task?.id !== receipt.ref.sourceId) return false
+    emit('open-task', task)
+    return true
+  } finally { formalStarting.value = false }
+}
+const nextToConfirm = async () => { if (!canProceed.value || busy.value) return; if (isCurrentDraftSaved.value || await persist()) view.value = 'confirm' }
+const goBack = () => { if (activeView.value === 'confirm') { view.value = 'draft'; return true }; return false }
+const loadRecoverable = () => { void drafts.list() }
+const openDraft = async id => { const loaded = await drafts.load(id); if (loaded) { fill(loaded.editableFields); view.value = 'draft'; if (!isTaskCreate.value) void drafts.loadCapabilities() } }
+const reconcile = () => { void drafts.reconcileSubmission() }
+const discard = async () => { if (await drafts.discard()) fill({}) }
+const submit = () => { if (canConfirm.value && authorizationAcknowledgement.value) void drafts.submit({ authorizationAcknowledgement: true }) }
+const removeUnsupportedFormalFields = () => { form.targetAgentId = ''; form.outputMime = '' }
+const refreshCase = () => { const ref = displayedRef.value; if (ref?.sourceType === 'PRIVATE_CASE') void drafts.loadCase(ref.sourceId); else if (ref?.sourceType === 'LEGACY_EXECUTION') void drafts.loadExecution(ref.sourceId) }
+const openResults = execution => { if (execution?.executionId) { caseTab.value = 'results'; void drafts.loadResults(execution.executionId) } }
+const previewResult = async item => { if (item?.availability !== 'AVAILABLE' || !await workspace.select(item.fileId)) return; resultPreviewItem.value = item; resultPreviewVersion.value = item.fileVersion; void workspace.previewVersion(item.fileVersion) }
+const previewResultVersion = () => { if (resultPreviewItem.value && validMaterialVersion(resultPreviewVersion.value)) void workspace.previewVersion(resultPreviewVersion.value) }
+const downloadError = ref('')
+let downloadGeneration = 0
+let disposed = false
+const invalidateDownload = () => { downloadGeneration++; downloadError.value = '' }
+watch([() => props.identityEpoch, () => props.identityScope, activeView, caseTab, displayedRef, currentExecution,
+  () => drafts.executionResults.value], invalidateDownload, { deep: true, flush: 'sync' })
+const downloadResult = async item => {
+  const generation = ++downloadGeneration
+  downloadError.value = ''
+  const epoch = props.identityEpoch, scope = props.identityScope
+  const source = displayedRef.value, execution = currentExecution.value, results = drafts.executionResults.value
+  const sourceType = source?.sourceType, sourceId = source?.sourceId, executionId = execution?.executionId
+  const fileId = item?.fileId, fileVersion = item?.fileVersion, outputId = item?.outputId
+  const isCurrent = () => !disposed && generation === downloadGeneration && epoch === props.identityEpoch &&
+    Boolean(scope) && scope === props.identityScope && activeView.value === 'receipt' && caseTab.value === 'results' &&
+    source === displayedRef.value && sourceType === displayedRef.value?.sourceType && sourceId === displayedRef.value?.sourceId &&
+    execution === currentExecution.value && executionId === currentExecution.value?.executionId &&
+    results === drafts.executionResults.value && results?.executionId === executionId &&
+    results?.items?.some(value => value === item && value.outputId === outputId && value.fileId === fileId &&
+      value.fileVersion === fileVersion && value.availability === 'AVAILABLE')
+  try {
+    if (!fileId || !outputId || !validMaterialVersion(fileVersion) || !isCurrent()) return
+    const selected = await workspace.select(fileId)
+    if (!isCurrent()) return
+    if (!selected || selected.file?.fileId !== fileId) throw new Error(workspace.error.value || '无法读取该成果的固定文件。')
+    const result = await workspace.download(fileVersion)
+    if (!isCurrent()) return
+    if (!result) throw new Error(workspace.error.value || '固定版本下载未完成，请重试。')
+    await savePersonalWorkspaceBlob({ ...result, isCurrent })
+    if (!isCurrent()) return
+  } catch (error) {
+    if (isCurrent() && error?.name !== 'AbortError') downloadError.value = error?.message || '下载未完成，请重试。'
+  }
+}
+const resultExecution = executionId => drafts.caseView.value?.executions?.find(item => item.execution.executionId === executionId)?.execution || null
+const startRevision = item => { const executionId = drafts.executionResults.value?.executionId; if (!executionId || !drafts.caseView.value?.caseId || item?.availability !== 'AVAILABLE' || !canCreateRevision.value) return; revisionSource.value = { executionId, outputId: item.outputId, fileId: item.fileId, fileVersion: item.fileVersion }; fill({ title: `修改：${item.filename}`, instruction: '', targetAgentId: resultExecution(executionId)?.targetAgentId || '', outputMime: item.mime, inputs: [] }); view.value = 'draft' }
+const openFormalTask = async () => { const task = await drafts.loadFormalTask(); if (task) emit('open-task', task) }
+const sourceTypeLabel = value => ({ PRIVATE_CASE: '私人事项', LEGACY_EXECUTION: '原私人交办', TASK: '正式事项' })[value] || '事项'
+const executionText = state => ({ QUEUED: '等待执行', OUTPUT_COMMITTED: '已有已归档输出', CANCELLED: '事项已取消', INPUTS_REVOKED: '输入授权已撤销', FAILED: '执行未完成' })[state] || '状态待核对'
+const executionSummary = execution => execution?.state === 'OUTPUT_COMMITTED' ? '成果已保存，可以查看。' : execution ? '已受理，尚未取得成果。' : '暂时无法确认办理进度，请查询结果。'
+const saveBeforeLeave = async () => { if (busy.value) return false; if (!needsSave.value) return true; return persist() }
+const discardLocalChanges = () => { invalidateDownload(); revisionSource.value = null; materialLabels.value = {}; resultPreviewItem.value = null; resultPreviewVersion.value = null; view.value = 'draft'; fill(drafts.draft.value?.editableFields || {}) }
+defineExpose({ navigationDepth, canGoBack, goBack, windowTitle, needsSave, busy, saveBeforeLeave, discardLocalChanges })
+watch(() => props.selectedAgent?.agentId, id => { if (!isTaskCreate.value && !drafts.draft.value && id) form.targetAgentId = id }, { immediate: true })
+watch(form, () => { if (savedFormSnapshot.value !== formSnapshot()) authorizationAcknowledgement.value = false }, { deep: true, flush: 'sync' })
+watch([() => props.identityEpoch, () => props.identityScope], () => { revisionSource.value = null; materialLabels.value = {}; view.value = 'draft'; fill({}) }, { flush: 'sync' })
+const openInitial = async () => { const ref = props.initialRef; if (!ref || !props.identityScope || sourceReadState.value === 'loading') return; sourceReadState.value = 'loading'; let loaded = null; if (ref.sourceType === 'DRAFT') { loaded = await drafts.load(ref.sourceId); if (loaded) fill(loaded.editableFields) } else if (ref.sourceType === 'PRIVATE_CASE') loaded = await drafts.loadCase(ref.sourceId); else if (ref.sourceType === 'LEGACY_EXECUTION') loaded = await drafts.loadExecution(ref.sourceId); sourceReadState.value = loaded ? 'ready' : 'error' }
+watch([() => activeView.value, isTaskCreate, () => props.identityScope, () => props.identityEpoch], () => { if (activeView.value === 'draft' && !isTaskCreate.value && props.identityScope && drafts.capabilityState.value === 'idle') void drafts.loadCapabilities() }, { immediate: true })
+onMounted(async () => { if (!props.initialRef && props.initialContext) { fill(props.initialContext); savedFormSnapshot.value = '' }; await openInitial(); if (activeView.value === 'draft' && !isTaskCreate.value) void workspace.refresh({ state: 'ACTIVE' }) })
+onBeforeUnmount(() => { disposed = true; invalidateDownload(); workspace.dispose(); drafts.dispose() })
+</script>
+
+<style scoped src="./hall-view-tabs.css"></style>
+
+<style scoped>
+.hall-draft-editor{display:grid;gap:16px;padding:2px 0 20px;color:var(--hall-text, #242e2b);min-height:0}.hall-draft-editor form{display:grid;gap:16px}.hall-draft-editor label{display:grid;gap:7px;font-size:14px}.hall-draft-editor input,.hall-draft-editor textarea,.hall-draft-editor select,.hall-draft-editor button{font:inherit;color:var(--hall-text, #242e2b);border:1px solid var(--hall-border, #e3e5dc);border-radius:var(--hall-radius-sm, 7px);background:var(--hall-surface, #fffefa)}.hall-draft-editor input,.hall-draft-editor textarea,.hall-draft-editor select{box-sizing:border-box;width:100%;min-height:44px;padding:10px 12px;font-size:16px}.hall-draft-editor textarea{min-height:96px;resize:vertical;line-height:1.65}.hall-draft-editor button{min-height:44px;padding:8px 14px;cursor:pointer}.hall-draft-editor button:disabled{opacity:.55;cursor:not-allowed}.hall-draft-editor .primary{background:var(--hall-brand, #923f30);border-color:var(--hall-brand, #923f30);color:var(--hall-surface, #fffefa)}.draft-intro,.draft-hint,.muted,.case-body p{margin:0;color:var(--hall-text-muted, #68716b);font-size:13px;line-height:1.6}.draft-strip{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 0;border-bottom:1px solid var(--hall-border, #e3e5dc)}.draft-strip h4,.draft-materials h4{margin:0;font-size:15px}.draft-strip h4 small,.hall-draft-editor label small{font-weight:400;color:var(--hall-text-muted, #68716b)}.draft-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}.draft-chips span{padding:4px 9px;border-radius:4px;background:var(--hall-surface-subtle, #f3f3ed);font-size:12px}.draft-chips .muted{background:transparent;padding-left:0}.draft-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;border-top:1px solid var(--hall-border, #e3e5dc);padding-top:18px;margin-top:6px}.draft-actions>span:first-child{margin-right:auto}.draft-error{margin:0;color:var(--hall-danger, #a13f35)!important;font-size:13px}.draft-saved{color:var(--hall-positive, #36643b);font-size:13px}.draft-note{padding:12px 14px;background:var(--hall-surface-brand, #f6eee8);border-left:3px solid var(--hall-brand, #923f30)}.draft-note p{margin:0 0 10px;font-size:13px}.draft-recovery{display:flex;flex-wrap:wrap;gap:8px}.draft-recovery button{min-height:44px;padding:5px 10px;font-size:12px}.preview-meta,.case-receipt{display:flex;align-items:center;justify-content:space-between;gap:12px}.authorization input{width:19px;min-height:19px;margin-top:2px;accent-color:var(--hall-brand, #923f30)}.hall-result-item small{display:block;margin-top:3px;color:var(--hall-text-muted, #68716b);overflow-wrap:anywhere}.draft-preview{max-height:320px;overflow:auto;white-space:pre-wrap;background:var(--hall-surface, #fffefa);border:1px solid var(--hall-border-strong, #ccd2c5);padding:22px;line-height:1.8}.draft-preview-image{display:block;max-width:100%;max-height:360px;margin:auto;object-fit:contain;border:1px solid var(--hall-border-strong, #ccd2c5)}.confirmation-grid{margin:0;border-top:1px solid var(--hall-border, #e3e5dc)}.confirmation-grid>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:18px;padding:13px 0;border-bottom:1px solid var(--hall-border, #e3e5dc)}.confirmation-grid dt{color:var(--hall-text-muted, #68716b);font-size:13px}.confirmation-grid dd{margin:0;overflow-wrap:anywhere;line-height:1.55}.authorization{display:flex!important;grid-template-columns:auto 1fr;align-items:flex-start;gap:10px!important;padding:10px 0}.case-receipt{padding-bottom:12px;border-bottom:1px solid var(--hall-border, #e3e5dc)}.case-receipt p{margin:5px 0 0;color:var(--hall-text-muted, #68716b);font-size:13px}.case-tabs{display:flex;gap:14px;border-bottom:1px solid var(--hall-border, #e3e5dc)}.case-tabs button{min-height:44px;padding:7px 4px;border:0;border-radius:0;background:transparent;border-bottom:2px solid transparent}.case-tabs button[aria-pressed=true]{color:var(--hall-brand, #923f30);border-bottom-color:var(--hall-brand, #923f30)}.case-body{display:grid;gap:12px}.technical-details{font-size:12px;color:var(--hall-text-muted, #68716b)}.hall-result-item{display:grid;gap:5px;padding:12px 0;border-bottom:1px solid var(--hall-border, #e3e5dc)}.result-actions{display:flex;gap:8px;flex-wrap:wrap}.result-actions button{min-height:44px;padding:5px 10px;font-size:13px}@media(max-width:620px){.draft-strip,.case-receipt{align-items:flex-start;flex-direction:column}.draft-actions{justify-content:stretch}.draft-actions button{flex:1}.hall-draft-editor--draft .draft-actions .primary{flex:1 0 100%;white-space:nowrap}.draft-actions>span:first-child{width:100%;margin-right:0}.confirmation-grid>div{grid-template-columns:68px minmax(0,1fr);gap:12px}}@media(max-height:500px) and (min-width:621px){.hall-draft-editor{gap:10px;padding-bottom:8px}.draft-intro{margin-bottom:0}.hall-draft-editor form{gap:10px}.hall-draft-editor textarea{min-height:72px}.draft-strip{padding:10px 0}.draft-actions{padding-top:10px;margin-top:0}.case-receipt{padding-bottom:8px}}
+
+.hall-draft-editor :is(button, input, textarea, select):focus-visible { outline: 2px solid var(--hall-brand, #923f30); outline-offset: 2px; }
+</style>

@@ -1,0 +1,567 @@
+import { encodeHttpRequest, decodeHttpResponse, validRequestId, protocolError } from '../utils/apiEnvelope.js'
+import { ref } from 'vue'
+import { log } from '../utils/logger.js'
+import { initiateReauthentication } from '../utils/reauthentication.js'
+import { registerIdentityCleanup } from '../utils/identityLifecycle.js'
+import { combineAbortSignals, throwIfAborted } from '../utils/abortSignals.js'
+import { classifyRequestOutcome, recordRequestTiming, resolveRequestId, sampleRequestTiming } from './useRequestRum.js'
+
+// import { useGlobalStore } from '../stores/global' // 预留
+// import { useUtilStore } from '../stores/util' // 预留
+
+/**
+ * 可复用的 HTTP 请求组合式函数
+ * @param {Object} options - 配置选项
+ * @param {string} options.url - 请求URL（相对路径）
+ * @param {string} options.method - HTTP方法，默认为 'GET'
+ * @param {Object} options.data - 请求数据
+ * @param {Object} options.params - URL参数
+ * @param {Object} options.headers - 自定义请求头
+ * @param {boolean} options.autoLoading - 是否自动管理loading状态，默认为true
+ * @param {boolean} options.needAuth - 是否需要认证，默认为true
+ * @param {string} options.responseType - 响应类型，支持 'json'（默认）、'text'（文本）、'blob'（二进制）和 'stream'（流式响应）
+ * @param {number} options.timeout - 可选的显式传输超时（毫秒）；未设置时不会因本组合式函数的时限而取消请求
+ * @param {AbortSignal} options.signal - 调用方取消信号；取消会保留为可区分的请求取消错误
+ * @param {Function} options.onSuccess - 成功回调
+ * @param {Function} options.onError - 错误回调
+ * @param {Function} options.onFinally - 最终回调
+ * @param {Function} options.onStream - 流式数据回调（当 responseType 为 'stream' 时使用）
+ * @param {Function} options.onStreamEnd - 流式结束回调（当 responseType 为 'stream' 时使用）
+ * @returns {Object} 包含执行函数和响应式状态的组合
+ */
+export function useHttp (options = {}) {
+  const loading = ref(false)
+  const error = ref(null)
+  const data = ref(null)
+  const response = ref(null)
+
+  // const globalStore = useGlobalStore() // 预留
+  // const utilStore = useUtilStore() // 预留
+
+  const defaultOptions = {
+    method: 'GET',
+    autoLoading: true,
+    needAuth: true,
+    headers: {}
+  }
+
+  const execute = async (executeOptions = {}) => {
+    const mergedOptions = { ...defaultOptions, ...options, ...executeOptions }
+
+    const {
+      url,
+      method,
+      data: requestData,
+      params,
+      headers: customHeaders,
+      autoLoading,
+      needAuth,
+      responseType = 'json',
+      timeout,
+      onSuccess,
+      onError,
+      onFinally,
+      onStream,
+      onStreamEnd,
+      onStreamOpen,
+      streamChunks = false,
+      signal,
+      authStore,
+      strictJsonIntegers = false,
+      rum = true,
+      rumRoute,
+      rumSampleRate,
+      rumReporter
+    } = mergedOptions
+
+    if (autoLoading) {
+      loading.value = true
+    }
+    error.value = null
+
+    let requestSignal = null
+    let unregisterIdentityCleanup = null
+    let requestAuthStore = null
+    let authorizationGeneration
+    let rumStartedAt = null
+    let rumSampled = false
+    let rumRequestId = null
+    let requestUrl = url
+
+    try {
+      // 准备请求配置
+      const headers = { ...customHeaders }
+      const isFormData = typeof FormData !== 'undefined' && requestData instanceof FormData
+      if (!headers['Content-Type'] && !isFormData) {
+        headers['Content-Type'] = 'application/json'
+      }
+
+      const config = {
+        method: method.toUpperCase(),
+        headers
+      }
+
+      // 添加URL参数和baseURL
+      const runtimeEnv = import.meta.env ?? {}
+      const baseURL = runtimeEnv.VITE_API_BASE_URL || ''
+      requestUrl = url
+
+      // 如果URL不是绝对路径，添加baseURL
+      if (!url.startsWith('http://') && !url.startsWith('https://') && baseURL) {
+        requestUrl = `${baseURL}${url.startsWith('/') ? url : `/${url}`}`
+      }
+
+      if (params && Object.keys(params).length > 0) {
+        const urlParams = new URLSearchParams(params).toString()
+        requestUrl = `${requestUrl}${requestUrl.includes('?') ? '&' : '?'}${urlParams}`
+      }
+
+      // Ordinary JSON requests are observed through RUM but are not rejected by an
+      // implicit client deadline. A transport timeout applies only when the caller or
+      // deployment explicitly configures one.
+      const ordinaryJsonRequest = responseType === 'json' && !isFormData
+      if (ordinaryJsonRequest) {
+        rumStartedAt = performanceNow()
+        rumSampled = rum !== false && sampleRequestTiming(rumSampleRate)
+      }
+      // Correlation and request wire are independent of RUM sampling/response media.
+      const suppliedId = findHeader(headers, 'X-Request-Id')
+      if (suppliedId !== undefined && suppliedId !== null && !validRequestId(suppliedId)) {
+        throw protocolError('PROTOCOL_INVALID_ENVELOPE')
+      }
+      rumRequestId = suppliedId ?? resolveRequestId()
+      setHeader(headers, 'X-Request-Id', rumRequestId)
+      if (['POST', 'PUT', 'PATCH'].includes(config.method) || (config.method === 'DELETE' && requestData !== undefined)) {
+        config.body = isFormData ? requestData : JSON.stringify(encodeHttpRequest(requestData, rumRequestId))
+      }
+      const timeoutValue = resolveConfiguredTimeout(timeout, runtimeEnv)
+      const identityController = needAuth ? new AbortController() : null
+      requestSignal = combineAbortSignals({
+        signals: [signal, identityController?.signal],
+        timeout: timeoutValue
+      })
+      if (identityController) {
+        unregisterIdentityCleanup = registerIdentityCleanup(() => {
+          identityController.abort(new DOMException('Identity cleared', 'AbortError'))
+        })
+      }
+      throwIfAborted(requestSignal.signal)
+
+      // 如果需要认证，获取token
+      let token = null
+      if (needAuth) {
+        try {
+          requestAuthStore = authStore || await awaitWithAbortSignal(resolveApiStore(), requestSignal.signal)
+          authorizationGeneration = requestAuthStore.authorizationGeneration
+          token = await awaitWithAbortSignal(requestAuthStore.token(), requestSignal.signal)
+          if (!token) {
+            const authRequired = new Error('Authentication is required')
+            authRequired.code = 'AUTHENTICATION_REQUIRED'
+            throw authRequired
+          }
+          config.headers.Authorization = `Bearer ${token}`
+        } catch (authError) {
+          throwIfAborted(requestSignal.signal)
+          if (authError?.name === 'AbortError' || authError?.name === 'TimeoutError') throw authError
+          throw new Error(`Authentication failed: ${authError.message}`)
+        }
+      }
+
+      // 使用 fetch API 替代 axios，特别是为了支持 stream
+      throwIfAborted(requestSignal.signal)
+      const fetchConfig = {
+        method: config.method,
+        headers: config.headers,
+        body: config.body,
+        signal: requestSignal.signal
+      }
+
+      // 对于 GET 请求，不要包含 body
+      if (config.method === 'GET') {
+        delete fetchConfig.body
+      }
+
+      const httpResponse = await fetch(requestUrl, fetchConfig)
+
+      // 检查 HTTP 错误状态（fetch 不会自动抛出非 2xx 的错误）
+      if (!httpResponse.ok && httpResponse.status !== 304) {
+        try {
+          decodeHttpResponse(await httpResponse.text(), {
+            status: httpResponse.status, requestId: rumRequestId,
+            responseRequestId: httpResponse.headers.get('x-request-id'), integerTokensOnly: strictJsonIntegers
+          })
+        } catch (failure) {
+          failure.response = httpResponse
+          throw failure
+        }
+      }
+
+      // 处理流式响应
+      if (responseType === 'stream') {
+        if (httpResponse.headers.get('x-request-id') !== rumRequestId) {
+          throw protocolError('PROTOCOL_REQUEST_ID_MISMATCH')
+        }
+        if (!httpResponse.body) {
+          throw new Error('Response body is not available for streaming')
+        }
+
+        const reader = httpResponse.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        const streamHandle = {
+          reader,
+          cancel: reason => reader.cancel(reason)
+        }
+        if (onStreamOpen) {
+          onStreamOpen(streamHandle, httpResponse)
+        }
+
+        let streamFailure = null
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+              // 处理缓冲区中剩余的数据
+              const tail = decoder.decode()
+              if (streamChunks && tail && onStream) {
+                onStream(tail)
+              } else {
+                buffer += tail
+              }
+              if (!streamChunks && buffer.trim() && onStream) {
+                onStream(buffer)
+              }
+              if (onStreamEnd) {
+                onStreamEnd()
+              }
+              break
+            }
+
+            const chunk = decoder.decode(value, { stream: true })
+            if (streamChunks) {
+              if (onStream) onStream(chunk)
+              continue
+            }
+            buffer += chunk
+
+            // 处理 SSE (Server-Sent Events) 格式或其他流式数据
+            // 查找完整的事件（以换行符分隔）
+            let eventEndIndex
+            while ((eventEndIndex = buffer.indexOf('\n')) !== -1) {
+              const event = buffer.substring(0, eventEndIndex).trim()
+              buffer = buffer.substring(eventEndIndex + 1)
+
+              if (event) {
+                if (onStream) {
+                  onStream(event)
+                }
+              }
+            }
+          }
+        } catch (error) {
+          streamFailure = error
+          throw error
+        } finally {
+          try {
+            await reader.cancel()
+          } catch (cancelError) {
+            if (!streamFailure) log.warn('Failed to cancel stream reader:', cancelError)
+          }
+        }
+
+        // 对于流式响应，返回包含流信息的对象
+        return {
+          data: null,
+          status: httpResponse.status,
+          statusText: httpResponse.statusText,
+          headers: Object.fromEntries(httpResponse.headers.entries()),
+          config: fetchConfig,
+          stream: streamHandle
+        }
+      }
+
+      // 处理响应数据
+      let result
+      const responseMetadata = {
+        status: httpResponse.status,
+        statusText: httpResponse.statusText,
+        headers: Object.fromEntries(httpResponse.headers.entries()),
+        config: fetchConfig
+      }
+
+      // The caller selects the response contract, not its MIME: a JSON document can
+      // also be a file. HTTP failures were decoded above; successful file reads
+      // preserve bytes for the consumer's manifest/MIME/integrity checks.
+      responseMetadata.requestId = rumRequestId
+      if (config.method === 'HEAD' || httpResponse.status === 204 || httpResponse.status === 304) {
+        result = null
+      } else if (responseType === 'blob') {
+        result = await httpResponse.blob()
+      } else if (responseType === 'text') {
+        result = await httpResponse.text()
+      } else {
+        const decoded = decodeHttpResponse(await httpResponse.text(), {
+          status: httpResponse.status, requestId: rumRequestId,
+          responseRequestId: httpResponse.headers.get('x-request-id'), integerTokensOnly: strictJsonIntegers
+        })
+        result = decoded.value
+      }
+      throwIfAborted(requestSignal.signal)
+      const resultObj = responseMetadata
+      response.value = httpResponse
+      data.value = result
+      if (onSuccess) onSuccess(result, resultObj)
+
+      reportRequestRum({
+        startedAt: rumStartedAt,
+        sampled: rumSampled,
+        route: rumRoute,
+        url: requestUrl,
+        requestId: rumRequestId,
+        errorClass: classifyRequestOutcome({ status: httpResponse.status }),
+        reporter: rumReporter,
+        endpoint: runtimeEnv.VITE_RUM_ENDPOINT
+      })
+      return result
+
+    } catch (err) {
+      const aborted = requestSignal?.signal?.aborted
+      const failure = aborted
+        ? (requestSignal.signal.reason || new DOMException('The operation was aborted', 'AbortError'))
+        : err
+      const failureClass = classifyRequestFailure(failure)
+      const cancellation = failureClass === 'deadline_exceeded' || failureClass === 'cancelled'
+      if (failure && typeof failure === 'object') failure.requestErrorClass = failureClass
+      reportRequestRum({
+        startedAt: rumStartedAt,
+        sampled: rumSampled,
+        route: rumRoute,
+        url: typeof requestUrl === 'string' ? requestUrl : url,
+        requestId: rumRequestId,
+        errorClass: classifyRequestOutcome({ status: failure?.status, failureClass }),
+        reporter: rumReporter,
+        endpoint: (import.meta.env ?? {}).VITE_RUM_ENDPOINT
+      })
+      error.value = requestErrorMessage(failure, failureClass)
+
+      if (failure.status === 401 && needAuth && requestAuthStore &&
+          !requestSignal.signal.aborted &&
+          authorizationGeneration === requestAuthStore.authorizationGeneration) {
+        requestAuthStore.cleanToken()
+        log.warn('Authentication expired, token cleaned')
+
+        if (!requestSignal.signal.aborted &&
+            authorizationGeneration === requestAuthStore.authorizationGeneration) {
+          try {
+            await initiateReauthentication(requestAuthStore)
+          } catch {
+            log.warn('Reauthentication could not be started')
+          }
+        }
+      }
+
+      if (requestSignal?.signal?.aborted) {
+        throw requestSignal.signal.reason || new DOMException('The operation was aborted', 'AbortError')
+      }
+
+      if (onError && !cancellation) {
+        onError(error.value, failure)
+      }
+
+      throw failure
+
+    } finally {
+      requestSignal?.cleanup()
+      unregisterIdentityCleanup?.()
+
+      if (autoLoading) {
+        loading.value = false
+      }
+      if (onFinally) {
+        onFinally()
+      }
+    }
+  }
+
+  // 快捷方法
+  const get = (url, params, options = {}) => execute({ ...options, url, method: 'GET', params })
+  const post = (url, data, options = {}) => execute({ ...options, url, method: 'POST', data })
+  const put = (url, data, options = {}) => execute({ ...options, url, method: 'PUT', data })
+  const patch = (url, data, options = {}) => execute({ ...options, url, method: 'PATCH', data })
+  const del = (url, options = {}) => execute({ ...options, url, method: 'DELETE' })
+
+  return {
+    // 响应式状态
+    loading,
+    error,
+    data,
+    response,
+
+    // 执行方法
+    execute,
+
+    // 快捷方法
+    get,
+    post,
+    put,
+    patch,
+    delete: del,
+
+    // 重置状态
+    reset: () => {
+      loading.value = false
+      error.value = null
+      data.value = null
+      response.value = null
+    }
+  }
+}
+
+function reportRequestRum (options) {
+  if (options.startedAt === null) return
+  recordRequestTiming({
+    ...options,
+    durationMs: performanceNow() - options.startedAt
+  })
+}
+
+function performanceNow () {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+}
+
+function findHeader (headers, name) {
+  const matchingKey = Object.keys(headers).find(key => key.toLowerCase() === name.toLowerCase())
+  return matchingKey ? headers[matchingKey] : undefined
+}
+
+function setHeader (headers, name, value) {
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === name.toLowerCase()) delete headers[key]
+  }
+  headers[name] = value
+}
+
+function resolveConfiguredTimeout (timeout, runtimeEnv) {
+  const requestedTimeout = Number(timeout)
+  if (Number.isFinite(requestedTimeout) && requestedTimeout >= 0) return requestedTimeout
+
+  const environmentTimeout = Number.parseInt(runtimeEnv.VITE_HTTP_TIMEOUT, 10)
+  if (Number.isFinite(environmentTimeout) && environmentTimeout >= 0) return environmentTimeout
+
+  return undefined
+}
+
+function awaitWithAbortSignal (value, signal) {
+  throwIfAborted(signal)
+  if (!signal) return Promise.resolve(value)
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      cleanup()
+      reject(signal.reason || new DOMException('The operation was aborted', 'AbortError'))
+    }
+    const cleanup = () => signal.removeEventListener('abort', onAbort)
+
+    signal.addEventListener('abort', onAbort, { once: true })
+    Promise.resolve(value).then(
+      result => {
+        cleanup()
+        resolve(result)
+      },
+      failure => {
+        cleanup()
+        reject(failure)
+      }
+    )
+  })
+}
+
+function classifyRequestFailure (failure) {
+  if (failure?.name === 'TimeoutError') return 'deadline_exceeded'
+  if (failure?.name === 'AbortError') return 'cancelled'
+  if (Number.isInteger(failure?.status)) return 'http'
+  if (failure instanceof TypeError) return 'network'
+  return 'unknown'
+}
+
+function requestErrorMessage (failure, failureClass) {
+  if (failureClass === 'deadline_exceeded') return '请求超时，请重试'
+  if (failureClass === 'cancelled') return '请求已取消'
+  if (failureClass === 'network') return '网络连接失败，请检查网络后重试'
+  return failure?.message || '请求失败'
+}
+
+/**
+ * 创建特定API端点的快捷方式
+ * @param {string} basePath - API基础路径
+ * @returns {Object} 包含CRUD操作的对象
+ */
+async function resolveApiStore () {
+  const { useApiStore } = await import('../stores/api.js')
+  return useApiStore()
+}
+
+export function createApi (basePath) {
+  return {
+    execute: options => useHttp().execute({
+      ...options,
+      url: scopedApiUrl(basePath, options.url)
+    }),
+
+    list: (uri, data, options = {}) =>
+      useHttp().post(`${basePath}${uri}`, data, options),
+
+    getById: (uri, id, options = {}) =>
+      useHttp().get(`${basePath}${uri}?id=${id}`, {}, options),
+
+    get: (uri, params, options = {}) =>
+      useHttp().get(`${basePath}${uri}`, params, options),
+
+    post: (uri, data, options = {}) =>
+      useHttp().post(`${basePath}${uri}`, data, options),
+
+    put: (uri, data, options = {}) =>
+      useHttp().put(`${basePath}${uri}`, data, options),
+
+    create: (uri, data, options = {}) =>
+      useHttp().post(`${basePath}${uri}`, data, options),
+
+    update: (uri, data, options = {}) =>
+      useHttp().post(`${basePath}${uri}`, data, options),
+
+    patch: (uri, id, data, options = {}) =>
+      useHttp().patch(`${basePath}${uri}/${id}`, data, options),
+
+    delete: (uri, id, options = {}) => {
+      if (id === undefined || id === null || typeof id === 'object') {
+        return useHttp().delete(`${basePath}${uri}`, id || options)
+      }
+      return useHttp().delete(`${basePath}${uri}?id=${id}`, options)
+    },
+
+    search: (uri, data, options = {}) =>
+      useHttp().post(`${basePath}${uri}`, data, options)
+  }
+}
+
+function scopedApiUrl (basePath, url) {
+  if (url === basePath || url.startsWith(`${basePath}/`)) return url
+  return `${basePath}${url.startsWith('/') ? url : `/${url}`}`
+}
+
+// 预定义的API端点
+export const taskApi = createApi('/task')
+export const phraseApi = createApi('/phrase')
+export const kefuApi = createApi('/kefu')
+export const userApi = createApi('/user')
+export const msgApi = createApi('/msg')
+export const agentApi = createApi('/agent')
+export const voteApi = createApi('/vote')
+export const tipApi = createApi('/tip')
+export const chatApi = createApi('/chat')
+export const dwzApi = createApi('/dwz')
+export const giftApi = createApi('/gift')
+export const wxApi = createApi('/wx')
+export const economyApi = createApi('/economy')

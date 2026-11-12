@@ -1,0 +1,271 @@
+import { expect } from 'chai'
+import { readFileSync } from 'node:fs'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { mount } from '@vue/test-utils'
+import * as Vue from 'vue'
+
+const source = readFileSync(new URL('../src/components/juyiting/HallChatComposer.vue', import.meta.url), 'utf8')
+const { descriptor } = parse(source)
+const script = compileScript(descriptor, { id: 'more-menu', inlineTemplate: true }).content
+  .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
+  .replace(/^import HallVoiceControls[^\n]+/m, 'var HallVoiceControls = { template: "<span class=voice-stub />" }')
+  .replace('export default', 'return')
+const Composer = new Function('Vue', script)(Vue)
+const create = props => mount(Composer, { attachTo: document.body, props: { mentionLabel: () => '', draft: '保留我的草稿', ...props }, global: { stubs: { 'var-icon': true } } })
+
+describe('Juyi Hall simple composer more menu', () => {
+  for (const mobile of [true, false]) {
+    it(`${mobile ? 'mobile' : 'desktop'}: reply end respects keyboard focus policy`, async () => {
+      const original = window.matchMedia
+      window.matchMedia = () => ({ matches: mobile, addEventListener() {}, removeEventListener() {} })
+      const wrapper = create({ durableCancelTarget: { requestId: 'r1' }, contextKey: 'same' })
+      let focused = 0
+      wrapper.get('textarea').element.focus = () => { focused++ }
+      try {
+        await wrapper.setProps({ durableCancelTarget: null })
+        await Vue.nextTick()
+        expect(focused).to.equal(mobile ? 0 : 1)
+        await wrapper.setProps({ isAwaitingReply: true })
+        expect(wrapper.get('.composer-send').attributes('disabled')).to.equal('')
+        expect(wrapper.get('.composer-send').attributes('aria-busy')).to.equal('true')
+        expect(wrapper.get('.composer-send').attributes('aria-label')).to.equal('处理中')
+        await wrapper.setProps({ isAwaitingReply: false })
+        expect(wrapper.get('.composer-send').attributes('disabled')).to.equal(undefined)
+        expect(focused).to.equal(mobile ? 0 : 1)
+      } finally { wrapper.unmount(); window.matchMedia = original }
+    })
+  }
+  it('allows attachment-only bounty input, but not empty, private, public or locked sends', async () => {
+    for (const discussionVariant of ['public', 'private', 'bounty']) {
+      const wrapper = create({ draft: '  ', discussionVariant, hasTypedAttachments: true })
+      try {
+        expect(wrapper.get('.composer-send').attributes('disabled')).to.equal(discussionVariant === 'bounty' ? undefined : '')
+        await wrapper.get('form').trigger('submit')
+        expect(Boolean(wrapper.emitted('send-message'))).to.equal(discussionVariant === 'bounty')
+        await wrapper.setProps({ hasTypedAttachments: false })
+        expect(wrapper.get('.composer-send').attributes('disabled')).to.equal('')
+        await wrapper.setProps({ hasTypedAttachments: true, interactionLocked: true })
+        expect(wrapper.get('.composer-send').attributes('disabled')).to.equal('')
+      } finally { wrapper.unmount() }
+    }
+  })
+  it('uses fixed 44px editing only in compact mode, preserving IME and multi-line drafts', async () => {
+    const wrapper = create({ compact: true, discussionVariant: 'bounty', draft: '多行\n'.repeat(100) })
+    try {
+      const input = wrapper.get('textarea')
+      await Vue.nextTick()
+      expect(input.element.style.height).to.equal('44px')
+      Object.defineProperty(input.element, 'scrollHeight', { configurable: true, value: 200 })
+      await input.trigger('keydown', { key: 'Enter', isComposing: true })
+      await input.trigger('keydown', { key: 'Enter', shiftKey: true })
+      expect(wrapper.emitted('send-message')).to.equal(undefined)
+      await wrapper.setProps({ draft: '更新后\n仍保留多行' })
+      await Vue.nextTick()
+      expect(input.element.style.height).to.equal('44px')
+      await wrapper.setProps({ compact: false })
+      await Vue.nextTick()
+      expect(input.element.style.height).to.equal('132px')
+      expect(wrapper.emitted('update:draft')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+  it('hides only a redundant fixed single bounty target, never public or multiple target controls', async () => {
+    const agents = [{ agentId: 'a', name: '吴用' }, { agentId: 'b', name: '宋江' }]
+    const wrapper = create({ compact: true, discussionVariant: 'bounty', agents: agents.slice(0, 1), mentionLabel: agent => agent.name })
+    try {
+      expect(wrapper.find('.composer-context').exists()).to.equal(false)
+      await wrapper.setProps({ agents })
+      expect(wrapper.findAll('.composer-target-chip')).to.have.length(2)
+      await wrapper.setProps({ discussionVariant: 'public', agents: agents.slice(0, 1), selectedAgent: agents[0] })
+      await wrapper.get('.composer-target-chip').trigger('click')
+      expect(wrapper.emitted('clear-target')).to.deep.equal([['a']])
+    } finally { wrapper.unmount() }
+  })
+  it('maps target chips consistently without letting private or bounty targets be removed', async () => {
+    const agents = [{ agentId: 'a', name: '甲' }, { agentId: 'b', name: '乙' }]
+    for (const discussionVariant of ['public', 'private', 'bounty']) {
+      const wrapper = create({ agents, selectedAgent: agents[0], discussionVariant, mentionLabel: agent => agent.name })
+      try {
+        const chips = wrapper.findAll('.composer-target-chip')
+        expect(chips.map(chip => chip.text())).to.deep.equal(discussionVariant === 'bounty' ? ['@甲', '@乙'] : ['@甲'])
+        for (const chip of chips) expect(chip.element.disabled).to.equal(discussionVariant !== 'public')
+        await chips[0].trigger('click')
+        expect(wrapper.emitted('clear-target')).to.deep.equal(discussionVariant === 'public' ? [['a']] : undefined)
+        await wrapper.setProps({ selectedAgent: { agentId: 'outside', name: '不在当前名单' } })
+        expect(wrapper.findAll('.composer-target-chip')).to.have.length(discussionVariant === 'bounty' ? 2 : 0)
+      } finally { wrapper.unmount() }
+    }
+  })
+  it('keeps draft display and all input locks consistent for clicks and direct submits', async () => {
+    const wrapper = create({ draft: '   ' })
+    try {
+      expect(wrapper.classes()).not.to.include('has-draft')
+      expect(wrapper.get('.composer-send').element.disabled).to.equal(true)
+      expect(wrapper.get('.composer-meta').text()).to.include('3/1200')
+      await wrapper.setProps({ draft: '  消息  ' })
+      expect(wrapper.classes()).to.include('has-draft')
+      expect(wrapper.get('.composer-send').element.disabled).to.equal(false)
+      for (const lock of [{ interactionLocked: true }, { isStreaming: true }, { isAwaitingReply: true },
+        { voice: { supported: true, state: 'recording', voiceInteractionLocked: true } }]) {
+        await wrapper.setProps(lock)
+        expect(wrapper.get('textarea').element.disabled).to.equal(true)
+        expect(wrapper.get('.composer-send').element.disabled).to.equal(true)
+        expect(wrapper.get('.composer-add-materials').element.disabled).to.equal(true)
+        await wrapper.get('form').trigger('submit')
+        await wrapper.get('.composer-add-materials').trigger('click')
+        expect(wrapper.emitted('send-message')).to.equal(undefined)
+        expect(wrapper.emitted('open-materials')).to.equal(undefined)
+        await wrapper.setProps({ interactionLocked: false, isStreaming: false, isAwaitingReply: false, voice: null })
+      }
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.emitted('send-message')).to.deep.equal([[]])
+      expect(wrapper.emitted('update:draft')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+  it('groups the textarea, plus, voice target and send inside one input frame', () => {
+    const wrapper = create()
+    try {
+      const frame = wrapper.get('.composer-input-area')
+      expect(frame.find('textarea').exists()).to.equal(true)
+      expect(frame.find('.composer-more').exists()).to.equal(true)
+      expect(frame.find('.composer-inline-voice').exists()).to.equal(true)
+      expect(frame.find('.composer-send').exists()).to.equal(true)
+      expect(wrapper.text()).not.to.contain('工作空间')
+    } finally { wrapper.unmount() }
+  })
+  it('opens materials directly after plus without opening the menu or changing the draft', async () => {
+    const wrapper = create()
+    try {
+      expect(wrapper.get('.composer-more-panel').element.style.display).to.equal('none')
+      expect(wrapper.find('.composer-clear').exists()).to.equal(false)
+      await wrapper.get('.composer-add-materials').trigger('click')
+      expect(wrapper.emitted('open-materials')).to.have.length(1)
+      expect(wrapper.emitted('send-message')).to.equal(undefined)
+      expect(wrapper.emitted('update:draft')).to.equal(undefined)
+      expect(wrapper.get('.composer-more').attributes('aria-expanded')).to.equal('false')
+      expect(wrapper.get('.composer-more-panel').find('.composer-add-materials').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+  it('renders the existing materials slot while plus is closed', async () => {
+    const wrapper = mount(Composer, {
+      props: { mentionLabel: () => '', draft: '原有草稿' },
+      slots: { materials: '<section class="material-reference-picker">真实资料选择器</section>' }
+    })
+    try {
+      expect(wrapper.get('.composer-more').attributes('aria-expanded')).to.equal('false')
+      const picker = wrapper.get('.composer-materials .material-reference-picker').element
+      for (let node = picker; node; node = node.parentElement) {
+        expect(node.style.display).not.to.equal('none')
+      }
+      expect(wrapper.get('.composer-more-panel').find('.material-reference-picker').exists()).to.equal(false)
+      const buttons = wrapper.get('.composer-actions').findAll('button')
+      expect(buttons.map(button => button.attributes('aria-label'))).to.deep.equal(['更多操作', '添加资料', '发送'])
+      for (const button of buttons) {
+        const icon = button.get('svg')
+        expect(icon.attributes('width')).to.equal('20')
+        expect(icon.attributes('height')).to.equal('20')
+        expect(icon.attributes('stroke-width')).to.equal('1.8')
+        expect(icon.attributes('aria-hidden')).to.equal('true')
+      }
+      await wrapper.setProps({ isAwaitingReply: true })
+      expect(wrapper.get('.composer-send').attributes('aria-label')).to.equal('处理中')
+      expect(wrapper.get('.composer-send').attributes('disabled')).to.equal('')
+      expect(wrapper.get('.composer-add-materials').attributes('disabled')).to.equal('')
+      expect(wrapper.get('.composer-more').attributes('disabled')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+  it('disables the action menu only for a server-completed task', async () => {
+    const wrapper = create({ actionsDisabled: true, interactionLocked: true })
+    try {
+      expect(wrapper.get('.composer-more').attributes('disabled')).to.equal('')
+      expect(wrapper.get('.composer-add-materials').attributes('disabled')).to.equal('')
+      expect(wrapper.get('.composer-send').attributes('disabled')).to.equal('')
+      await wrapper.setProps({ actionsDisabled: false, interactionLocked: false, isAwaitingReply: true })
+      expect(wrapper.get('.composer-more').attributes('disabled')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+
+  it('closes on Escape or outside click and restores focus', async () => {
+    const wrapper = create()
+    try {
+      await wrapper.get('.composer-more').trigger('click')
+      document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await Vue.nextTick()
+      expect(wrapper.get('.composer-more-panel').element.style.display).to.equal('none')
+      expect(document.activeElement).to.equal(wrapper.get('.composer-more').element)
+      await wrapper.get('.composer-more').trigger('click')
+      document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true }))
+      await Vue.nextTick()
+      expect(wrapper.get('.composer-more-panel').element.style.display).to.equal('none')
+    } finally { wrapper.unmount() }
+  })
+  it('closes the menu when the real identity/conversation context changes', async () => {
+    const wrapper = create({ contextKey: 'owner-a:conversation-a' })
+    try {
+      await wrapper.get('.composer-more').trigger('click')
+      await wrapper.setProps({ contextKey: 'owner-b:conversation-b' })
+      expect(wrapper.get('.composer-more').attributes('aria-expanded')).to.equal('false')
+      expect(wrapper.get('.composer-more-panel').element.style.display).to.equal('none')
+      expect(wrapper.emitted('update:draft')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+  it('keeps recording controls reachable after closing the menu', async () => {
+    const wrapper = create({ voice: { supported: true, state: 'recording', voiceInteractionLocked: true } })
+    try {
+      expect(wrapper.get('.composer-more-panel').element.style.display).not.to.equal('none')
+      expect(wrapper.find('.composer-more-actions').exists()).to.equal(false)
+      expect(wrapper.get('.composer-add-materials').attributes('disabled')).to.equal('')
+      expect(wrapper.get('.voice-stub').element.style.display).not.to.equal('none')
+      expect(wrapper.get('.composer-send').attributes('disabled')).to.equal('')
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('unified mobile material actions', () => {
+  for (const discussionVariant of ['public', 'private', 'bounty']) {
+    it(`${discussionVariant}: native inputs, dismissal, keyboard focus and context fence`, async () => {
+      const previous = window.matchMedia
+      window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} })
+      const wrapper = create({ discussionVariant, contextKey: 'thread-a' })
+      try {
+        const clip = wrapper.get('.composer-add-materials')
+        await clip.trigger('click')
+        expect(wrapper.get('.composer-material-actions').text()).to.equal('拍照相册资料')
+        expect(wrapper.get('input[capture]').attributes('capture')).to.equal('environment')
+        expect(wrapper.get('input[multiple]').attributes('capture')).to.equal(undefined)
+        await wrapper.get('.composer-material-actions').trigger('pointerdown')
+        expect(wrapper.find('.composer-material-actions').exists()).to.equal(true)
+        document.body.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+        await Vue.nextTick()
+        expect(wrapper.find('.composer-material-actions').exists()).to.equal(false)
+        await clip.trigger('click')
+        await wrapper.get('textarea').trigger('focus')
+        expect(wrapper.find('.composer-material-actions').exists()).to.equal(false)
+        await clip.trigger('click')
+        await wrapper.get('.composer-more').trigger('click')
+        expect(wrapper.find('.composer-material-actions').exists()).to.equal(false)
+        await clip.trigger('click')
+        document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await Vue.nextTick()
+        expect(wrapper.find('.composer-material-actions').exists()).to.equal(false)
+        expect(document.activeElement).to.equal(clip.element)
+        await clip.trigger('click')
+        await wrapper.get('.composer-material-actions button:last-child').trigger('click')
+        expect(wrapper.emitted('open-materials')).to.have.length(1)
+        expect(wrapper.find('.composer-material-actions').exists()).to.equal(false)
+        await clip.trigger('click')
+        await wrapper.get('.composer-material-actions button:nth-child(2)').trigger('click')
+        const album = wrapper.get('input[multiple]')
+        Object.defineProperty(album.element, 'files', { configurable: true, value: [{ name: 'photo.png' }] })
+        await album.trigger('change')
+        expect(wrapper.emitted('import-images')).to.have.length(1)
+        await clip.trigger('click')
+        await wrapper.get('.composer-material-actions button:nth-child(2)').trigger('click')
+        await wrapper.setProps({ contextKey: 'thread-b' })
+        await album.trigger('change')
+        expect(wrapper.emitted('import-images')).to.have.length(1)
+        expect(wrapper.emitted('send-message')).to.equal(undefined)
+        expect(wrapper.emitted('update:draft')).to.equal(undefined)
+      } finally { wrapper.unmount(); window.matchMedia = previous }
+    })
+  }
+})

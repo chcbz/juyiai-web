@@ -1,0 +1,876 @@
+import { validMaterialVersion } from '../src/composables/juyiting/materialVersion.js'
+import { expect } from 'chai'
+import { after, before, describe, it } from 'mocha'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { deliveryTypeText } from '../src/utils/executionFormats.js'
+
+let Vue
+let mount
+let HallDraftEditor
+let editorState
+
+const loadMaterialPicker = deps => {
+  const filename = fileURLToPath(new URL('../src/components/juyiting/HallMaterialPicker.vue', import.meta.url))
+  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
+  const code = compileScript(descriptor, { id: 'draft-shared-material-picker', inlineTemplate: true }).content
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_line, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]@\/composables\/usePersonalWorkspace['"];?\s*$/gm, 'var { usePersonalWorkspace, savePersonalWorkspaceBlob } = deps')
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]*materialVersion\.js['"];?\s*$/gm, 'var { validMaterialVersion } = deps')
+    .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section class=\"pdf-preview-test-slot\" />', props: ['blob'] }")
+    .replace(/^import\s+RichDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var RichDocumentPreview = { name: 'RichDocumentPreview', template: '<section />', props: ['text', 'kind', 'title'] }")
+    .replace('export default', 'return')
+  return new Function('Vue', 'deps', code)(Vue, { ...deps, validMaterialVersion })
+}
+
+const loadEditor = (deps = editorDeps()) => {
+  const filename = fileURLToPath(new URL('../src/components/juyiting/HallDraftEditor.vue', import.meta.url))
+  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
+  const script = compileScript(descriptor, { id: 'hall-draft-editor-test', inlineTemplate: true }).content
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_line, bindings) => {
+      const values = bindings.split(',').map(binding => {
+        const [name, alias] = binding.trim().split(/\s+as\s+/)
+        return alias ? `${name}: ${alias}` : name
+      }).join(', ')
+      return `var { ${values} } = Vue`
+    })
+    .replace(/^import\s+\{[^}]+\}\s+from\s+['"]@\/composables\/usePersonalWorkspace['"];?\s*$/gm, 'var { savePersonalWorkspaceBlob, usePersonalWorkspace } = deps')
+    .replace(/^import\s+\{\s*useHallDrafts\s*\}\s+from\s+['"]@\/composables\/juyiting\/useHallDrafts['"];?\s*$/gm, 'var { useHallDrafts } = deps')
+    .replace(/^import\s+HallMaterialPicker\s+from\s+['"]\.\/HallMaterialPicker\.vue['"];?\s*$/gm, 'var HallMaterialPicker = deps.HallMaterialPicker')
+    .replace(/^import\s+HallPrivateMark\s+from\s+['"]\.\/HallPrivateMark\.vue['"];?\s*$/gm, 'var HallPrivateMark = { name: \'HallPrivateMark\', props: [\'sourceRef\', \'resultRef\', \'identityScope\', \'identityEpoch\'], template: \'<section class="private-mark-test-slot" />\' }')
+    .replace(/^import\s+\{\s*deliveryTypeText\s*\}\s+from\s+['"]@\/utils\/executionFormats['"];?\s*$/gm, 'var { deliveryTypeText } = deps')
+    .replace(/^import\s+\{\s*validMaterialVersion\s*\}\s+from\s+['"][^'"]+['"];?\s*$/gm, 'var { validMaterialVersion } = deps')
+    .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section class=\"pdf-preview-test-slot\" />', props: ['blob'] }")
+    .replace(/^import\s+RichDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var RichDocumentPreview = { name: 'RichDocumentPreview', template: '<section />', props: ['text', 'kind', 'title'] }")
+    .replace('export default', 'return')
+  return new Function('Vue', 'deps', script)(Vue, { ...deps, deliveryTypeText, validMaterialVersion, HallMaterialPicker: loadMaterialPicker(deps) })
+}
+
+const editorDeps = () => {
+  const draft = Vue.ref(null)
+  const summaries = Vue.ref([])
+  const nextCursor = Vue.ref(null)
+  const state = Vue.ref('idle')
+  const error = Vue.ref('')
+  const reloadRequired = Vue.ref(false)
+  const receipt = Vue.ref(null)
+  const submissionState = Vue.ref('idle')
+  const caseView = Vue.ref(null)
+  const submissionRecovery = Vue.ref(null)
+  const unresolvedIntent = Vue.ref(null)
+  const executionResults = Vue.ref(null)
+  const resultsState = Vue.ref('idle')
+  const resultsError = Vue.ref('')
+  const created = []
+  const loadedResults = []
+  const workspaceCalls = []
+  const preview = Vue.ref(null)
+  editorState = { draft, receipt, caseView, executionResults, resultsState, resultsError, created, loadedResults, workspaceCalls }
+  return {
+    useHallDrafts: () => ({
+      capabilityState: Vue.ref('ready'), capabilityError: Vue.ref(''), allowedMimeTypes: Vue.ref(['application/pdf']), generationEnabled: Vue.ref(true), loadCapabilities: async () => true,
+      draft, summaries, nextCursor, state, error, reloadRequired, receipt, submissionState, caseView, submissionRecovery, unresolvedIntent, executionResults, resultsState, resultsError,
+      create: async fields => {
+        created.push(fields)
+        draft.value = { draftId: `draft-${created.length}`, revision: '1', state: 'EDITING', editableFields: fields }
+        return draft.value
+      },
+      save: async fields => { draft.value = { ...draft.value, revision: '2', editableFields: fields }; return draft.value },
+      list: async () => true, loadMore: async () => false, load: async () => null, discard: async () => null,
+      submit: async () => null, reconcileSubmission: async () => null, loadCase: async () => null,
+      loadResults: async executionId => {
+        loadedResults.push(executionId)
+        executionResults.value = {
+          executionId, state: 'OUTPUT_COMMITTED', manifestId: 'manifest-1', allowedActions: ['VIEW', 'CREATE_REVISION'],
+          items: [
+            { outputId: 'output-1', fileId: 'file-1', fileVersion: '2', mime: 'application/pdf', filename: '结案.pdf', byteLength: '12', sha256: 'a'.repeat(64), availability: 'AVAILABLE' },
+            { outputId: 'output-2', fileId: 'file-2', fileVersion: '7', mime: 'text/plain', filename: '缺失.txt', byteLength: '3', sha256: 'b'.repeat(64), availability: 'UNAVAILABLE' }
+          ]
+        }
+        resultsState.value = 'ready'
+        return executionResults.value
+      },
+      dispose: () => {}
+    }),
+    usePersonalWorkspace: () => ({ closeDetail: () => {}, hasMoreVersions: Vue.ref(false), versionsState: Vue.ref('idle'), versionsError: Vue.ref(''),
+      nextCursor: Vue.ref(null), loading: Vue.ref(false), error: Vue.ref(''), items: Vue.ref([]), listState: Vue.ref('empty'), detail: Vue.ref(null), preview,
+      refresh: async () => true,
+      select: async fileId => { workspaceCalls.push(['select', fileId]); return { file: { fileId } } },
+      previewVersion: async version => { workspaceCalls.push(['preview', version]); preview.value = { kind: 'pdf', blob: new Blob(['%PDF-fixture'], { type: 'application/pdf' }) }; return true },
+      download: async version => { workspaceCalls.push(['download', version]); return { blob: {}, filename: '结案.pdf' } },
+      dispose: () => {}
+    }),
+    savePersonalWorkspaceBlob: result => { workspaceCalls.push(['save', result.filename]) }
+  }
+}
+
+const button = (wrapper, text) => wrapper.findAll('button').find(item => item.text() === text)
+const enterConfirm = async wrapper => { const next = button(wrapper, wrapper.text().includes('下一步：确认创建') ? '下一步：确认创建' : '下一步：确认交办'); if (next) { await next.trigger('click'); await new Promise(resolve => setTimeout(resolve, 0)); await Vue.nextTick() } }
+
+before(async () => {
+  for (const key of ['SVGElement', 'Element', 'Node']) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: globalThis.window[key] })
+  }
+  Vue = await import('vue')
+  ;({ mount } = await import('@vue/test-utils'))
+  HallDraftEditor = loadEditor()
+})
+after(() => { document.body.innerHTML = '' })
+
+describe('JYT-UX-W03 HallDraftEditor boundary', () => {
+  it('receives the stable owner/client scope from the production Hall path rather than an epoch', () => {
+    const bounty = readFileSync(new URL('../src/components/juyiting/BountyPanel.vue', import.meta.url), 'utf8')
+    const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    expect(bounty).to.include(':identity-scope="identityScope"')
+    expect(hall).to.include(':identity-scope="hallIdentityScope"')
+    expect(hall).to.include('createHydratedIdentityScope(globalStore.user, apiStore.oauthClientId)')
+    const identityHelper = readFileSync(new URL('../src/utils/identityScope.js', import.meta.url), 'utf8')
+    expect(identityHelper).to.include("tenant && client && owner ? [tenant, client, owner].join('\\u0000') : ''")
+    expect(identityHelper).not.to.include('filter(Boolean)')
+    const editor = readFileSync(new URL('../src/components/juyiting/HallDraftEditor.vue', import.meta.url), 'utf8')
+    expect(editor).to.include('.hall-draft-editor--draft .draft-actions .primary{flex:1 0 100%;white-space:nowrap}')
+  })
+
+  it('mounts the production component with its empty default draft and exposes the first save action', async () => {
+    const wrapper = mount(HallDraftEditor, {
+      props: { agents: [], selectedAgent: null, identityEpoch: 7, identityScope: 'tenant\u0000client\u0000owner' }
+    })
+    await Vue.nextTick()
+    expect(wrapper.text()).to.include('确认保存草稿')
+    expect(wrapper.find('button[type="submit"]').exists()).to.equal(true)
+    expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+    wrapper.unmount()
+  })
+
+  it('keeps current input on a revision conflict and warns before a server draft replaces it', async () => {
+    const previousState = editorState
+    const deps = editorDeps()
+    const adapter = deps.useHallDrafts()
+    const saved = { title: '服务端旧标题', instruction: '服务端旧需求', targetAgentId: '', outputMime: '', inputs: [] }
+    const latest = { ...saved, title: '服务端新标题', instruction: '服务端新需求' }
+    adapter.save = async () => { adapter.reloadRequired.value = true; adapter.state.value = 'error'; return null }
+    adapter.list = async () => { adapter.summaries.value = [{ draftId: 'conflict-draft', revision: '2', title: latest.title }]; return true }
+    adapter.load = async () => {
+      adapter.draft.value = { draftId: 'conflict-draft', revision: '2', state: 'EDITING', editableFields: latest }
+      adapter.reloadRequired.value = false
+      return adapter.draft.value
+    }
+    deps.useHallDrafts = () => adapter
+    const wrapper = mount(loadEditor(deps), { props: { initialKind: 'TASK_CREATE', identityScope: 'tenant\u0000client\u0000owner' } })
+    try {
+      adapter.draft.value = { draftId: 'conflict-draft', revision: '1', state: 'EDITING', editableFields: saved }
+      await wrapper.find('textarea').setValue('当前未保存需求')
+      await wrapper.find('input').setValue('当前未保存标题')
+      await wrapper.find('form').trigger('submit')
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(wrapper.find('textarea').element.value).to.equal('当前未保存需求')
+      expect(wrapper.text()).to.include('草稿已有更新，本次修改未保存。重新载入会替换当前输入，请先复制需要保留的内容。')
+      await button(wrapper, '恢复草稿').trigger('click')
+      await Vue.nextTick()
+      expect(wrapper.find('textarea').element.value).to.equal('当前未保存需求')
+      await wrapper.findAll('button').find(item => item.text().startsWith('服务端新标题')).trigger('click')
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(wrapper.find('textarea').element.value).to.equal(latest.instruction)
+      expect(wrapper.find('input').element.value).to.equal(latest.title)
+    } finally { wrapper.unmount(); editorState = previousState }
+  })
+
+  it('mounts fixed private results, hides unavailable actions, and creates a revision from the exact output reference', async () => {
+    const wrapper = mount(HallDraftEditor, {
+      props: { agents: [], selectedAgent: null, identityEpoch: 7, identityScope: 'tenant\u0000client\u0000owner' }
+    })
+    editorState.draft.value = { draftId: 'draft-submitted', revision: '1', state: 'SUBMITTED', editableFields: {} }
+    editorState.receipt.value = { ref: { sourceType: 'PRIVATE_CASE', sourceId: 'case-1' }, execution: { executionId: 'exec-1', targetAgentId: 'agent-1', state: 'OUTPUT_COMMITTED' }, task: null, submittedAt: 1 }
+    editorState.caseView.value = { caseId: 'case-1', executions: [{ revisionNo: '1', execution: { executionId: 'exec-1', targetAgentId: 'agent-1', state: 'OUTPUT_COMMITTED' } }] }
+    await Vue.nextTick()
+    expect(wrapper.text()).to.include('成果已保存，可以查看')
+    await button(wrapper, '查看成果').trigger('click')
+    await Vue.nextTick()
+    expect(editorState.loadedResults).to.deep.equal(['exec-1'])
+    expect(wrapper.text()).to.include('结案.pdf')
+    expect(wrapper.text()).to.include('缺失.txt')
+    expect(wrapper.findComponent({ name: 'HallPrivateMark' }).props('resultRef')).to.equal(null)
+    expect(wrapper.findAll('.hall-result-item').at(1).findAll('button')).to.have.length(0)
+    await wrapper.get('[aria-label="预览成果"]').trigger('click')
+    await Vue.nextTick()
+    expect(wrapper.findComponent({ name: 'PdfDocumentPreview' }).props('blob').type).to.equal('application/pdf')
+    await wrapper.get('[aria-label="下载成果"]').trigger('click')
+    expect(editorState.workspaceCalls).to.deep.equal([
+      ['select', 'file-1'], ['preview', '2'], ['select', 'file-1'], ['download', '2'], ['save', '结案.pdf']
+    ])
+    editorState.executionResults.value = { ...editorState.executionResults.value, allowedActions: ['VIEW'] }
+    await Vue.nextTick()
+    expect(button(wrapper, '提出修改')).to.equal(undefined)
+    editorState.executionResults.value = { ...editorState.executionResults.value, allowedActions: ['VIEW', 'CREATE_REVISION'] }
+    await Vue.nextTick()
+    await button(wrapper, '提出修改').trigger('click')
+    await Vue.nextTick()
+    expect(wrapper.find('button[type="submit"]').text()).to.equal('保存修改草稿')
+    await wrapper.find('form').trigger('submit')
+    expect(editorState.created).to.have.length(1)
+    expect(editorState.created[0]).to.include({ kind: 'REVISION', caseId: 'case-1' })
+    expect(editorState.created[0].sourceOutputRef).to.deep.equal({ executionId: 'exec-1', outputId: 'output-1', fileId: 'file-1', fileVersion: '2' })
+    wrapper.unmount()
+  })
+})
+
+describe('JYT-UX-W05 real editor source restoration', () => {
+  const setupReader = async (handler, capabilities = () => ({ allowedMimeTypes: ['application/pdf'], generationEnabled: true })) => {
+    const { useHallDrafts } = await import('../src/composables/juyiting/useHallDrafts.js')
+    const deps = editorDeps()
+    const calls = []
+    const writes = []
+    const capabilityCalls = []
+    const storageMap = new Map()
+    let workspaceRefreshes = 0
+    const originalWorkspace = deps.usePersonalWorkspace
+    deps.usePersonalWorkspace = () => ({ ...originalWorkspace(), refresh: async () => { workspaceRefreshes += 1; return true } })
+    deps.useHallDrafts = options => useHallDrafts({
+      ...options,
+      agentApi: { execute: async request => {
+        if (request.url === '/personal-workspace/executions/capabilities') { capabilityCalls.push(request); return capabilities() }
+        calls.push(request); return handler(request)
+      } },
+      storage: { getItem: key => storageMap.get(key) || null, setItem: (key, value) => { writes.push([key, value]); storageMap.set(key, value) }, removeItem: key => storageMap.delete(key) }
+    })
+    return { component: loadEditor(deps), calls, capabilityCalls, writes, entries: () => [...storageMap.entries()], workspaceRefreshes: () => workspaceRefreshes }
+  }
+  const base = { identityEpoch: 1, identityScope: 'tenant\u0000client\u0000owner-a' }
+  const settle = async () => { await new Promise(resolve => setTimeout(resolve, 0)); await Vue.nextTick() }
+
+  it('restores the exact saved draft revision through GET without creating a replacement', async () => {
+    const { component, calls, writes, entries } = await setupReader(() => ({ draftId: 'draft-a', revision: '7', state: 'EDITING', savedAt: 100, kind: 'CREATE',
+      editableFields: { title: '已存名目', instruction: '固定正文', targetAgentId: 'agent-a', outputMime: 'text/plain', inputs: [] }, sourceSummary: {}, submissionRef: null }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'draft-a' } } })
+    try {
+      await settle()
+      expect(calls.map(call => [call.method, call.url])).to.deep.equal([['GET', '/hall/drafts/draft-a']])
+      expect(wrapper.find('textarea').element.value).to.equal('固定正文')
+      expect(wrapper.text()).to.include('草稿已保存，尚未交办')
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      expect(writes.every(([key]) => key === 'cyf.hall.submission-recovery.v1.browser')).to.equal(true)
+      expect(JSON.stringify(entries())).not.to.match(/固定正文|已存名目|case-a|exec-a/)
+    } finally { wrapper.unmount() }
+  })
+
+  it('restores formal draft editing without presenting a private-submission confirmation', async () => {
+    for (const kind of ['TASK_CREATE', 'TASK_ACTION']) {
+      const { component, calls } = await setupReader(() => ({ draftId: 'formal-draft', revision: '3', state: 'EDITING', savedAt: 100, kind,
+        editableFields: { title: '正式草稿', instruction: '原正式交代', targetAgentId: 'agent-a', outputMime: 'text/plain', inputs: [] }, sourceSummary: {}, submissionRef: null }))
+      const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+      try {
+        await settle()
+        expect(wrapper.find('textarea').element.value).to.equal('原正式交代')
+        if (kind === 'TASK_ACTION') {
+          expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+          expect(wrapper.text()).to.include('正式张榜和返工请使用原正式入口')
+        } else {
+          expect(wrapper.text()).to.include('原稿包含此入口不支持的选人')
+          expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+          expect(wrapper.text()).not.to.include('我已确认本次私人交办')
+        }
+        expect(wrapper.find('button[type="submit"]').text()).to.equal(kind === 'TASK_CREATE' ? '保存草稿' : '保存修改')
+        expect(calls.map(call => call.method)).to.deep.equal(['GET'])
+      } finally { wrapper.unmount() }
+    }
+  })
+
+  it('opens PRIVATE_CASE progress without fabricating a submission receipt or resubmitting', async () => {
+    const { component, calls, writes, entries } = await setupReader(() => ({ caseId: 'case-a', title: '原事项', revision: '1', sourceRef: {}, allowedActions: ['VIEW'],
+      executions: [{ revisionNo: '1', execution: { executionId: 'exec-a', targetAgentId: 'agent-a', state: 'QUEUED' } }] }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'PRIVATE_CASE', sourceId: 'case-a' } } })
+    try {
+      await settle()
+      expect(wrapper.find('textarea').exists()).to.equal(false)
+      expect(wrapper.text()).to.include('等待执行')
+      expect(wrapper.find('.technical-details').exists()).to.equal(false)
+      expect(wrapper.find('button[type="submit"]').exists()).to.equal(false)
+      expect(calls.map(call => [call.method, call.url])).to.deep.equal([['GET', '/hall/cases/case-a']])
+      expect(writes.every(([key]) => key === 'cyf.hall.submission-recovery.v1.browser')).to.equal(true)
+      expect(JSON.stringify(entries())).not.to.match(/固定正文|已存名目|case-a|exec-a/)
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps LEGACY_EXECUTION read-only and reads its real execution endpoint', async () => {
+    const { component, calls } = await setupReader(() => ({ executionId: 'exec-old', targetAgentId: 'agent-a', state: 'OUTPUT_COMMITTED' }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'LEGACY_EXECUTION', sourceId: 'exec-old' } } })
+    try {
+      await settle()
+      expect(wrapper.text()).to.include('已有已归档输出')
+      expect(wrapper.text()).to.include('成果已保存，可以查看')
+      expect(wrapper.find('button[type="submit"]').exists()).to.equal(false)
+      expect(calls[0]).to.include({ method: 'GET', url: '/personal-workspace/executions/exec-old' })
+      expect(calls[0]).not.to.have.property('params')
+    } finally { wrapper.unmount() }
+  })
+
+  it('does not turn an inaccessible draft into a fresh editable form', async () => {
+    const { component, calls } = await setupReader(() => { throw Object.assign(new Error('not found'), { status: 404 }) })
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'draft-missing' } } })
+    try {
+      await settle()
+      expect(wrapper.text()).to.include('暂时无法加载原事项')
+      expect(wrapper.find('button[type="submit"]').exists()).to.equal(false)
+      expect(wrapper.find('textarea').exists()).to.equal(false)
+      expect(calls).to.have.length(1)
+    } finally { wrapper.unmount() }
+  })
+
+  it('rejects a different draft ID returned for an exact overview reference', async () => {
+    const { component, calls } = await setupReader(() => ({ draftId: 'another-draft', revision: '1', state: 'EDITING', savedAt: 100, kind: 'CREATE',
+      editableFields: { title: '不能代替原事项', instruction: '另一事项正文', targetAgentId: null, outputMime: null, inputs: [] }, sourceSummary: {}, submissionRef: null }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'exact-draft' } } })
+    try {
+      await settle()
+      expect(wrapper.find('textarea').exists()).to.equal(false)
+      expect(wrapper.text()).not.to.include('另一事项正文')
+      expect(wrapper.text()).to.include('暂时无法加载原事项')
+      expect(calls).to.have.length(1)
+    } finally { wrapper.unmount() }
+  })
+
+  const formalSaved = (fields = {}, overrides = {}) => ({
+    draftId: 'formal-draft', revision: '1', state: 'EDITING', savedAt: 100, kind: 'TASK_CREATE',
+    editableFields: { title: '事项名称', instruction: '任务简述', targetAgentId: null, outputMime: null, inputs: [], ...fields },
+    sourceSummary: { originRef: 'juyiting', sourceRef: null, conversationId: null }, submissionRef: null, ...overrides
+  })
+  const formalReceipt = { ref: { sourceType: 'TASK', sourceId: 'task-created' }, execution: null,
+    task: { taskId: 'task-created', taskVersion: '9007199254740993' }, submittedAt: 101 }
+
+  it('renders real material controls and derives a title without truncating the requirement', async () => {
+    const harness = await setupReader(request => {
+      if (request.url === '/hall/drafts') return formalSaved({ ...request.data, targetAgentId: null, outputMime: null })
+      throw new Error(`unexpected ${request.url}`)
+    })
+    const wrapper = mount(harness.component, { props: { ...base, initialKind: 'TASK_CREATE' } })
+    try {
+      await settle()
+      expect(button(wrapper, '开始办事').element.disabled).to.equal(true)
+      expect(wrapper.text()).not.to.include('请填写事项名称')
+      expect(wrapper.get('.quick-material-open').element.closest('template')).to.equal(null)
+      const instruction = '需求内容'.repeat(40)
+      await wrapper.get('textarea').setValue(instruction)
+      await wrapper.get('form').trigger('submit'); await settle()
+      const created = harness.calls.find(call => call.url === '/hall/drafts')
+      expect(created.data.title).to.equal(instruction.slice(0, 36))
+      expect(created.data.instruction).to.equal(instruction)
+      expect(button(wrapper, '开始办事').element.disabled).to.equal(false)
+      expect(wrapper.text()).to.include('已保存到账号')
+    } finally { wrapper.unmount() }
+  })
+
+  it('saves a materials-only requirement with a stable fallback title', async () => {
+    const harness = await setupReader(request => {
+      if (request.url === '/hall/drafts') return formalSaved({ ...request.data, targetAgentId: null, outputMime: null })
+      throw new Error(`unexpected ${request.url}`)
+    })
+    const wrapper = mount(harness.component, { props: { ...base, initialKind: 'TASK_CREATE', initialContext: { inputs: [{ fileId: 'file-source', version: '2' }] } } })
+    try {
+      await settle()
+      expect(button(wrapper, '开始办事').element.disabled).to.equal(false)
+      await wrapper.get('form').trigger('submit'); await settle()
+      const created = harness.calls.find(call => call.url === '/hall/drafts')
+      expect(created.data.title).to.equal('资料处理')
+      expect(created.data.instruction).to.equal('')
+      expect(created.data.inputs).to.deep.equal([{ fileId: 'file-source', version: '2' }])
+      expect(wrapper.text()).to.include('已保存到账号')
+    } finally { wrapper.unmount() }
+  })
+
+  it('saves full formal requirements and materials before one creation POST, then opens the exact pending task', async () => {
+    let finishSubmit
+    const canonicalTask = { id: 'task-created', title: '原正式任务', status: 'open', version: '9007199254740993' }
+    const harness = await setupReader(request => {
+      if (request.url === '/hall/drafts') return formalSaved({ ...request.data, targetAgentId: null, outputMime: null })
+      if (request.url.endsWith('/submit')) return new Promise(resolve => { finishSubmit = () => resolve(formalReceipt) })
+      if (request.url === '/tasks/task-created') return canonicalTask
+      throw new Error(`unexpected ${request.url}`)
+    })
+    const wrapper = mount(harness.component, { props: { ...base, initialKind: 'TASK_CREATE', selectedAgent: { agentId: 'do-not-assign' } } })
+    try {
+      await settle()
+      expect(wrapper.text()).to.include('事项名称（可选）')
+      expect(wrapper.text()).to.include('需求描述')
+      expect(wrapper.text()).to.include('保存需求不会启动办理')
+      expect(wrapper.find('select').exists()).to.equal(false)
+      expect(wrapper.find('.draft-materials').exists()).to.equal(true)
+      expect(wrapper.findAll('input')).to.have.length(1)
+      expect(harness.workspaceRefreshes()).to.equal(0)
+      await wrapper.find('input').setValue('名'.repeat(30))
+      await wrapper.find('textarea').setValue('述'.repeat(200))
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      const create = harness.calls[0]
+      expect(create.data).to.include({ kind: 'TASK_CREATE', targetAgentId: null, outputMime: null, sourceRef: null, conversationId: null })
+      expect(create.data.inputs).to.deep.equal([])
+      expect(create.data.title).to.equal('名'.repeat(30))
+      expect(create.data.instruction).to.equal('述'.repeat(200))
+      const start = button(wrapper, '开始办事')
+      expect(start.element.disabled).to.equal(false)
+      await start.trigger('click')
+      await start.trigger('click')
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      expect(harness.calls.filter(call => call.url.endsWith('/submit'))).to.have.length(1)
+      finishSubmit()
+      await settle()
+      expect(wrapper.text()).to.include('正式任务已创建，尚未指派或启动执行')
+      expect(wrapper.text()).not.to.include('尚未取得成果')
+      expect(wrapper.find('button[type="submit"]').exists()).to.equal(false)
+      expect(button(wrapper, '确认创建正式任务')).to.equal(undefined)
+      expect(wrapper.emitted('open-task')).to.deep.equal([[canonicalTask]])
+      expect(harness.calls.at(-1)).to.include({ url: '/tasks/task-created', method: 'GET' })
+      expect(harness.calls.at(-1)).not.to.have.property('params')
+      expect(JSON.stringify(harness.entries())).not.to.include('名'.repeat(30))
+      expect(JSON.stringify(harness.entries())).not.to.include('述'.repeat(200))
+    } finally { wrapper.unmount() }
+  })
+
+  it('preserves restored long formal requirements within actual 200/20000 field limits without truncation', async () => {
+    const title = '长'.repeat(31)
+    const instruction = '文'.repeat(201)
+    const { component, calls } = await setupReader(request => formalSaved({ title, instruction }, { revision: request.method === 'PUT' ? '2' : '1' }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+    try {
+      await settle()
+      expect(wrapper.find('input').element.value).to.equal(title)
+      expect(wrapper.find('textarea').element.value).to.equal(instruction)
+      expect(wrapper.find('input').attributes('maxlength')).to.equal('200')
+      expect(wrapper.find('textarea').attributes('maxlength')).to.equal('20000')
+      expect(button(wrapper, '开始办事').element.disabled).to.equal(false)
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(calls.at(-1)).to.include({ method: 'PUT', url: '/hall/drafts/formal-draft' })
+      expect(calls.at(-1).data).to.include({ title, instruction })
+      expect(wrapper.find('textarea').element.value).to.equal(instruction)
+      expect(calls.filter(call => call.url.endsWith('/submit'))).to.have.length(0)
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps incompatible formal agent/format/fixed inputs until explicit removal and withdraws saved-snapshot authorization on edit', async () => {
+    const existing = { targetAgentId: 'old-agent', outputMime: 'application/pdf', inputs: [{ fileId: 'old-file', version: '7' }] }
+    const { component, calls, entries } = await setupReader(request => {
+      if (request.method === 'GET') return formalSaved(existing)
+      if (request.method === 'PUT') return formalSaved(request.data, { revision: String(calls.filter(call => call.method === 'PUT').length + 1) })
+      return formalReceipt
+    })
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+    try {
+      await settle()
+      expect(wrapper.text()).not.to.include('old-agent')
+      expect(wrapper.text()).to.include('已原样保留')
+      expect(wrapper.text()).to.include('application/pdf')
+      expect(wrapper.get('.quick-material-summary').text()).to.include('old-filev7')
+      expect(wrapper.find('select').exists()).to.equal(false)
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(calls.at(-1).data).to.include({ targetAgentId: 'old-agent', outputMime: 'application/pdf' })
+      expect(calls.at(-1).data.inputs).to.deep.equal(existing.inputs)
+      await button(wrapper, '移除原承办人和格式设置').trigger('click')
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(calls.at(-1).data).to.include({ targetAgentId: null, outputMime: null })
+      expect(calls.at(-1).data.inputs).to.deep.equal(existing.inputs)
+      expect(button(wrapper, '开始办事').element.disabled).to.equal(false)
+      await wrapper.find('textarea').setValue('用户后来修改的简述')
+      await button(wrapper, '开始办事').trigger('click')
+      await settle()
+      const post = calls.find(call => call.url.endsWith('/submit'))
+      expect(post.data).to.deep.equal({ expectedRevision: '4', authorizationAcknowledgement: true })
+      expect(calls.filter(call => call.method === 'PUT').at(-1).data.instruction).to.equal('用户后来修改的简述')
+      expect(JSON.stringify(entries())).not.to.match(/用户后来|old-agent|old-file|application\/pdf/)
+    } finally { wrapper.unmount() }
+  })
+
+  it('never erases immutable formal source/conversation metadata or creates a replacement draft to bypass it', async () => {
+    for (const sourceSummary of [{ sourceRef: { sourceType: 'FILE', sourceId: 'private-file', version: '1' } }, { conversationId: 'private-chat' }]) {
+      const { component, calls } = await setupReader(() => formalSaved({}, { sourceSummary }))
+      const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+      try {
+        await settle()
+        expect(wrapper.text()).to.include('此处不能改变该关联')
+        expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+        expect(button(wrapper, '开始办事').element.disabled).to.equal(true)
+        expect(calls.map(call => call.method)).to.deep.equal(['GET'])
+      } finally { wrapper.unmount() }
+    }
+  })
+
+  it('retains full private CREATE editing, selected target and fixed inputs instead of imposing formal limits', async () => {
+    const { component, calls } = await setupReader(request => formalSaved(request.data, { kind: 'CREATE' }))
+    const wrapper = mount(component, { props: { ...base, selectedAgent: { agentId: 'private-agent' }, agents: [{ agentId: 'private-agent' }] } })
+    try {
+      await settle()
+      expect(wrapper.find('select[aria-label="期望格式"]').exists()).to.equal(true)
+      expect(wrapper.find('.draft-materials').exists()).to.equal(true)
+      expect(wrapper.find('input').attributes('maxlength')).to.equal(undefined)
+      await wrapper.find('input').setValue('私'.repeat(31))
+      await wrapper.find('textarea').setValue('密'.repeat(201))
+      await wrapper.find('select[aria-label="期望格式"]').setValue('application/pdf')
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(calls[0].data).to.include({ kind: 'CREATE', title: '私'.repeat(31), instruction: '密'.repeat(201), targetAgentId: 'private-agent' })
+      await button(wrapper, '下一步：确认交办').trigger('click')
+      await settle()
+      expect(wrapper.find('select[aria-label="执行好汉"]').element.value).to.equal('private-agent')
+      expect(button(wrapper, '确认创建正式任务')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+
+  it('renders only capability-backed human-readable formats, preserving unsupported old MIME without replacing it', async () => {
+    const word = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    const { component, calls, capabilityCalls } = await setupReader(() => formalSaved({ outputMime: 'text/plain', targetAgentId: 'agent-a' }, { kind: 'CREATE' }),
+      () => ({ allowedMimeTypes: ['application/pdf', word], generationEnabled: true }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+    try {
+      await settle()
+      const select = wrapper.find('select[aria-label="期望格式"]')
+      expect(select.element.value).to.equal('text/plain')
+      expect(select.findAll('option').map(option => option.text())).to.include.members(['PDF', 'Word（DOCX）'])
+      expect(select.findAll('option').some(option => option.text().includes('PPT'))).to.equal(false)
+      expect(wrapper.text()).to.include('原格式当前不受支持，仍原样保留')
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      expect(calls.map(call => call.method)).to.deep.equal(['GET'])
+      expect(capabilityCalls).to.have.length(1)
+      expect(capabilityCalls[0]).to.include({ url: '/personal-workspace/executions/capabilities', method: 'GET' })
+      expect(capabilityCalls[0]).not.to.have.property('params')
+      await select.setValue('application/pdf')
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      await button(wrapper, '下一步：确认交办').trigger('click')
+      await settle()
+      expect(wrapper.find('input[type="checkbox"]').element.checked).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('submits an empty private format as server-supported text and shows the actual default on confirmation', async () => {
+    const deps = editorDeps()
+    const model = deps.useHallDrafts()
+    deps.useHallDrafts = () => model
+    model.allowedMimeTypes.value = ['application/pdf', 'text/plain']
+    const wrapper = mount(loadEditor(deps), { props: { ...base, selectedAgent: { agentId: 'agent-a' }, agents: [{ agentId: 'agent-a', name: '吴用' }] } })
+    try {
+      await settle()
+      expect(wrapper.text()).to.include('交付格式 可选；默认文本')
+      expect(wrapper.find('select[aria-label="期望格式"]').element.value).to.equal('')
+      await wrapper.find('input').setValue('默认文本事项')
+      await wrapper.find('textarea').setValue('未选择格式也可提交。')
+      await button(wrapper, '下一步：确认交办').trigger('click')
+      await settle()
+      expect(editorState.created[0].outputMime).to.equal('text/plain')
+      expect(wrapper.text()).to.include('文本 · text/plain')
+      expect(wrapper.find('.authorization input').element.disabled).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('uses the first service-supported format only when text is unavailable', async () => {
+    const deps = editorDeps()
+    const model = deps.useHallDrafts()
+    deps.useHallDrafts = () => model
+    model.allowedMimeTypes.value = ['application/pdf']
+    const wrapper = mount(loadEditor(deps), { props: { ...base, selectedAgent: { agentId: 'agent-a' } } })
+    try {
+      await settle()
+      await wrapper.find('input').setValue('默认 PDF')
+      await wrapper.find('textarea').setValue('服务端没有文本格式。')
+      await button(wrapper, '下一步：确认交办').trigger('click')
+      await settle()
+      expect(editorState.created[0].outputMime).to.equal('application/pdf')
+      expect(wrapper.text()).to.include('PDF · application/pdf')
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps a restored supported non-text format instead of silently replacing it with the default', async () => {
+    const { component, calls } = await setupReader(request => formalSaved({ title: '原格式', instruction: '保留 PDF', targetAgentId: 'agent-a', outputMime: 'application/pdf' },
+      { kind: 'CREATE', revision: request.method === 'PUT' ? '2' : '1' }), () => ({ allowedMimeTypes: ['text/plain', 'application/pdf'], generationEnabled: true }))
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+    try {
+      await settle()
+      expect(wrapper.find('select[aria-label="期望格式"]').element.value).to.equal('application/pdf')
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(calls.at(-1).data.outputMime).to.equal('application/pdf')
+      expect(wrapper.find('select[aria-label="期望格式"]').element.value).to.equal('application/pdf')
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps long saved private text and format visible when capabilities are unavailable, without allowing submission', async () => {
+    const instruction = '合法正文'.repeat(5000)
+    const { component, calls } = await setupReader(request => formalSaved({ title: '原稿', instruction, outputMime: 'application/pdf', targetAgentId: 'agent-a' },
+      { kind: 'CREATE', revision: request.method === 'PUT' ? '2' : '1' }), () => { throw Object.assign(new Error('unavailable'), { status: 503 }) })
+    const wrapper = mount(component, { props: { ...base, initialRef: { sourceType: 'DRAFT', sourceId: 'formal-draft' } } })
+    try {
+      await settle()
+      expect(wrapper.find('textarea').element.value).to.equal(instruction)
+      expect(wrapper.find('select[aria-label="期望格式"]').element.value).to.equal('application/pdf')
+      expect(wrapper.text()).to.include('暂未读到可用交付格式')
+      expect(wrapper.find('input[type="checkbox"]').exists()).to.equal(false)
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(calls.at(-1).data.instruction).to.equal(instruction)
+      expect(calls.at(-1).headers).to.deep.equal({ 'If-Match': '"1"' })
+      expect(wrapper.find('textarea').element.value).to.equal(instruction)
+      expect(calls.filter(call => call.url.endsWith('/submit'))).to.have.length(0)
+      await wrapper.find('input').setValue('名'.repeat(201))
+      await wrapper.find('form').trigger('submit')
+      await settle()
+      expect(wrapper.find('input').element.value).to.equal('名'.repeat(201))
+      expect(wrapper.text()).to.include('最多200字')
+      expect(calls.filter(call => call.method === 'PUT')).to.have.length(1)
+    } finally { wrapper.unmount() }
+  })
+
+})
+
+describe('W04 saved-source exit boundary', () => {
+  it('keeps fixed file source and edited text on failed save, then acknowledges only the saved snapshot', async () => {
+    const deps = editorDeps()
+    const model = deps.useHallDrafts()
+    deps.useHallDrafts = () => model
+    let finishSave
+    const commands = []
+    model.create = async command => { commands.push(command); return null }
+    const source = { originRef: 'juyiting:file', sourceRef: { sourceType: 'FILE', sourceId: 'file-source', version: '2' }, inputs: [{ fileId: 'file-source', version: '2' }] }
+    const wrapper = mount(loadEditor(deps), { props: { identityScope: 'client:owner', initialContext: source } })
+    try {
+      await Vue.nextTick()
+      await wrapper.find('textarea').setValue('原交代')
+      expect(await wrapper.vm.saveBeforeLeave()).to.equal(false)
+      expect(wrapper.vm.needsSave).to.equal(true)
+      expect(wrapper.find('textarea').element.value).to.equal('原交代')
+      expect(commands[0]).to.include({ originRef: 'juyiting:file' })
+      expect(commands[0].sourceRef).to.deep.equal(source.sourceRef)
+      expect(commands[0].inputs).to.deep.equal(source.inputs)
+      model.create = command => new Promise(resolve => {
+        finishSave = () => {
+          model.draft.value = { draftId: 'saved-file-draft', revision: '1', state: 'EDITING', editableFields: command }
+          resolve(model.draft.value)
+        }
+      })
+      const pending = wrapper.vm.saveBeforeLeave()
+      await wrapper.find('textarea').setValue('保存途中追加，不得覆盖')
+      finishSave()
+      expect(await pending).to.equal(false)
+      expect(wrapper.find('textarea').element.value).to.equal('保存途中追加，不得覆盖')
+      expect(wrapper.vm.needsSave).to.equal(true)
+      expect(await wrapper.vm.saveBeforeLeave()).to.equal(true)
+      expect(wrapper.vm.needsSave).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('JYT-UX-W02 visible draft-step regressions', () => {
+  const settle = async () => { await new Promise(resolve => setTimeout(resolve, 0)); await Vue.nextTick() }
+  const base = { identityEpoch: 1, identityScope: 'tenant\u0000client\u0000owner-a', agents: [{ agentId: 'agent-a', name: '吴用' }] }
+
+  it('requires an explicitly selected visible agent, exposes confirm save, and keeps authorization disabled after a failed save', async () => {
+    const deps = editorDeps()
+    const model = deps.useHallDrafts()
+    deps.useHallDrafts = () => model
+    let failed = false
+    model.create = async fields => { model.draft.value = { draftId: 'draft-visible', revision: '1', state: 'EDITING', editableFields: fields }; return model.draft.value }
+    model.save = async () => { failed = true; model.error.value = '保存失败，请重试。'; return null }
+    const wrapper = mount(loadEditor(deps), { props: base })
+    try {
+      await settle()
+      await wrapper.find('input').setValue('事项')
+      await wrapper.find('textarea').setValue('说明')
+      await wrapper.find('select[aria-label="期望格式"]').setValue('application/pdf')
+      expect(button(wrapper, '下一步：确认交办').element.disabled).to.equal(false)
+      // The first screen intentionally has no private-agent control; agent choice is visible only in confirmation.
+      expect(wrapper.findAll('select')).to.have.length(1)
+      await button(wrapper, '下一步：确认交办').trigger('click')
+      await settle()
+      const target = wrapper.find('select[aria-label="执行好汉"]')
+      await target.setValue('')
+      expect(wrapper.find('.authorization input').element.disabled).to.equal(true)
+      await target.setValue('agent-a')
+      expect(wrapper.find('.authorization input').element.disabled).to.equal(true)
+      expect(button(wrapper, '保存更改')).to.not.equal(undefined)
+      await button(wrapper, '保存更改').trigger('click')
+      await settle()
+      expect(failed).to.equal(true)
+      expect(wrapper.text()).to.include('保存失败，请重试。')
+      expect(wrapper.find('.authorization input').element.disabled).to.equal(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it('uses the shared bounded chooser; only Done changes draft inputs', async () => {
+    const deps = editorDeps()
+    const workspace = deps.usePersonalWorkspace()
+    deps.usePersonalWorkspace = () => workspace
+    workspace.items.value = Array.from({ length: 24 }, (_, index) => ({ fileId: `file-${index}`, displayName: `很长的资料名称 ${index} `.repeat(4), latestVersion: '1' }))
+    workspace.listState.value = 'ready'
+    workspace.select = async fileId => {
+      workspace.detail.value = { file: { ...workspace.items.value.find(file => file.fileId === fileId), state: 'ACTIVE' }, latestVersion: { version: '1' }, versions: [{ version: '1', contentMimeType: 'text/plain' }] }
+      return workspace.detail.value
+    }
+    const wrapper = mount(loadEditor(deps), { props: base, global: { stubs: { teleport: true } } })
+    try {
+      await settle()
+      await wrapper.get('.quick-material-open').trigger('click'); await settle()
+      expect(wrapper.findAll('.quick-material-files button')).to.have.length(24)
+      await wrapper.get('.quick-material-files button').trigger('click'); await settle()
+      await wrapper.get('.quick-material-version-actions .primary').trigger('click')
+      expect(wrapper.get('dialog footer').text()).to.include('已选 1 份资料')
+      expect(wrapper.find('.quick-material-summary').exists()).to.equal(false)
+      await button(wrapper, '取消').trigger('click'); await settle()
+      expect(wrapper.find('.quick-material-summary').exists()).to.equal(false)
+      await wrapper.get('.quick-material-open').trigger('click'); await settle()
+      await wrapper.get('.quick-material-files button').trigger('click'); await settle()
+      await wrapper.get('.quick-material-version-actions .primary').trigger('click')
+      await wrapper.get('.quick-material-confirm').trigger('click'); await settle()
+      expect(wrapper.get('.quick-material-summary').text()).to.include('v1')
+      await wrapper.find('form').trigger('submit'); await settle()
+      expect(editorState.created[0].inputs).to.deep.equal([{ fileId: 'file-0', version: '1' }])
+      const source = readFileSync(new URL('../src/components/juyiting/HallDraftEditor.vue', import.meta.url), 'utf8')
+      expect(source).to.include('<HallMaterialPicker')
+      expect(source).not.to.include('material-picker-flow')
+    } finally { wrapper.unmount() }
+  })
+
+  it('allows cancelling a selected fixed v1 after workspace latest advances to v2, and never offers newer result versions', async () => {
+    const deps = editorDeps()
+    const model = deps.useHallDrafts()
+    const workspace = deps.usePersonalWorkspace()
+    deps.useHallDrafts = () => model
+    deps.usePersonalWorkspace = () => workspace
+    workspace.items.value = [{ fileId: 'file-a', displayName: '资料A.pdf', latestVersion: '2' }]
+    workspace.detail.value = { file: { fileId: 'result-1' }, versions: [{ version: '1', originalFilename: '旧版.pdf' }, { version: '2', originalFilename: '固定输出.pdf' }, { version: '3', originalFilename: '后来上传.pdf' }] }
+    model.draft.value = { draftId: 'draft-v1', revision: '1', state: 'EDITING', editableFields: { title: '事项', instruction: '说明', targetAgentId: 'agent-a', outputMime: 'application/pdf', inputs: [{ fileId: 'file-a', version: '1' }] } }
+    const resultDetail = workspace.detail.value
+    workspace.select = async fileId => {
+      workspace.detail.value = fileId === 'file-a' ? { file: { fileId, displayName: '资料A.pdf', state: 'ACTIVE' }, latestVersion: { version: '2' }, versions: [{ version: '1' }, { version: '2' }] } : resultDetail
+      return workspace.detail.value
+    }
+    const wrapper = mount(loadEditor(deps), { props: { ...base, initialContext: { title: '事项', instruction: '说明', targetAgentId: 'agent-a', outputMime: 'application/pdf', inputs: [{ fileId: 'file-a', version: '1' }] } }, global: { stubs: { teleport: true } } })
+    try {
+      await settle()
+      await wrapper.get('.quick-material-open').trigger('click'); await settle()
+      await wrapper.get('.quick-material-count').trigger('click')
+      expect(wrapper.get('.quick-material-draft').text()).to.include('v1')
+      await wrapper.get('.quick-material-draft button').trigger('click')
+      expect(wrapper.get('.quick-material-count').text()).to.include('已选 0')
+      await button(wrapper, '取消').trigger('click'); await settle()
+      expect(wrapper.get('.quick-material-summary').text()).to.include('v1')
+      expect(wrapper.get('.quick-material-summary').text()).not.to.include('v2')
+      model.receipt.value = { ref: { sourceType: 'PRIVATE_CASE', sourceId: 'case-1' }, execution: { executionId: 'exec-1', state: 'OUTPUT_COMMITTED' } }
+      model.caseView.value = { caseId: 'case-1', executions: [{ revisionNo: '1', execution: model.receipt.value.execution }] }
+      model.executionResults.value = { executionId: 'exec-1', state: 'OUTPUT_COMMITTED', allowedActions: ['VIEW'], items: [{ outputId: 'out-1', fileId: 'result-1', fileVersion: '2', filename: '固定输出.pdf', mime: 'application/pdf', availability: 'AVAILABLE' }] }
+      await settle()
+      await button(wrapper, '成果').trigger('click')
+      await wrapper.get('[aria-label="预览成果"]').trigger('click')
+      await settle()
+      expect(wrapper.find('[aria-label="成果固定版本预览"] select').findAll('option').map(option => option.text())).to.deep.equal(['v1 · 旧版.pdf', 'v2 · 固定输出.pdf'])
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('HallDraftEditor result download lifetime', () => {
+  const settle = async () => { await new Promise(resolve => setTimeout(resolve, 0)); await Vue.nextTick() }
+  const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
+  const prepare = async save => {
+    const deps = editorDeps(), model = deps.useHallDrafts(), workspace = deps.usePersonalWorkspace()
+    const calls = [], blob = new Blob(['fixed-v2'], { type: 'text/plain;charset=utf-8' })
+    deps.useHallDrafts = () => model; deps.usePersonalWorkspace = () => workspace
+    deps.savePersonalWorkspaceBlob = save || (async options => { calls.push(['save', options]); return { status: 'transferred' } })
+    workspace.select = async fileId => { calls.push(['select', fileId]); return { file: { fileId, latestVersion: '99' } } }
+    workspace.download = async version => { calls.push(['download', version]); return { blob, filename: 'fixed-v2.txt' } }
+    const wrapper = mount(loadEditor(deps), { props: { identityEpoch: 1, identityScope: 'tenant\u0000client\u0000owner' } })
+    model.receipt.value = { ref: { sourceType: 'PRIVATE_CASE', sourceId: 'case-1' }, execution: { executionId: 'exec-1', state: 'OUTPUT_COMMITTED' } }
+    await settle(); await button(wrapper, '查看成果').trigger('click'); await settle()
+    return { wrapper, model, workspace, calls, blob, click: () => wrapper.get('[aria-label="下载成果"]').trigger('click') }
+  }
+  it('awaits the default saver with the exact displayed v2, never workspace latest v99', async () => {
+    const h = await prepare()
+    try {
+      await h.click(); await settle()
+      expect(h.calls.slice(0, 2)).to.deep.equal([['select', 'file-1'], ['download', '2']])
+      expect(h.calls[2][0]).to.equal('save')
+      expect(h.calls[2][1]).to.include({ blob: h.blob, filename: 'fixed-v2.txt' })
+      expect(h.calls[2][1].isCurrent()).to.equal(true)
+      expect(h.wrapper.find('.case-body [role="alert"]').exists()).to.equal(false)
+    } finally { h.wrapper.unmount() }
+  })
+  for (const change of ['identityEpoch', 'identityScope', 'unmount', 'receipt/case', 'execution', 'results', 'leave results']) {
+    it(`blocks delayed encoding after ${change} without post or stale error`, async () => {
+      const encoding = deferred(); let options, posts = 0
+      const h = await prepare(async value => {
+        options = value; await encoding.promise
+        if (!value.isCurrent()) throw new DOMException('old encoding cancelled', 'AbortError')
+        posts++
+      })
+      let unmounted = false
+      try {
+        await h.click(); await settle(); expect(options.isCurrent()).to.equal(true)
+        if (change === 'identityEpoch') await h.wrapper.setProps({ identityEpoch: 2 })
+        else if (change === 'identityScope') await h.wrapper.setProps({ identityScope: 'other-owner' })
+        else if (change === 'unmount') { h.wrapper.unmount(); unmounted = true }
+        else if (change === 'receipt/case') h.model.receipt.value = { ...h.model.receipt.value, ref: { sourceType: 'PRIVATE_CASE', sourceId: 'case-2' } }
+        else if (change === 'execution') h.model.receipt.value.execution = { executionId: 'exec-2', state: 'OUTPUT_COMMITTED' }
+        else if (change === 'results') h.model.executionResults.value = { ...h.model.executionResults.value, items: [] }
+        else await button(h.wrapper, '进展').trigger('click')
+        expect(options.isCurrent()).to.equal(false)
+        encoding.resolve(); await settle()
+        expect(posts).to.equal(0)
+        if (!unmounted) expect(h.wrapper.text()).not.to.include('old encoding cancelled')
+      } finally { if (!unmounted) h.wrapper.unmount() }
+    })
+  }
+  for (const stage of ['select', 'download']) it(`checks the fence after workspace.${stage} await`, async () => {
+    const wait = deferred(); let saves = 0, downloads = 0
+    const h = await prepare(async () => { saves++ })
+    h.workspace.select = fileId => stage === 'select' ? wait.promise : Promise.resolve({ file: { fileId } })
+    h.workspace.download = () => { downloads++; return wait.promise }
+    try {
+      await h.click(); await settle(); await h.wrapper.setProps({ identityEpoch: 2 })
+      wait.resolve(stage === 'select' ? { file: { fileId: 'file-1' } } : { blob: h.blob, filename: 'v2.txt' })
+      await settle(); expect(saves).to.equal(0); expect(downloads).to.equal(stage === 'select' ? 0 : 1)
+    } finally { h.wrapper.unmount() }
+  })
+  it('renders a rejected saver in RESULTS and handles the rejection without an unhandled promise', async () => {
+    const unhandled = [], listener = error => unhandled.push(error)
+    process.on('unhandledRejection', listener)
+    const wait = deferred(), h = await prepare(() => wait.promise)
+    try {
+      await h.click(); await settle(); wait.reject(new Error('原生文件桥接失败')); await settle()
+      expect(h.wrapper.get('.case-body [role="alert"]').text()).to.equal('原生文件桥接失败')
+      expect(unhandled).to.deep.equal([])
+      await button(h.wrapper, '进展').trigger('click'); await button(h.wrapper, '成果').trigger('click')
+      expect(h.wrapper.find('.case-body [role="alert"]').exists()).to.equal(false)
+    } finally { process.removeListener('unhandledRejection', listener); h.wrapper.unmount() }
+  })
+  it('a newer download invalidates the older action and preserves the newer visible failure', async () => {
+    const old = deferred(), newer = deferred(); let count = 0, oldGuard
+    const h = await prepare(options => { if (++count === 1) { oldGuard = options.isCurrent; return old.promise }; return newer.promise })
+    try {
+      await h.click(); await settle(); await h.click(); await settle()
+      expect(oldGuard()).to.equal(false)
+      newer.reject(new Error('current failure')); await settle()
+      old.reject(new Error('stale failure')); await settle()
+      expect(h.wrapper.get('.case-body [role="alert"]').text()).to.equal('current failure')
+    } finally { h.wrapper.unmount() }
+  })
+})
+
+describe('private-case document preview consumer parity', () => {
+  for (const kind of ['html', 'markdown']) it(`forwards fixed ${kind} results to the shared renderer`, async () => {
+    const deps = editorDeps(), workspace = deps.usePersonalWorkspace()
+    deps.usePersonalWorkspace = () => workspace
+    workspace.previewVersion = async version => { expect(version).to.equal('2'); workspace.preview.value = { kind: 'document', documentKind: kind, text: '固定正文', message: '' }; return true }
+    const wrapper = mount(loadEditor(deps), { props: { identityScope: 'owner-a', identityEpoch: 1 } })
+    try {
+      editorState.draft.value = { draftId: 'submitted', revision: '1', state: 'SUBMITTED', editableFields: {} }
+      editorState.receipt.value = { ref: { sourceType: 'PRIVATE_CASE', sourceId: 'case-1' }, execution: { executionId: 'exec-1', targetAgentId: 'agent-1', state: 'OUTPUT_COMMITTED' }, task: null, submittedAt: 1 }
+      editorState.caseView.value = { caseId: 'case-1', executions: [{ revisionNo: '1', execution: { executionId: 'exec-1', targetAgentId: 'agent-1', state: 'OUTPUT_COMMITTED' } }] }
+      await Vue.nextTick(); await button(wrapper, '查看成果').trigger('click'); await Vue.nextTick()
+      await wrapper.get('[aria-label="预览成果"]').trigger('click'); await Vue.nextTick()
+      expect(wrapper.findComponent({ name: 'RichDocumentPreview' }).props()).to.include({ text: '固定正文', kind })
+      expect(wrapper.text()).not.to.include('预览暂不可用')
+      workspace.preview.value = { kind: 'parts', parts: [{ kind: 'document', documentKind: kind, text: '分页正文' }], selectedIndex: 0 }
+      await Vue.nextTick(); expect(wrapper.findComponent({ name: 'RichDocumentPreview' }).props()).to.include({ text: '分页正文', kind })
+    } finally { wrapper.unmount() }
+  })
+})

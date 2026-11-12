@@ -1,0 +1,801 @@
+<template>
+  <main class="hall-portrait-home" :class="{ 'is-unified-shell': unifiedShell, 'is-overview-home': homeMode === 'overview', 'is-compact-overview': compact && homeMode === 'overview' }" aria-label="聚义厅掌上首页">
+    <header v-if="!unifiedShell" class="portrait-header">
+      <div>
+        <p class="portrait-eyebrow">聚义厅 · 掌上调度</p>
+        <h1>{{ homeMode === 'overview' ? '办事概览' : '厅中动静' }}</h1>
+      </div>
+      <div class="portrait-header-actions">
+        <button
+          class="portrait-home-mode"
+          type="button"
+          :aria-pressed="homeMode === 'overview'"
+          @click="emit('set-home-mode', homeMode === 'map' ? 'overview' : 'map')"
+        >{{ homeMode === 'map' ? '办事概览' : '厅中实景' }}</button>
+        <HallAccountEntry
+          class="portrait-header-account"
+          :avatar="accountAvatar"
+          :display-name="accountDisplayName"
+          :disabled="accountEntryDisabled"
+          @open-profile="emit('open-profile')"
+        />
+      </div>
+    </header>
+
+    <p v-if="!unifiedShell" class="portrait-home-mode-hint" role="status">{{ homeMode === 'map' ? '厅中实景 · 可切办事概览' : '办事概览 · 地图与当前选择仍保留' }}</p>
+
+    <section v-if="!$slots.overview" class="portrait-overview" aria-label="状态概览">
+      <div><strong>{{ idleCount }}</strong><span>候命</span></div>
+      <div><strong>{{ busyCount }}</strong><span>办事</span></div>
+      <div><strong>{{ issueCount }}</strong><span>异常</span></div>
+      <div><strong>{{ openTaskCount }}</strong><span>待办</span></div>
+    </section>
+
+    <section
+      v-show="homeMode === 'map'"
+      :inert="homeMode !== 'map' ? '' : null"
+      :aria-hidden="homeMode !== 'map' ? 'true' : null"
+      data-tour="portrait-preview"
+      class="portrait-scene"
+      :class="{ 'has-live-preview': livePreviewEnabled }"
+      aria-label="聚义厅实景窗口"
+    >
+      <HallLiveMapPreview
+        v-if="livePreviewEnabled"
+        :state="livePreviewState"
+        :error-message="livePreviewError"
+        :map-width="livePreviewMapWidth"
+        :map-height="livePreviewMapHeight"
+        :orientation-request-pending="orientationRequestPending"
+        :orientation-hint="orientationHint"
+        @request-landscape="emit('request-landscape')"
+        @cancel-orientation="emit('cancel-orientation')"
+        @retry="emit('retry-live-preview')"
+        @visibility-change="visible => emit('live-preview-visibility-change', visible)"
+      >
+        <template #controls>
+          <ul v-if="operableAgents.length" class="scene-agent-list preview-agent-list" aria-label="厅中好汉">
+            <li v-for="agent in operableAgents" :key="agentKey(agent)">
+              <button type="button" :aria-pressed="isSelectedAgent(agent)" @click="emit('select-agent', agent)">
+                <span class="agent-dot" :class="statusClass(agent.status)"></span>
+                <span>{{ agentName(agent) }}</span>
+              </button>
+            </li>
+          </ul>
+          <p v-else class="scene-empty preview-scene-empty">厅前静候点将</p>
+        </template>
+        <div ref="livePreviewTarget" class="portrait-live-preview-target"></div>
+      </HallLiveMapPreview>
+      <template v-else>
+        <div class="scene-sky" aria-hidden="true"></div>
+        <div class="scene-hall" aria-hidden="true"><span>聚义</span></div>
+        <div class="scene-courtyard" aria-hidden="true"></div>
+        <ul v-if="operableAgents.length" class="scene-agent-list" aria-label="厅中好汉">
+          <li v-for="agent in operableAgents" :key="agentKey(agent)">
+            <button type="button" :aria-pressed="isSelectedAgent(agent)" @click="emit('select-agent', agent)">
+              <span class="agent-dot" :class="statusClass(agent.status)"></span>
+              <span>{{ agentName(agent) }}</span>
+            </button>
+          </li>
+        </ul>
+        <p v-else class="scene-empty">厅前静候点将</p>
+        <button
+          class="landscape-entry"
+          data-tour="portrait-landscape"
+          type="button"
+          :aria-label="orientationRequestPending ? '取消方向请求' : '横屏看全景'"
+          @click="emit(orientationRequestPending ? 'cancel-orientation' : 'request-landscape')"
+        >
+          {{ orientationRequestPending ? '取消切换' : '横屏看全景' }}
+        </button>
+        <p v-if="orientationHint" class="orientation-hint" role="status">{{ orientationHint }}</p>
+      </template>
+    </section>
+
+    <div v-show="!unifiedShell || homeMode === 'overview'" class="portrait-below-map-scroll" :aria-label="homeMode === 'overview' ? '办事操作区' : '地图以下操作区'">
+      <div class="portrait-work-summary">
+        <slot name="overview">
+          <section data-tour="portrait-todos" class="portrait-section portrait-todos" aria-labelledby="portrait-todos-title">
+            <div class="section-heading">
+              <h2 id="portrait-todos-title">待办榜文</h2>
+              <button type="button" @click="emit('quick-action', 'tasks')">查看悬赏榜</button>
+            </div>
+            <div class="portrait-todo-list" aria-label="待办榜文列表">
+              <button
+                v-for="task in todoTasks"
+                :key="task.id"
+                class="portrait-todo"
+                type="button"
+                @click="openTask(task)"
+              >
+                <span :class="taskStateClass(task)">{{ taskStatusText(task) }}</span>
+                <strong>{{ task.title || '未命名榜文' }}</strong>
+                <small>{{ task.requiredAbilities?.length ? task.requiredAbilities.join(' / ') : '待议定人手' }}</small>
+              </button>
+              <p v-if="!todoTasks.length" class="portrait-empty">眼下无待办榜文，可先点验厅中人手。</p>
+            </div>
+          </section>
+
+        </slot>
+      </div>
+
+      <section v-if="!unifiedShell" class="portrait-section" aria-labelledby="portrait-shortcuts-title">
+        <div class="section-heading">
+          <h2 id="portrait-shortcuts-title">常用入口</h2>
+          <div class="section-heading-actions">
+            <button class="onboarding-link" type="button" @click="emit('open-onboarding', $event.currentTarget)">新手引导</button>
+            <span>单手直达</span>
+          </div>
+        </div>
+        <div data-tour="portrait-shortcuts" class="portrait-shortcuts">
+          <button
+            v-for="action in quickActions"
+            :key="action.key"
+            class="portrait-shortcut"
+            type="button"
+            :data-portrait-action="action.key"
+            :data-tour="`portrait-action-${action.key}`"
+            @click="emit('quick-action', action.key)"
+          >
+            <span aria-hidden="true">{{ action.icon }}</span>
+            <span>{{ action.label }}</span>
+          </button>
+        </div>
+      </section>
+
+
+
+      <section v-if="!unifiedShell" data-tour="portrait-context" class="portrait-context" aria-label="当前上下文">
+        <div>
+          <span>当前好汉</span>
+          <strong>{{ selectedAgent ? agentName(selectedAgent) : '尚未点将' }}</strong>
+        </div>
+        <div>
+          <span>当前榜文</span>
+          <strong>{{ selectedTask?.title || '尚未选定' }}</strong>
+        </div>
+        <div class="portrait-context-actions">
+          <button type="button" data-portrait-action="context-discussion" @click="emit('quick-action', 'discussion')">
+            {{ selectedAgent ? `与${agentName(selectedAgent)}密议` : '先聊一聊' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskDetailOpen && selectedTask" class="portrait-task-overlay">
+      <button
+        class="portrait-task-backdrop"
+        type="button"
+        aria-label="关闭榜文详情"
+        @click="emit('close-task-detail')"
+      ></button>
+      <section
+        class="portrait-task-detail"
+        role="dialog"
+        aria-modal="true"
+        aria-label="榜文详情"
+      >
+        <div class="task-detail-heading">
+          <span :class="taskStateClass(selectedTask)">{{ taskStatusText(selectedTask) }}</span>
+          <button type="button" aria-label="返回榜文列表" @click="emit('close-task-detail')">返回</button>
+        </div>
+        <p class="task-detail-id">榜号 {{ selectedTask.id }}</p>
+        <h2>{{ selectedTask.title || '未命名榜文' }}</h2>
+        <p class="task-detail-description">{{ selectedTask.description || selectedTask.content || '暂无详情，待厅中议定。' }}</p>
+        <p class="task-detail-abilities">所需本领：{{ selectedTask.requiredAbilities?.length ? selectedTask.requiredAbilities.join(' / ') : '不拘本领' }}</p>
+        <div class="task-detail-actions">
+          <button type="button" @click="emit('open-task-board')">进入悬赏榜</button>
+          <button type="button" @click="emit('discuss-task', selectedTask)">就此议事</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</template>
+
+<script setup>
+import { computed, ref } from 'vue'
+import HallAccountEntry from './HallAccountEntry.vue'
+import HallLiveMapPreview from './HallLiveMapPreview.vue'
+
+const props = defineProps({
+  unifiedShell: { type: Boolean, default: false },
+  accountAvatar: { type: String, default: '' },
+  accountDisplayName: { type: String, default: '' },
+  accountEntryDisabled: Boolean,
+  agents: { type: Array, default: () => [] },
+  canStartAgentConversation: { type: Function, required: true },
+  homeMode: { type: String, default: 'map' },
+  compact: { type: Boolean, default: false },
+  livePreviewEnabled: Boolean,
+  livePreviewError: { type: String, default: '' },
+  livePreviewMapHeight: { type: Number, default: 0 },
+  livePreviewMapWidth: { type: Number, default: 0 },
+  livePreviewState: { type: String, default: 'loading' },
+  mapAgents: { type: Array, default: () => [] },
+  operableAgents: { type: Array, default: () => [] },
+  orientationHint: { type: String, default: '' },
+  orientationRequestPending: Boolean,
+  selectedAgent: { type: Object, default: null },
+  selectedTask: { type: Object, default: null },
+  taskDetailOpen: Boolean,
+  statusClass: { type: Function, required: true },
+  taskStateClass: { type: Function, required: true },
+  taskStatusText: { type: Function, required: true },
+  tasks: { type: Array, default: () => [] }
+})
+
+const emit = defineEmits(['cancel-orientation', 'set-home-mode', 'open-profile', 'close-task-detail', 'discuss-task', 'open-task', 'open-onboarding', 'open-task-board', 'quick-action', 'request-landscape', 'retry-live-preview', 'live-preview-visibility-change', 'select-agent', 'start-agent-conversation'])
+
+const livePreviewTarget = ref(null)
+defineExpose({ livePreviewTarget })
+
+const quickActions = Object.freeze([
+  { key: 'agents', label: '点将册', icon: '将' },
+  { key: 'tasks', label: '悬赏榜', icon: '榜' },
+  { key: 'discussion', label: '厅前议事', icon: '议' },
+  { key: 'catalog', label: '招贤令', icon: '贤' },
+  { key: 'library', label: '案卷阁', icon: '卷' },
+  { key: 'treasure', label: '百宝箱', icon: '宝' },
+  { key: 'messages', label: '消息', icon: '信' }
+])
+
+const normalizedStatus = status => String(status || '').toLowerCase()
+const idleCount = computed(() => props.agents.filter(agent => normalizedStatus(agent.status) === 'online').length)
+const busyCount = computed(() => props.agents.filter(agent => ['busy', 'running'].includes(normalizedStatus(agent.status))).length)
+const issueCount = computed(() => props.agents.filter(agent => ['error', 'offline'].includes(normalizedStatus(agent.status))).length)
+const openTaskCount = computed(() => props.tasks.filter(task => normalizedStatus(task.status) === 'open').length)
+const todoTasks = computed(() => props.tasks.filter(task => ['open', 'assigned', 'running'].includes(normalizedStatus(task.status))).slice(0, 3))
+const agentKey = agent => agent?.agentId || agent?.name || agent?.personaName || ''
+const isSelectedAgent = agent => {
+  const key = agentKey(agent)
+  return Boolean(key) && key === agentKey(props.selectedAgent)
+}
+const agentName = agent => agent?.name || agent?.personaName || agent?.agentId || '未署名好汉'
+
+const openTask = task => emit('open-task', task)
+</script>
+
+<style scoped>
+/* Stable Teleport destination: preview-frame → slot → target → Stage keeps a nonzero box. */
+.portrait-live-preview-target {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.portrait-live-preview-target > :deep(.hall-stage) {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.hall-portrait-home {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  height: min(100%, var(--hall-visual-height, 100%));
+  min-height: 0;
+  box-sizing: border-box;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, var(--hall-content-bottom-inset, env(safe-area-inset-bottom, 0px)));
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(234, 180, 84, 0.18), transparent 34%),
+    linear-gradient(160deg, #211812 0%, #382418 45%, #171a18 100%);
+  color: #fff5df;
+}
+
+
+.portrait-home-mode,
+.portrait-home-mode-hint {
+  font: inherit;
+}
+
+.portrait-home-mode {
+  min-height: 36px;
+  border: 1px solid rgba(255, 245, 223, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 245, 223, 0.1);
+  color: inherit;
+}
+
+.portrait-home-mode-hint {
+  margin: -6px 0 0;
+  color: rgba(255, 245, 223, 0.78);
+  font-size: 13px;
+}
+
+.portrait-context-actions {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.portrait-private-action {
+  background: #a84928;
+}
+
+.portrait-private-guidance {
+  background: rgba(255, 239, 200, 0.13);
+  color: #f2ca79;
+}
+
+.portrait-task-overlay {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+.portrait-task-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 100%;
+  padding: 0;
+  background: rgba(8, 7, 6, 0.68);
+}
+
+.portrait-task-detail {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  max-height: min(78vh, calc(100dvh - 24px));
+  padding: 18px 16px calc(16px + var(--hall-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(247, 204, 112, 0.5);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background: #382418;
+  box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.36);
+}
+
+.task-detail-heading,
+.task-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-detail-heading > span,
+.task-detail-id,
+.task-detail-abilities {
+  color: #f2ca79;
+  font-size: 12px;
+}
+
+.task-detail-heading button,
+.task-detail-actions button {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: rgba(255, 239, 200, 0.13);
+  color: #fff4dc;
+  font-weight: 700;
+}
+
+.task-detail-actions button {
+  flex: 1;
+}
+
+.task-detail-actions button:last-child {
+  background: #a84928;
+}
+
+.task-detail-id,
+.task-detail-description,
+.task-detail-abilities { margin: 0; }
+.task-detail-description { color: rgba(255, 237, 199, 0.84); line-height: 1.55; }
+
+.portrait-header,
+.portrait-header-actions,
+.section-heading,
+.portrait-context,
+.portrait-overview,
+.portrait-shortcuts,
+.portrait-context-actions {
+  display: flex;
+  align-items: center;
+}
+
+.portrait-home-mode {
+  font: inherit;
+  min-height: 36px;
+  border: 1px solid rgba(255, 245, 223, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 245, 223, 0.1);
+  color: inherit;
+}
+
+.portrait-home-mode-hint {
+  margin: -6px 0 0;
+  color: rgba(255, 245, 223, 0.78);
+  font-size: 13px;
+}
+
+.portrait-context-actions {
+  display: flex;
+  align-items: center;
+}
+
+.portrait-header,
+.portrait-header-actions,
+.section-heading,
+.portrait-context {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.portrait-header > :first-child {
+  min-width: 0;
+}
+
+.portrait-header-actions {
+  flex: 0 0 auto;
+}
+
+.portrait-header-account :deep(.hall-account-entry) {
+  min-height: 40px;
+  border-color: rgba(255, 230, 174, 0.5);
+  background: #a84928;
+}
+
+.portrait-eyebrow,
+.section-heading span,
+.portrait-context span,
+.portrait-todo small,
+.orientation-hint,
+.scene-empty {
+  color: rgba(255, 237, 199, 0.7);
+  font-size: 12px;
+}
+
+.portrait-eyebrow {
+  margin: 0 0 4px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 26px;
+  line-height: 1.05;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+button {
+  border: 0;
+  font: inherit;
+}
+
+button:disabled {
+  opacity: 0.62;
+}
+
+.landscape-entry,
+.section-heading button,
+.portrait-context-actions > button {
+  min-height: 40px;
+  padding: 0 13px;
+  border-radius: 10px;
+  background: #a84928;
+  color: #fff8e9;
+  font-weight: 700;
+}
+
+.portrait-overview {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(255, 227, 170, 0.2);
+  border-radius: 14px;
+  background: rgba(65, 42, 25, 0.68);
+}
+
+.portrait-overview div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  text-align: center;
+}
+
+.portrait-overview strong {
+  color: #f5ca72;
+  font-size: 21px;
+}
+
+.portrait-overview span {
+  color: rgba(255, 241, 211, 0.76);
+  font-size: 12px;
+}
+
+.portrait-scene {
+  position: relative;
+  min-height: 214px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 222, 159, 0.3);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #26372e 0%, #5a4027 58%, #2e2118 100%);
+  box-shadow: inset 0 -46px 54px rgba(0, 0, 0, 0.25);
+}
+
+.portrait-scene.has-live-preview {
+  min-height: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.scene-sky {
+  position: absolute;
+  inset: 0 0 44% 0;
+  background: radial-gradient(circle at 78% 25%, rgba(255, 228, 139, 0.84) 0 9px, transparent 10px), linear-gradient(135deg, #36504b, #19312c);
+}
+
+.scene-hall {
+  position: absolute;
+  left: 50%;
+  bottom: 39px;
+  display: grid;
+  place-items: center;
+  width: 172px;
+  height: 98px;
+  border: 8px solid #4d2b1a;
+  border-bottom-width: 22px;
+  border-radius: 8px 8px 2px 2px;
+  background: linear-gradient(90deg, rgba(255, 219, 129, 0.3) 1px, transparent 1px) 0 0 / 28px 100%, #aa7140;
+  box-shadow: 0 -14px 0 #351e15, 0 -25px 0 #c69a58;
+  color: #fff0bd;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 8px;
+  text-indent: 8px;
+  transform: translateX(-50%);
+}
+
+.scene-courtyard {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 58px;
+  background: repeating-linear-gradient(90deg, rgba(255, 239, 197, 0.08) 0 18px, transparent 18px 36px), #302419;
+}
+
+.scene-agent-list {
+  position: absolute;
+  z-index: 1;
+  bottom: 11px;
+  left: 12px;
+  display: flex;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.scene-agent-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 238, 202, 0.3);
+  border-radius: 999px;
+  background: rgba(29, 23, 17, 0.82);
+  color: #fff7e2;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.scene-agent-list button[aria-pressed="true"] {
+  border-color: #f7cc70;
+  background: rgba(126, 57, 31, 0.94);
+}
+
+.agent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8fbe82;
+}
+
+.agent-dot.is-busy { background: #e7b04d; }
+.agent-dot.is-error,
+.agent-dot.is-offline { background: #c86c58; }
+
+.preview-agent-list {
+  position: static;
+  width: max-content;
+  max-width: none;
+  padding: 10px 12px;
+}
+
+.scene-empty.preview-scene-empty {
+  position: static;
+  display: block;
+  width: max-content;
+  margin: 0;
+  padding: 12px 16px;
+  background: linear-gradient(90deg, rgba(27, 20, 15, 0.82), transparent);
+}
+
+.scene-empty {
+  position: absolute;
+  z-index: 1;
+  bottom: 18px;
+  left: 16px;
+}
+
+.landscape-entry {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  background: rgba(45, 31, 20, 0.82);
+}
+
+.orientation-hint {
+  position: absolute;
+  z-index: 2;
+  top: 57px;
+  right: 12px;
+  max-width: 176px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(27, 20, 15, 0.78);
+  text-align: right;
+}
+
+.portrait-section {
+  display: grid;
+  gap: 9px;
+}
+
+.section-heading button {
+  min-height: 30px;
+  padding: 0;
+  background: transparent;
+  color: #f1c66f;
+  font-size: 12px;
+}
+
+.portrait-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.portrait-shortcut {
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  min-height: 74px;
+  padding: 8px 4px;
+  border: 1px solid rgba(255, 228, 172, 0.18);
+  border-radius: 12px;
+  background: rgba(87, 55, 30, 0.7);
+  color: #fff4da;
+  font-size: 13px;
+}
+
+.portrait-shortcut > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(216, 155, 63, 0.28);
+  color: #f7d488;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.portrait-below-map-scroll {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  min-height: 0;
+  gap: 14px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.portrait-todos {
+  padding: 12px;
+  border: 1px solid rgba(255, 227, 170, 0.16);
+  border-radius: 14px;
+  background: rgba(28, 26, 21, 0.72);
+}
+
+.portrait-todo-list {
+  display: grid;
+}
+
+.portrait-todo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  width: 100%;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 231, 183, 0.1);
+  background: transparent;
+  color: #fff4dc;
+  text-align: left;
+}
+
+.portrait-todo:first-of-type { border-top: 0; }
+
+.portrait-todo > span {
+  align-self: start;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(243, 191, 83, 0.18);
+  color: #f6cf7d;
+  font-size: 11px;
+}
+
+.portrait-todo strong,
+.portrait-todo small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portrait-todo small { grid-column: 2; }
+.portrait-empty { padding: 8px 0 0; color: rgba(255, 237, 199, 0.72); font-size: 13px; }
+
+.portrait-context {
+  align-items: stretch;
+  padding: 12px;
+  border-radius: 14px;
+  background: #542d1d;
+}
+
+.portrait-context > div { display: grid; gap: 4px; min-width: 0; }
+.portrait-context strong { overflow: hidden; max-width: 108px; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.portrait-context-actions > button { align-self: center; min-height: 34px; padding: 0 9px; background: rgba(255, 241, 207, 0.16); font-size: 12px; }
+
+@media (max-width: 360px) {
+  .hall-portrait-home { padding-right: 12px; padding-left: 12px; }
+  .portrait-context { gap: 8px; }
+  .portrait-context strong { max-width: 82px; }
+}
+.portrait-work-summary :deep(.hall-overview) {
+  border-radius: 10px;
+  background: #fff8e8;
+}
+.hall-portrait-home.is-compact-overview {
+  gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) 12px max(8px, var(--hall-content-bottom-inset, env(safe-area-inset-bottom, 0px)));
+}
+.is-compact-overview .portrait-eyebrow,
+.is-compact-overview .portrait-home-mode-hint {
+  display: none;
+}
+.is-compact-overview .portrait-header h1 {
+  font-size: 22px;
+}
+.hall-portrait-home.is-unified-shell { padding:0; gap:0; height:auto; flex:1 1 0; background:#24190f; }
+.is-unified-shell .portrait-scene.has-live-preview { flex:1 1 0; min-height:0; overflow:hidden; }
+.is-unified-shell .portrait-scene :deep(.hall-live-map-preview) { height:100%; }
+/* The unified map is the page body, not the old fixed-aspect dashboard thumbnail. */
+.is-unified-shell .portrait-scene :deep(.preview-frame) { height:100%; min-height:0; }
+.is-unified-shell .portrait-below-map-scroll { gap:0; }
+.is-unified-shell .portrait-work-summary { width:min(1250px,100%); margin:0 auto; }
+.is-unified-shell .portrait-work-summary :deep(.hall-overview) { border-radius:0; min-height:100%; }
+</style>

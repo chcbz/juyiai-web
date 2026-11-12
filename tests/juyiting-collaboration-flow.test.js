@@ -1,0 +1,319 @@
+import { existsSync, readFileSync } from 'fs'
+import { expect } from 'chai'
+
+const hallSource = readFileSync(
+  new URL('../src/components/world/JuyiHall.vue', import.meta.url),
+  'utf8'
+).replace(/\r\n/g, '\n')
+const bountySource = readFileSync(
+  new URL('../src/components/juyiting/BountyPanel.vue', import.meta.url),
+  'utf8'
+)
+const chatSource = readFileSync(
+  new URL('../src/components/juyiting/ChatPanel.vue', import.meta.url),
+  'utf8'
+)
+const librarySource = readFileSync(
+  new URL('../src/components/juyiting/LibraryPanel.vue', import.meta.url),
+  'utf8'
+)
+const portraitHomeUrl = new URL('../src/components/juyiting/HallPortraitHome.vue', import.meta.url)
+const hallStageUrl = new URL('../src/components/juyiting/HallStage.vue', import.meta.url)
+const hallDataUrl = new URL('../src/composables/juyiting/useHallData.js', import.meta.url)
+const hallConversationUrl = new URL('../src/composables/juyiting/useHallConversation.js', import.meta.url)
+const hallChatContextUrl = new URL('../src/composables/juyiting/useHallChatContext.js', import.meta.url)
+const hallLibraryUrl = new URL('../src/composables/juyiting/useHallLibrary.js', import.meta.url)
+const hallTaskActionsUrl = new URL('../src/composables/juyiting/useHallTaskActions.js', import.meta.url)
+const hallConversationMessagesUrl = new URL('../src/composables/juyiting/hallConversationMessages.js', import.meta.url)
+const publicDiscussionPanelUrl = new URL('../src/components/juyiting/PublicDiscussionPanel.vue', import.meta.url)
+const bountyDiscussionPanelUrl = new URL('../src/components/juyiting/BountyDiscussionPanel.vue', import.meta.url)
+const bountyDiscussionSource = readFileSync(bountyDiscussionPanelUrl, 'utf8')
+const privateDiscussionPanelUrl = new URL('../src/components/juyiting/PrivateDiscussionPanel.vue', import.meta.url)
+const hallChatComposerUrl = new URL('../src/components/juyiting/HallChatComposer.vue', import.meta.url)
+const portraitHomeSource = readFileSync(portraitHomeUrl, 'utf8')
+const hallStageSource = readFileSync(hallStageUrl, 'utf8')
+const hallDataSource = readFileSync(hallDataUrl, 'utf8')
+const hallConversationSource = readFileSync(hallConversationUrl, 'utf8')
+const hallChatContextSource = readFileSync(hallChatContextUrl, 'utf8')
+const hallLibrarySource = readFileSync(hallLibraryUrl, 'utf8')
+const hallTaskActionsSource = readFileSync(hallTaskActionsUrl, 'utf8')
+const hallConversationMessagesSource = readFileSync(hallConversationMessagesUrl, 'utf8')
+
+describe('JuyiHall collaboration flow contract', () => {
+  it('starts OAuth before any protected hall load or background activity', () => {
+    const mounted = hallSource.match(/onMounted\(async \(\) => \{([\s\S]*?)\n\}\)/)?.[1]
+    expect(mounted).to.include('if (!await apiStore.token() || !initializationIsCurrent()) return')
+    expect(mounted).to.include('initializationGeneration === apiStore.authorizationGeneration')
+    expect(mounted).to.include('if (!initializationIsCurrent()) return')
+    expect(mounted.indexOf('apiStore.getUserInfo()')).to.be.lessThan(mounted.indexOf('permitStageMount()'))
+    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('permitStageMount()'))
+    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('refreshHall({ silent: true })'))
+    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('startDialogueBubbles()'))
+  })
+
+  it('uses the stage header as the primary action surface without the duplicate dock', () => {
+    expect(hallSource).not.to.include('<BottomDock')
+    expect(hallSource).not.to.include("import BottomDock")
+    expect(hallStageUrl).to.not.equal(undefined)
+    expect(hallStageSource).not.to.include("title=\"宋江号令\"")
+    expect(hallStageSource).not.to.include("title=\"协同会办\"")
+    expect(hallStageSource).to.include('class="melon-layer"')
+    expect(hallStageSource).to.include('onHotspotClick')
+    expect(hallStageSource).to.include("emit('open-panel', hotspot.panel)")
+    expect(hallStageSource).not.to.include('hallPhysicalScene.interactiveZones')
+    expect(hallStageSource).not.to.include('`room-${zone.key}`')
+  })
+
+  it('distributes discussion entry points across courtyard bounty board and task cards', () => {
+    expect(hallStageSource).to.include('onHotspotClick')
+    expect(hallStageSource).to.include("emit('open-panel', hotspot.panel)")
+    expect(hallStageSource).not.to.include('openPublicDiscussion')
+    expect(hallStageSource).not.to.include("zone.panel === 'chat'")
+    expect(hallStageSource).not.to.include('room-${zone.key}')
+    expect(hallStageSource).not.to.include('传令房')
+    expect(hallStageSource).not.to.include('class="hall-room room-chat"')
+    expect(hallStageSource).not.to.include('class="scene-hotspot hotspot-chat"')
+    expect(hallSource).to.include("openPanel('chat', { mode: 'public', resetContext: true })")
+    expect(bountySource).to.include('进入议事')
+    expect(bountySource).to.include("$emit('discuss-task'")
+    expect(bountySource).to.include('class="workspace-shortcut"')
+    expect(bountySource).to.include("$emit('open-workspace')")
+    expect(bountyDiscussionSource).to.include('事项议事')
+    expect(bountySource).to.include('>密议<')
+    expect(bountySource).not.to.include('单独议事')
+    expect(bountySource).not.to.include('传令议事')
+    expect(bountySource).not.to.include('>传令<')
+  })
+
+  it('uses in-scene objects as click targets without visible labels or highlight overlays', () => {
+    expect(hallStageSource).to.include('class="melon-layer"')
+    expect(hallStageSource).not.to.include('objectHitboxStyle(zone)')
+    expect(hallStageSource).not.to.include('object-${zone.object}')
+    expect(hallStageSource).not.to.include('sr-only')
+    expect(hallStageSource).not.to.include('class="hall-room"')
+    expect(hallStageSource).not.to.include('class="map-world"')
+    expect(hallStageSource).not.to.include('object-highlight')
+    expect(hallStageSource).not.to.include('objectAriaLabel(zone)')
+    expect(hallStageSource).not.to.include('hall-room-label')
+    expect(hallStageSource).not.to.include('<strong>{{ zone.title }}</strong>')
+    expect(hallStageSource).not.to.include('<small>{{ zoneSubtitle(zone) }}</small>')
+    expect(hallStageSource).not.to.include('scene-hotspot')
+  })
+
+  it('keeps bounty panel opening isolated from map drag and enter flicker', () => {
+    expect(hallStageSource).not.to.include('@pointerdown.stop')
+    expect(hallStageSource).not.to.include('@pointerup.stop')
+    expect(hallStageSource).not.to.include('@click.stop="openZone(zone)"')
+    expect(hallStageSource).not.to.include('startMapDrag')
+    const pageClassBinding = hallSource.match(/<div[^>]*class="juyi-page"[^>]*:class="([^"]+)"/)
+    expect(pageClassBinding?.[1]).to.include("'is-panel-open': isPanelSessionActive")
+    expect(pageClassBinding?.[1]).to.include('[`experience-${experienceMode}`]: true')
+    expect(hallSource).to.match(/class="panel-overlay"[^>]*@pointerdown\.self="isOverviewHome && workbenchPrimaryPanelSet\.has\(renderedPanel\) \? null : closePanel\(\)"/)
+    expect(hallSource).not.to.match(/class="panel-overlay"[^>]*@click\.self="closePanel"/)
+    expect(hallSource).to.include('.juyi-page.is-panel-open :deep(.hall-board)')
+    expect(hallSource).to.include('animation-play-state: paused !important;')
+    expect(hallSource).to.include('.panel-enter-from .floating-panel')
+    expect(hallSource).not.to.include('scale(0.995)')
+    expect(hallSource).not.to.include('transition: background-color 0.16s ease-out;')
+    expect(hallSource).not.to.include('.panel-enter-from .floating-panel {\n  opacity: 0;')
+    expect(bountySource).not.to.include('backdrop-filter: blur(4px);')
+    expect(bountySource).not.to.include('scale(0.985)')
+  })
+
+  it('assigns a bounty to an explicit agent instead of hidden selectedAgent only', () => {
+    expect(bountySource).to.include("$emit('assign-task', detailTask, agent)")
+    expect(hallSource).to.include('useHallTaskActions')
+    expect(hallSource).to.include('const assignTask = async (task, agent')
+    expect(hallSource).to.include('await startPointAndStart({ task, agent: targetAgents[0] })')
+    expect(hallTaskActionsSource).not.to.include('/assign`')
+  })
+
+  it('retires funded write wiring while keeping economy discovery and map/roster boundaries', () => {
+    expect(hallSource).to.include('ensureEconomyPreviewCapability')
+    expect(hallSource).to.include('economyPreviewCapability.value = await loadEconomyPreviewCapability()')
+    expect(hallSource).to.include('economyPreviewEnabled.value = isEconomyPreviewCapability(economyPreviewCapability.value)')
+    expect(hallSource).not.to.include(':funded-preview-enabled="economyPreviewEnabled"')
+    expect(hallSource).not.to.include('/agent/active')
+  })
+
+  it('keeps persistent command templates out of chat', () => {
+    expect(chatSource).not.to.include('commandTemplates')
+    expect(chatSource).not.to.include('command-templates')
+    expect(chatSource).not.to.include("$emit('apply-template'")
+  })
+
+  it('keeps both agent and task context in outgoing chat metadata', () => {
+    expect(hallConversationSource).to.include("const selectedAgentId = isVoiceSend ? sendContext.selectedAgentId : (Object.hasOwn(sendContext, 'selectedAgentId') ? sendContext.selectedAgentId : selectedAgent.value?.agentId)")
+    expect(hallConversationSource).to.include('const mentionAgentIds = Array.isArray(sendContext.mentionAgentIds)')
+    expect(hallConversationSource).to.include("const selectedTaskId = isVoiceSend ? sendContext.selectedTaskId : (Object.hasOwn(sendContext, 'selectedTaskId') ? sendContext.selectedTaskId : selectedTask.value?.id)")
+    expect(hallConversationSource).to.include('selectedAgentId,')
+    expect(hallConversationSource).to.include('mentionAgentIds,')
+    expect(hallConversationSource).to.include('selectedTaskId')
+    expect(hallConversationSource).to.include('const metadataSource = isVoiceSend ? (sendContext.outgoingMetadata || {}) : (outgoingMetadata?.value || {})')
+    // Metadata is allowlisted at the transport boundary, so legacy display fields
+    // cannot be propagated into the durable chat request.
+    expect(hallConversationSource).to.include('const safeOutgoingMetadata = metadata => {')
+    expect(hallConversationSource).to.include("for (const key of ['libraryCitationId', 'librarySourceType'])")
+    expect(hallConversationSource).to.include('const safeMetadata = safeOutgoingMetadata(metadataSource)')
+    expect(hallConversationSource).to.include('...safeMetadata,')
+    expect(hallConversationSource).not.to.include('...metadataSource,')
+  })
+
+  it('sends hall messages with durable public bounty and private conversation scopes', () => {
+    expect(hallSource).to.include('useHallChatContext')
+    expect(hallChatContextSource).to.include("const chatMode = ref('public')")
+    expect(hallChatContextSource).to.include('const chatContext = computed(')
+    expect(hallChatContextSource).to.include("conversationScopeType: 'public'")
+    expect(hallChatContextSource).to.include("conversationScopeKey: 'public'")
+    expect(hallChatContextSource).to.include("conversationScopeType: 'bounty'")
+    expect(hallChatContextSource).to.include("conversationScopeType: 'private'")
+    expect(hallConversationSource).to.include('conversationScopeType: sendContext.conversationScopeType')
+    expect(hallConversationSource).to.include('conversationScopeKey: sendContext.conversationScopeKey')
+    expect(hallConversationSource).to.include('targetAgentIds: sendContext.targetAgentIds')
+    expect(hallConversationSource).to.include('const newHallConversation = ({ notify = true } = {}) => {')
+    expect(hallConversationSource).to.include('suppressedRestoreScopes.add(currentScopeSignature)')
+  })
+
+  it('loads hall messages by conversation scope instead of the latest juyiting conversation only', () => {
+    expect(hallConversationSource).to.include('conversationScopeType: expectedScope.type')
+    expect(hallConversationSource).to.include('conversationScopeKey: expectedScope.key')
+    expect(hallConversationSource).not.to.include('pageSize: 1,\n        orderBy: \'update_time desc\',\n        search: {\n          jiacn: globalStore.getJiacn,\n          conversationType: \'juyiting\'\n        }')
+  })
+
+  it('keeps bounty discussion scoped to assignees and private task chat separate', () => {
+    expect(hallSource).to.include('enterBountyDiscussion')
+    expect(hallSource).to.include('enterPrivateConversation')
+    expect(hallChatContextSource).to.include("chatMode.value = 'bounty'")
+    expect(hallChatContextSource).to.include("chatMode.value = 'private'")
+    expect(hallChatContextSource).to.include('participantAgentIds')
+    expect(hallChatContextSource).to.include('task:${task.id}:agent:${agentId}')
+    expect(hallChatContextSource).to.include('taskDiscussionAgentIds.value = taskAssigneeIds(selectedTask.value)')
+    expect(hallChatContextSource).to.include('selectedAgent.value = null')
+  })
+
+  it('opens the courtyard discussion entrance as a fresh public discussion by default', () => {
+    expect(hallSource).to.include('@open-panel="handleStagePanelOpen"')
+    expect(hallSource).to.include('const handleStagePanelOpen = (panel) => {')
+    expect(hallSource).to.include("openPanel('chat', { mode: 'public', resetContext: true })")
+    expect(hallSource).to.include("if (panel === 'chat' && options.mode === 'public')")
+    expect(hallSource).to.include('resetToPublic({ clearSelection: true })')
+    expect(hallChatContextSource).to.include('selectedTask.value = null')
+    expect(hallChatContextSource).to.include('selectedAgent.value = null')
+  })
+
+  it('uses separate discussion panels instead of one cross-scope chat interface', () => {
+    expect(existsSync(publicDiscussionPanelUrl)).to.equal(true)
+    expect(existsSync(bountyDiscussionPanelUrl)).to.equal(true)
+    expect(existsSync(privateDiscussionPanelUrl)).to.equal(true)
+    expect(existsSync(hallChatComposerUrl)).to.equal(true)
+    expect(hallSource).to.include('<PublicDiscussionPanel')
+    expect(hallSource).to.include('<BountyDiscussionPanel')
+    expect(hallSource).to.include('<PrivateDiscussionPanel')
+    expect(hallSource).to.include("chatMode === 'public'")
+    expect(hallSource).to.include("chatMode === 'bounty'")
+    expect(hallSource).to.include("chatMode === 'private'")
+    expect(chatSource).to.include('discussion-surface')
+    expect(chatSource).to.include('<HallChatComposer')
+    expect(chatSource).not.to.include('discussion-target-controls')
+    expect(chatSource).not.to.include('compact-mention-strip')
+    expect(chatSource).not.to.include('mode-icon-button')
+    expect(chatSource).not.to.include("$emit('set-mode', mode.key)")
+    expect(chatSource).not.to.include('conversationModes')
+    expect(chatSource).not.to.include('conversation-modes')
+    expect(chatSource).not.to.include('command-groups')
+    expect(chatSource).not.to.include('toolbar-meta')
+  })
+
+  it('limits hall chat mention choices to owned roster agents', () => {
+    expect(hallSource).to.include('<PublicDiscussionPanel')
+    expect(hallSource).to.include('<BountyDiscussionPanel')
+    expect(hallSource).to.include(':agents="chatMentionAgents"')
+    expect(hallSource).to.match(/\} = useHallChatContext\(\{\s*agents,/)
+    expect(hallChatContextSource).to.include('const mentionSourceAgents = computed(() => (agents?.value || []).filter(canMentionAgent))')
+    expect(hallChatContextSource).to.include('agent.boundToMe === true')
+    expect(hallChatContextSource).to.include('mentionSourceAgentIds.value.has(agentId)')
+  })
+
+  it('supports task management actions from the bounty board', () => {
+    expect(hallSource).not.to.include('@create-task="createRequirementAndChooseAgent"')
+    expect(hallSource).to.include("return openPanel('formalDraft', { restore: true })")
+    expect(hallSource).to.include('@archive-task="archiveTask"')
+    expect(hallSource).to.include('@discuss-task="discussTask"')
+    expect(hallSource).to.include('chatMentionAgents')
+    expect(bountySource).not.to.include('new-task-button')
+    expect(bountySource).not.to.include('openCreateRequirement')
+    expect(bountySource).not.to.include('assign-selected-agents')
+    expect(bountySource).to.include("$emit('archive-task'")
+    expect(bountySource).to.include("$emit('discuss-task'")
+  })
+
+  it('keeps low-value SongJiang and coordination panels out of the primary hall surface', () => {
+    expect(hallSource).not.to.include('<CommandPanel')
+    expect(hallSource).not.to.include('<CoordinationPanel')
+    expect(hallSource).not.to.include("import CommandPanel")
+    expect(hallSource).not.to.include("import CoordinationPanel")
+    expect(hallSource).to.include('<LibraryPanel')
+    expect(librarySource).to.include('案卷搜索')
+    expect(hallSource).to.include('useHallLibrary')
+    expect(hallLibrarySource).to.include("chatApi.search('/library/search'")
+  })
+
+  it('keeps low-value SongJiang and coordination actions out of chat panel', () => {
+    expect(chatSource).not.to.include('chiefTemplates')
+    expect(chatSource).not.to.include('coordination-inline')
+    expect(chatSource).not.to.include('relay-message')
+    expect(chatSource).not.to.include('coordinate-work')
+    expect(hallSource).not.to.include('relayAgentMessageFromChat')
+    expect(hallSource).not.to.include('coordinateAgentsFromChat')
+  })
+
+  it('shows an overflow hint when more than twelve agents are available', () => {
+    expect(hallSource).to.include('hiddenAgentCount')
+    expect(hallDataSource).to.match(/slice\(0,\s*12\)/)
+  })
+
+  it('keeps the portrait home as a shared-state presentation shell with separate map and roster flows', () => {
+    expect(existsSync(portraitHomeUrl)).to.equal(true)
+    expect(hallSource).to.include("import HallPortraitHome from '@/components/juyiting/HallPortraitHome.vue'")
+    expect(hallSource).to.match(/<HallPortraitHome[\s\S]*?:agents="agents"[\s\S]*?:map-agents="mapAgents"[\s\S]*?:selected-agent="selectedAgent"[\s\S]*?:selected-task="selectedTask"[\s\S]*?:task-detail-open="portraitTaskDetailOpen"/)
+    expect(hallSource).to.include('const portraitTaskDetailOpen = ref(false)')
+    expect(hallSource).to.match(/<HallStage\s+v-if="stageMounted"[\s\S]*?:scene-agents="sceneAgents"/)
+    expect(portraitHomeSource).not.to.include('/agent/active')
+    expect(portraitHomeSource).not.to.include('useHallData')
+    expect(hallDataSource).to.include("agentApi.get('/map'")
+    expect(hallDataSource).to.include("agentApi.search('/roster'")
+  })
+
+  it('keeps roster status filtering independent from map agents', () => {
+    expect(hallDataSource).to.not.include("'/active'")
+    expect(hallDataSource).to.include("agentApi.get('/map'")
+    expect(hallDataSource).to.include("agentApi.search('/roster'")
+    expect(hallDataSource).to.include("agentApi.get('/personas/catalog'")
+    expect(hallDataSource).to.include('mapAgents')
+    expect(hallDataSource).to.include("['online', 'busy'].includes(normalizeStatus(agent.status))")
+    expect(hallDataSource).to.match(/slice\(0,\s*12\)/)
+    expect(hallSource).to.include(':map-agents="mapAgents"')
+    expect(hallSource).to.include(':tasks-total="tasks.length"')
+    expect(hallSource).to.include('<PersonaCatalogPanel')
+    expect(hallSource).not.to.include('<strong>{{ agents.length }}</strong>')
+    expect(hallSource).to.include('@set-agent-filter="setAgentFilter"')
+  })
+
+  it('splits hall stage, data, and conversation responsibilities into dedicated units', () => {
+    expect(existsSync(hallStageUrl)).to.equal(true)
+    expect(existsSync(hallDataUrl)).to.equal(true)
+    expect(existsSync(hallConversationUrl)).to.equal(true)
+    expect(existsSync(hallChatContextUrl)).to.equal(true)
+    expect(existsSync(hallLibraryUrl)).to.equal(true)
+    expect(existsSync(hallTaskActionsUrl)).to.equal(true)
+    expect(existsSync(hallConversationMessagesUrl)).to.equal(true)
+    expect(existsSync(publicDiscussionPanelUrl)).to.equal(true)
+    expect(existsSync(bountyDiscussionPanelUrl)).to.equal(true)
+    expect(existsSync(privateDiscussionPanelUrl)).to.equal(true)
+    expect(hallSource).to.include("import HallStage from '@/components/juyiting/HallStage.vue'")
+    expect(hallSource).to.include("import { useHallData } from '@/composables/juyiting/useHallData'")
+    expect(hallSource).to.include("import { useHallConversation } from '@/composables/juyiting/useHallConversation'")
+    expect(hallConversationSource).to.include("from './hallConversationMessages.js'")
+    expect(hallConversationMessagesSource).to.include('export const appendHallEventMessage')
+  })
+})

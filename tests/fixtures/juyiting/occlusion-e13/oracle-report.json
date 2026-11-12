@@ -1,0 +1,38 @@
+{
+  "$schema": "juyiting-occlusion-e13-oracle-v2",
+  "taskId": "E13",
+  "pass": true,
+  "matrixShots": 270,
+  "checks": 2160,
+  "failures": 0,
+  "failureDetails": [],
+  "methodology": "Direct imports of production canonicalIr.ts, worldOrder.ts, schema.ts, constraintResolver.ts, spatialGrid.ts, and HallScene integration depth policy via node --import tsx; all 270 authoritative matrix shots checked.",
+  "productionImports": [
+    "src/game/occlusion/canonicalIr.ts",
+    "src/game/occlusion/worldOrder.ts",
+    "src/game/occlusion/schema.ts",
+    "src/game/occlusion/constraintResolver.ts",
+    "src/game/occlusion/hallSceneAssembly.ts",
+    "src/game/occlusion/spatialGrid.ts",
+    "src/game/occlusion/hallSceneDepthBands.js"
+  ],
+  "renderPolicy": {
+    "depthBands": {
+      "BASE_MIN": 0,
+      "BASE_MAX_EXCLUSIVE": 100,
+      "V2_WORLD_START": 100,
+      "V2_WORLD_STRIDE": 1,
+      "ERROR_STATE_PROP_DEPTH": 6,
+      "ERROR_STATE_AGENT_DEPTH": 7,
+      "LIGHTING": 300,
+      "WORLD_UI": 400,
+      "SCREEN_UI": 500
+    },
+    "legacyOccluderLayers": [
+      "mid-occluders",
+      "foreground-occluders"
+    ]
+  },
+  "tmxSha256": "7b304c11fd4a121d92f5fb1430f8073d4d590b3d42eb9b9a18e0e0c9bd22ff53",
+  "indexSha256": "72151ac5919c5534346ff2769b468bbd6670bea2498f7c935654af97c40cd09d"
+}

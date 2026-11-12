@@ -1,0 +1,143 @@
+import { defineConfig, loadEnv } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import vueJsx from '@vitejs/plugin-vue-jsx'
+import path from 'path'
+import { fileURLToPath } from 'node:url'
+import fs from 'fs'
+import yaml from '@rollup/plugin-yaml'
+import { visualizer } from 'rollup-plugin-visualizer'
+import legacy from '@vitejs/plugin-legacy'
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+
+// Explicit ESM location works with both bundled and runner config loaders.
+const configDir = path.dirname(fileURLToPath(import.meta.url))
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const enableAnalyze = env.VITE_ANALYZE === 'true' || process.env.ANALYZE === 'true'
+  const enableLegacy = env.VITE_LEGACY_BUILD === 'true' || process.env.LEGACY_BUILD === 'true'
+  const configureProxyOrigin = proxy => {
+    if (!env.VITE_PROXY_ORIGIN) return
+    proxy.on('proxyReq', proxyReq => proxyReq.setHeader('Origin', env.VITE_PROXY_ORIGIN))
+  }
+
+  return {
+    esbuild: {
+      drop: mode === 'production' ? ['console', 'debugger'] : ['debugger']
+    },
+    plugins: [
+      vue({
+        include: [/\.vue$/],
+        template: {
+          compilerOptions: {
+            isCustomElement: tag => tag.startsWith('ion-')
+          }
+        }
+      }),
+      vueJsx(),
+      yaml(),
+      enableLegacy && legacy({
+        targets: ['defaults', 'not IE 11']
+      }),
+      enableAnalyze && visualizer({
+        open: false,
+        filename: 'dist/stats.html',
+        gzipSize: true,
+        brotliSize: true
+      }),
+      AutoImport({
+        imports: ['vue', 'vue-router', 'pinia', '@vueuse/core'],
+        dts: 'src/auto-imports.d.ts'
+      }),
+      Components({
+        dts: 'src/components.d.ts'
+      })
+    ].filter(Boolean),
+    resolve: {
+      alias: {
+        '@': path.resolve(configDir, './src'),
+        '@assets': path.resolve(configDir, './src/assets'),
+        '@components': path.resolve(configDir, './src/components'),
+        '@stores': path.resolve(configDir, './src/stores'),
+        '@router': path.resolve(configDir, './src/router'),
+        '@i18n': path.resolve(configDir, './src/i18n')
+      },
+      extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.vue']
+    },
+    optimizeDeps: {
+      include: ['melonjs'],
+    },
+    css: {
+      preprocessorMaxWorkers: 1,
+      preprocessorOptions: {
+        less: {
+          javascriptEnabled: true,
+          additionalData: `@import "${path.resolve(configDir, 'src/styles/theme.less')}";`
+        }
+      }
+    },
+    server: {
+      port: 8080,
+      open: false,
+      https: env.VITE_DEV_HTTPS_KEY && env.VITE_DEV_HTTPS_CERT ? {
+        key: fs.readFileSync(env.VITE_DEV_HTTPS_KEY),
+        cert: fs.readFileSync(env.VITE_DEV_HTTPS_CERT),
+        ...(env.VITE_DEV_HTTPS_PASSPHRASE ? { passphrase: env.VITE_DEV_HTTPS_PASSPHRASE } : {})
+      } : undefined,
+      proxy: {
+        '/api/oauth2': {
+          target: env.VITE_OAUTH_PROXY_TARGET || env.VITE_API_PROXY_TARGET || env.VITE_API_BASE_URL,
+          changeOrigin: true,
+          secure: false,
+          configure: configureProxyOrigin,
+          rewrite: path => path.replace(/^\/api/, '')
+        },
+        '/api/oauth': {
+          target: env.VITE_OAUTH_PROXY_TARGET || env.VITE_API_PROXY_TARGET || env.VITE_API_BASE_URL,
+          changeOrigin: true,
+          secure: false,
+          configure: configureProxyOrigin,
+          rewrite: path => path.replace(/^\/api/, '')
+        },
+        '/api/login': {
+          target: env.VITE_OAUTH_PROXY_TARGET || env.VITE_API_PROXY_TARGET || env.VITE_API_BASE_URL,
+          changeOrigin: true,
+          secure: false,
+          configure: configureProxyOrigin,
+          rewrite: path => path.replace(/^\/api/, '')
+        },
+        '/api': {
+          target: env.VITE_API_PROXY_TARGET || env.VITE_API_BASE_URL,
+          changeOrigin: true,
+          secure: false,
+          configure: configureProxyOrigin,
+          rewrite: path => path.replace(/^\/api/, '')
+        }
+      }
+    },
+    build: {
+      reportCompressedSize: false,
+      outDir: 'dist',
+      assetsDir: 'static',
+      sourcemap: env.VITE_BUILD_SOURCEMAP === 'true',      chunkSizeWarningLimit: 650,
+      minify: 'esbuild',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            melonjs: ['melonjs'],
+            vue: ['vue', 'vue-router', 'pinia'],
+            ui: ['@varlet/ui'],
+            markdown: ['marked', 'dompurify'],
+            utilities: ['@vueuse/core', 'dayjs', 'qrcode', 'clipboard', 'consola']
+          }
+        }
+      }
+    },
+    define: {
+      __APP_VERSION__: JSON.stringify(process.env.npm_package_version)
+    }
+  }
+})
+
+

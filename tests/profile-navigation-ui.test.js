@@ -1,0 +1,280 @@
+import { expect } from 'chai'
+import { readFileSync } from 'node:fs'
+import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { assessReadOnlyPreviewCapabilities } from '../src/utils/economyReadOnlyPreviewPolicy.js'
+import * as profileNavigation from '../src/utils/profileNavigation.js'
+import * as displayName from '../src/utils/displayName.js'
+
+const Vue = await import('vue')
+const VueRouter = await import('vue-router')
+const { mount, flushPromises } = await import('@vue/test-utils')
+const { compileScript, parse } = await import('@vue/compiler-sfc')
+
+global.history = global.window?.history
+global.Element = global.window?.Element
+global.SVGElement = global.window?.SVGElement
+global.Node = global.window?.Node
+
+const wrappers = []
+const deferred = () => {
+  let resolve
+  let reject
+  return { promise: new Promise((res, rej) => { resolve = res; reject = rej }), resolve, reject }
+}
+const capabilities = enabled => ({
+  contractVersion: 'economy-readonly-v2', mode: 'READ_ONLY_PREVIEW', enabled, principalScopeSha256: 'f83ef1217c8072b3478d9298a9b56823b65d4bc518119626f0cfbe36362e01cb',
+  features: { wallet: false, ledger: false, catalog: false, installationStatus: false, hostingPlan: false, hostingLease: false },
+  actions: { estimate: false, issue: false, purchase: false, settle: false, refund: false, install: false, hostingActivate: false, hostingRenew: false }
+})
+
+const compileComponent = (relativePath, id, imports, env = {}) => {
+  const filename = new URL(relativePath, import.meta.url)
+  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename: filename.pathname })
+  const compiled = compileScript(descriptor, { id, inlineTemplate: true }).content
+  const executable = compiled
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_all, names, path) =>
+      `const { ${names.split(',').map(name => name.trim().replace(/\s+as\s+/, ': ')).join(', ')} } = imports[${JSON.stringify(path)}]`)
+    .replace(/^import\s+([^\s]+)\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_all, name, path) =>
+      `const ${name} = imports[${JSON.stringify(path)}]`)
+    .replaceAll('import.meta.env', '__env')
+    .replace('export default', 'return')
+  return new Function('imports', '__env', executable)(imports, env)
+}
+
+const routerAt = async path => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/profile', name: 'UserProfile', component: { template: '<div />' } },
+      { path: '/economy-preview', name: 'EconomyReadOnlyPreview', component: { template: '<div />' } },
+      { path: '/juyiting', name: 'JuyiHall', component: { template: '<div />' } },
+      { path: '/command-observability', name: 'CommandObservability', component: { template: '<div />' } }
+    ]
+  })
+  await router.push(path)
+  await router.isReady()
+  return router
+}
+
+const profileComponent = ({ globalStore, apiStore, client }) => compileComponent('../src/components/UserProfile.vue', 'profile-navigation-mounted', {
+  vue: Vue,
+  'vue-router': VueRouter,
+  '@/stores/global': { useGlobalStore: () => globalStore },
+  '@/stores/api': { useApiStore: () => apiStore },
+  '@/composables/useAccountSecuritySession': { useAccountSecuritySession: () => ({ busy: Vue.ref(false), error: Vue.ref(''), status: Vue.ref(''), signOutCurrentDevice: () => {}, signOutAllDevices: async () => true }) },
+  '@/composables/useConfirmationDialog': { useConfirmationDialog: () => ({ cancelButton: Vue.ref(null), close: () => {}, confirming: Vue.ref(false), dialog: Vue.ref(null), onKeydown: () => {}, open: () => {} }) },
+  '@/utils/wenAmount': { isEconomyPreviewBuildEnabled: () => false },
+  '@/utils/economyPreviewCapability': { isEconomyPreviewCapability: () => false, isSkillMarketplaceCapability: value => value?.skillMarketplaceEnabled === true, loadEconomyPreviewCapability: client.marketCapability || (async () => ({})) },
+  '@/utils/economyReadOnlyPreviewPolicy': { assessReadOnlyPreviewCapabilities },
+  '@/composables/economyReadOnlyPreviewApi': { economyReadOnlyPreviewClient: client },
+  '@/composables/commandObservabilityApi': { commandObservabilityClient: client.commandObservability || { capabilities: async () => ({ contractVersion: 'command-observability-v1', available: false, readOnly: true, reason: 'FORBIDDEN' }) } },
+  '@/utils/commandObservabilityPolicy': { assessCommandObservabilityCapability: value => value?.contractVersion === 'command-observability-v1' && value?.available === true && value?.readOnly === true && value?.reason === null ? { available: true, reason: null } : { available: false, reason: value?.reason || 'MALFORMED' }, capabilityUnavailableMessage: () => '不可用' },
+  '@/utils/profileNavigation': profileNavigation,
+  '@/utils/displayName': displayName
+}, { VITE_ECONOMY_READONLY_PREVIEW_ENABLED: 'true', VITE_ECONOMY_PREVIEW_ENABLED: 'false' })
+
+const previewComponent = state => compileComponent('../src/components/economy/EconomyReadOnlyPreview.vue', 'preview-navigation-mounted', {
+  vue: Vue,
+  '@/stores/global.js': { useGlobalStore: () => ({ setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} }) },
+  '@/utils/wenAmount.js': { formatWen: value => `${value} WEN` },
+  '@/composables/useEconomyReadOnlyPreview.js': { useEconomyReadOnlyPreview: () => state }
+})
+
+describe('profile navigation mounted behavior', () => {
+  it('keeps the skill discovery link when economy is disabled and clears it on identity change', async () => {
+    let enabled = true
+    const client = { capabilities: async () => capabilities(false), marketCapability: async () => ({ skillMarketplaceEnabled: enabled }) }
+    const globalStore = Vue.reactive({ user: Vue.reactive({ id: 'user-a', username: 'alice', openid: 'a' }), setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
+    const apiStore = Vue.reactive({ authorizationGeneration: 0 })
+    const router = await routerAt('/profile')
+    const wrapper = mount(profileComponent({ globalStore, apiStore, client }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.find('.profile-wallet a[href="/wallet"]').exists()).to.equal(true)
+    expect(wrapper.find('.command-observability-discovery').exists()).to.equal(false)
+    expect(wrapper.find('details.profile-tools').attributes('open')).to.equal(undefined)
+    expect(wrapper.find('a[href="/skill-market"]').exists()).to.equal(true)
+    expect(wrapper.find('a[href="/wallet"]').exists()).to.equal(true)
+    enabled = false
+    apiStore.authorizationGeneration += 1
+    await flushPromises()
+    expect(wrapper.find('a[href="/skill-market"]').exists()).to.equal(false)
+  })
+
+  beforeEach(() => setActivePinia(createPinia()))
+  afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount() })
+
+  it('fences stale capability data, reloads after identity changes, clears a guard query, and recovers on retry', async () => {
+    const first = deferred(); const second = deferred(); const third = deferred()
+    const responses = [first.promise, second.promise, third.promise]
+    const client = { capabilities: () => responses.shift() }
+    const globalStore = Vue.reactive({ user: Vue.reactive({ id: 'user-a', username: 'alice', openid: 'a' }), setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
+    const apiStore = Vue.reactive({ authorizationGeneration: 0 })
+    const router = await routerAt('/profile?preview=unavailable')
+    const wrapper = mount(profileComponent({ globalStore, apiStore, client }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.text()).to.include('正在确认经济预览是否可用')
+
+    apiStore.authorizationGeneration += 1
+    await flushPromises()
+    expect(router.currentRoute.value.query).not.to.have.property('preview')
+
+    first.resolve(capabilities(true))
+    await flushPromises()
+    expect(wrapper.find('a[href="/economy-preview"]').exists()).to.equal(false)
+
+    second.reject(new Error('network'))
+    await flushPromises()
+    expect(wrapper.text()).to.include('经济只读预览暂时不可用')
+    expect(wrapper.text()).to.not.include('未读取或修改任何经济数据')
+
+    await wrapper.get('.discovery-links button').trigger('click')
+    third.resolve(capabilities(true))
+    await flushPromises()
+    expect(wrapper.find('a[href="/economy-preview"]').exists()).to.equal(true)
+
+    await wrapper.get('a[href="/economy-preview"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).to.equal('EconomyReadOnlyPreview')
+  })
+
+  it('reloads capabilities after a same-mounted user identity switch', async () => {
+    const first = deferred(); const second = deferred()
+    const responses = [first.promise, second.promise]
+    const globalStore = Vue.reactive({ user: Vue.reactive({ id: 'user-a', username: 'alice', openid: 'a' }), setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
+    const apiStore = Vue.reactive({ authorizationGeneration: 0 })
+    const router = await routerAt('/profile')
+    const wrapper = mount(profileComponent({ globalStore, apiStore, client: { capabilities: () => responses.shift() } }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(wrapper)
+    globalStore.user = Vue.reactive({ id: 'user-b', username: 'bob', openid: 'b' })
+    first.resolve(capabilities(true))
+    await flushPromises()
+    expect(wrapper.find('a[href="/economy-preview"]').exists()).to.equal(false)
+    second.resolve(capabilities(true))
+    await flushPromises()
+    expect(wrapper.find('a[href="/economy-preview"]').exists()).to.equal(true)
+  })
+
+  it('hydrates a refreshed profile before discovering preview and supports explicit retry', async () => {
+    const globalStore = Vue.reactive({ user: {}, setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
+    let requests = 0; let capabilityRequests = 0
+    const apiStore = Vue.reactive({ authorizationGeneration: 0, getUserInfo: async ({ signal }) => {
+      expect(signal.aborted).to.equal(false)
+      if (++requests === 1) throw new Error('network')
+      globalStore.user = { id: 'refreshed-user', username: 'refreshed' }
+    } })
+    const router = await routerAt('/profile')
+    const wrapper = mount(profileComponent({ globalStore, apiStore, client: { capabilities: async () => { capabilityRequests++; return capabilities(true) } } }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.text()).to.include('当前用户资料暂时无法读取')
+    expect(capabilityRequests).to.equal(0)
+    await wrapper.get('.profile-identity-retry').trigger('click')
+    await flushPromises()
+    expect(requests).to.equal(2)
+    expect(wrapper.text()).to.include('refreshed')
+    expect(wrapper.find('a[href="/economy-preview"]').exists()).to.equal(true)
+    expect(wrapper.find('.profile-identity-retry').exists()).to.equal(false)
+  })
+
+  it('aborts profile hydration on unmount and starts a fresh request after auth generation changes', async () => {
+    const globalStore = Vue.reactive({ user: {}, setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
+    const signals = []
+    const apiStore = Vue.reactive({ authorizationGeneration: 0, getUserInfo: ({ signal }) => { signals.push(signal); return new Promise(() => {}) } })
+    const router = await routerAt('/profile')
+    const wrapper = mount(profileComponent({ globalStore, apiStore, client: { capabilities: async () => capabilities(true) } }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    await flushPromises()
+    apiStore.authorizationGeneration++
+    await flushPromises()
+    expect(signals).to.have.length(2)
+    expect(signals[0].aborted).to.equal(true)
+    expect(signals[1].aborted).to.equal(false)
+    wrapper.unmount()
+    expect(signals[1].aborted).to.equal(true)
+  })
+
+  it('repairs legacy UTF-8 mojibake before rendering profile names', async () => {
+    const router = await routerAt('/profile')
+    const globalStore = Vue.reactive({
+      user: Vue.reactive({ id: 'user-a', nickname: 'ä½ å¥½', username: '%E5%B8%90%E5%8F%B7', openid: 'a' }),
+      setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {}
+    })
+    const profile = mount(profileComponent({
+      globalStore,
+      apiStore: Vue.reactive({ authorizationGeneration: 0 }),
+      client: { capabilities: async () => capabilities(true) }
+    }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(profile)
+    await flushPromises()
+
+    expect(profile.get('.profile-summary h2').text()).to.equal('你好')
+    expect(profile.get('.profile-summary p').text()).to.equal('帐号')
+    const profileDetails = profile.findAll('.profile-details dd')
+    expect(profileDetails[0].text()).to.equal('你好')
+    expect(profileDetails[1].text()).to.equal('帐号')
+  })
+
+  it('uses replace for both mounted explicit return buttons', async () => {
+    const router = await routerAt('/profile')
+    const profile = mount(profileComponent({
+      globalStore: Vue.reactive({ user: Vue.reactive({ id: 'user-a', username: 'alice', openid: 'a' }), setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} }),
+      apiStore: Vue.reactive({ authorizationGeneration: 0 }),
+      client: { capabilities: async () => capabilities(true) }
+    }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(profile)
+    await flushPromises()
+    await profile.get('.profile-page-header button').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).to.equal('JuyiHall')
+
+    const previewState = {
+      capabilityError: Vue.ref(''), enabled: Vue.ref(false), refresh: async () => {}, canonical: () => true, selectedAgentId: Vue.ref(''), selectedAgent: Vue.ref(null), agents: Vue.ref([]),
+      wallet: Vue.ref({}), ledger: Vue.ref({}), catalog: Vue.ref({}), detail: Vue.ref({}), roster: Vue.ref({}), estimate: Vue.ref({}), agentSkills: Vue.ref({}), hostingPlan: Vue.ref({}), hostingLease: Vue.ref({}),
+      loadLedger: async () => {}, loadCatalog: async () => {}, loadDetail: async () => {}, loadAgentFacts: async () => {}, submitEstimate: async () => {}
+    }
+    await router.push('/economy-preview')
+    const preview = mount(previewComponent(previewState), { global: { plugins: [router] } })
+    wrappers.push(preview)
+    await preview.get('.header-actions button').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).to.equal('UserProfile')
+  })
+})
+
+describe('profile command observability discovery', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount() })
+
+  it('uses only capability discovery, exposes the fixed internal route when allowed, and hides it for deny/disabled/malformed states', async () => {
+    const results = [
+      { contractVersion: 'command-observability-v1', available: true, readOnly: true, reason: null },
+      { contractVersion: 'command-observability-v1', available: false, readOnly: true, reason: 'FORBIDDEN' },
+      { contractVersion: 'command-observability-v1', available: false, readOnly: true, reason: 'DISABLED' },
+      { contractVersion: 'wrong', available: true, readOnly: true, reason: null }
+    ]
+    let calls = 0
+    const client = {
+      capabilities: async () => capabilities(false),
+      commandObservability: { capabilities: async () => { calls++; return results.shift() } }
+    }
+    const globalStore = Vue.reactive({ user: Vue.reactive({ id: 'user-a', username: 'alice', openid: 'a' }), setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
+    const apiStore = Vue.reactive({ authorizationGeneration: 0 })
+    const router = await routerAt('/profile')
+    const wrapper = mount(profileComponent({ globalStore, apiStore, client }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(calls).to.equal(1)
+    expect(wrapper.find('a[href="/command-observability"]').exists()).to.equal(true)
+    await wrapper.get('a[href="/command-observability"]').trigger('click'); await flushPromises()
+    expect(router.currentRoute.value.name).to.equal('CommandObservability')
+
+    for (const id of ['user-b', 'user-c', 'user-d']) {
+      globalStore.user = Vue.reactive({ id, username: id, openid: id })
+      await flushPromises()
+      expect(wrapper.find('a[href="/command-observability"]').exists()).to.equal(false)
+    }
+    expect(calls).to.equal(4)
+  })
+})

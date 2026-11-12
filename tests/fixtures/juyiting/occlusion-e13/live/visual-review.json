@@ -1,0 +1,79 @@
+{
+  "$schema": "juyiting-occlusion-e13-live-visual-review-v1",
+  "schemaVersion": 1,
+  "taskId": "E13",
+  "reviewedAt": "2026-09-08",
+  "reviewer": {
+    "role": "independent multimodal visual review",
+    "agentId": "main-agent",
+    "nickname": "Codex",
+    "modelClass": "GPT multimodal main agent; independent of the implementation writer"
+  },
+  "pass": true,
+  "verdict": "PASS",
+  "highestSeverity": "S0",
+  "scope": {
+    "liveShotsReviewed": 19,
+    "cameraShots": 10,
+    "interactionShots": 7,
+    "movementShots": 2,
+    "movementFramesReviewed": 6,
+    "method": "Actual inspection of the three complete contact sheets and all six original 1280x800 movement frames; runtime coordinates and phases cross-checked against the merged index."
+  },
+  "sourceHashes": {
+    "liveIndexSha256": "4c7a7ae08d80d18c123aae4c0427d0615a499f36b2427b79ca1283cea4b4d714",
+    "liveValidationSha256": "087ea2b1274ed8d75a1c775459b31e01c5b5cdfa718483bcde848cf724f8a759",
+    "cameraContactSheetSha256": "f0ba6cc4dc3671e7a4ebecc567283cbb07fc0c80255ad30b5559a3ab594fdd5a",
+    "interactionContactSheetSha256": "2641746fa44485475c5875768e87932b66b9696bf8a491a89f735c46b28e1bf5",
+    "movementContactSheetSha256": "2aeecda68dbd9451b36c42e3781628ef00960e9cce496538291dcb1309771b93"
+  },
+  "sheetVerdicts": [
+    {
+      "sheet": "camera",
+      "verdict": "PASS",
+      "highestSeverity": "S0",
+      "shotsReviewed": 10,
+      "finding": "Desktop/tablet/mobile aspect ratios and zoom/pan remain coherent; portrait close-ups reflect the declared camera operation, with no torn map seams or onboarding obstruction."
+    },
+    {
+      "sheet": "interaction",
+      "verdict": "PASS",
+      "highestSeverity": "S0",
+      "shotsReviewed": 7,
+      "finding": "Selection card, bounty/library/chat panels stay inside their surfaces; labels and bubbles remain above actor sprites; full-map and close-up lighting remain coherent."
+    },
+    {
+      "sheet": "movement",
+      "verdict": "PASS",
+      "highestSeverity": "S0",
+      "shotsReviewed": 2,
+      "framesReviewed": 6,
+      "finding": "Focused actors visibly displace and arrive on the declared routes; stable background landmarks allow before/mid/after comparison. Other actors may update and are not claimed static."
+    }
+  ],
+  "movementVerdicts": [
+    {
+      "shotId": "E13-288",
+      "actor": "lujunyi",
+      "targetRegionId": "bounty-board",
+      "verdict": "PASS",
+      "highestSeverity": "S0",
+      "finding": "Actual frames agree with arrived (840,528) -> moving (928.3719123261396,502.41865695822275) -> arrived (1408,416), six further 1000ms steps. At the destination the rail covers the lower legs, while the name, head/shoulders and most of the torso remain visible; no identity swallowing."
+    },
+    {
+      "shotId": "E13-289",
+      "actor": "likui",
+      "targetRegionId": "gate",
+      "verdict": "PASS",
+      "highestSeverity": "S0",
+      "finding": "Actual frames agree with arrived (1040,648) -> moving (959.7053357722427,696.8750130082001) -> arrived (856,760), two further 1000ms steps. Name and upper body remain readable in all phases and the character is grounded coherently on the entrance steps."
+    }
+  ],
+  "captureContext": {
+    "candidate": "cyf-e13-live-reviewed-safe-fce21",
+    "frontendBuildCommit": "fe670bf7d5a9e8fedeec041d041541c3a9d47094",
+    "reviewedAgainstCommit": "fce21d20a5a3ba761365a8eb411f1519bdc47099",
+    "note": "Juyi runtime source and TMX unchanged between these commits; the later commit changes public entry pages. This review is not a WeChat-device test or a final release approval."
+  },
+  "additionalFindings": []
+}

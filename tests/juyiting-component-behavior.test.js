@@ -1,0 +1,4269 @@
+import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
+import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
+import * as historyWindowHelpers from '../src/composables/juyiting/hallHistoryWindow.js'
+import * as recommendationHelpers from '../src/composables/juyiting/hallAssigneeRecommendation.js'
+import { useHallAgentAbilitiesEditor } from '../src/composables/juyiting/useHallAgentAbilitiesEditor.js'
+import * as discussionTurnHelpers from '../src/composables/juyiting/hallDiscussionTurns.js'
+import { useHallSelectedOutputReview } from '../src/composables/juyiting/useHallSelectedOutputReview.js'
+import { selectionKey } from '../src/composables/juyiting/hallSelectedOutputs.js'
+import * as assigneeCandidates from '../src/composables/juyiting/hallAssigneeCandidates.js'
+import { useExternalServicePolicy } from '../src/composables/juyiting/useExternalServicePolicy.js'
+import * as taskPresentation from '../src/composables/juyiting/hallTaskPresentation.js'
+import { useHallDeliveryReview } from '../src/composables/juyiting/useHallDeliveryReview.js'
+import { useHallAgentProfileCapabilities } from '../src/composables/juyiting/useHallAgentProfileCapabilities.js'
+import { currentBountyAssignmentRevision } from '../src/composables/juyiting/hallBountyAssignmentContext.js'
+import { useHallSkillCapabilities } from '../src/composables/juyiting/useHallSkillCapabilities.js'
+import * as ordinaryCancellation from '../src/composables/juyiting/useHallOrdinaryCancellation.js'
+import { bountyInteractionTargetId, useHallChatContext } from '../src/composables/juyiting/useHallChatContext.js'
+import { expect } from 'chai'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { hasMeaningfulHallLeaveWork } from '../src/composables/juyiting/hallAccountNavigation.js'
+import { after, afterEach, before } from 'mocha'
+import { readFileSync } from 'fs'
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
+import { resolveLiveMapPreviewActivation } from '../src/composables/juyiting/liveMapPreviewPolicy.js'
+import { createEconomyRequestIntentStore } from '../src/composables/juyiting/economyRequestIntent.js'
+import { useFormalTaskExecutionScope } from '../src/composables/useFormalTaskExecutionScope.js'
+import { useHallTaskActions } from '../src/composables/juyiting/useHallTaskActions.js'
+import { resolveAccountDisplayName } from '../src/utils/displayName.js'
+import { createHydratedIdentityScope, hasHydratedIdentity } from '../src/utils/identityScope.js'
+
+let mount
+let Vue
+let BottomDock
+let BountyPanel
+let ChatPanel
+let HallMessageWindow
+let CommandPanel
+let CoordinationPanel
+let HallChatComposer
+let HallStage
+let LibraryPanel
+let PersonaCatalogPanel
+let SelectedAgentCard
+let hallGameMock
+let classifyViewportResizeMock
+let wenAmount
+
+const globalDomDescriptors = new Map()
+const windowDomDescriptors = new Map()
+const stagedFrames = new Map()
+const mountedWrappers = new Set()
+let stagedFrameId = 0
+let originalGetBoundingClientRect
+
+const melonLayoutRect = () => ({
+  x: 0,
+  y: 0,
+  top: 0,
+  left: 0,
+  right: globalThis.window.innerWidth,
+  bottom: globalThis.window.innerHeight,
+  width: globalThis.window.innerWidth,
+  height: globalThis.window.innerHeight,
+  toJSON: () => ({})
+})
+
+const flushStageFrames = async (limit = 12) => {
+  for (let pass = 0; pass < limit && stagedFrames.size; pass += 1) {
+    const pending = [...stagedFrames.entries()]
+    stagedFrames.clear()
+    pending.forEach(([, callback]) => callback(Date.now()))
+    await Promise.resolve()
+    await Vue?.nextTick?.()
+  }
+}
+
+const installGlobalDomRuntime = () => {
+  for (const key of ['SVGElement', 'Element', 'Node', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+    globalDomDescriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+  }
+  for (const key of ['SVGElement', 'Element', 'Node']) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: globalThis.window?.[key] })
+  }
+  for (const key of ['requestAnimationFrame', 'cancelAnimationFrame']) {
+    windowDomDescriptors.set(key, Object.getOwnPropertyDescriptor(globalThis.window, key))
+  }
+  globalThis.window.requestAnimationFrame = callback => {
+    const id = ++stagedFrameId
+    stagedFrames.set(id, callback)
+    return id
+  }
+  globalThis.window.cancelAnimationFrame = id => stagedFrames.delete(id)
+  Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, writable: true, value: callback => globalThis.window.requestAnimationFrame(callback) })
+  Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, writable: true, value: handle => globalThis.window.cancelAnimationFrame(handle) })
+  originalGetBoundingClientRect = globalThis.window.Element.prototype.getBoundingClientRect
+  globalThis.window.Element.prototype.getBoundingClientRect = function () {
+    if (this.classList?.contains('melon-layer') && this.dataset?.testLayout !== 'zero') return melonLayoutRect()
+    return originalGetBoundingClientRect.call(this)
+  }
+}
+const restoreGlobalDomRuntime = () => {
+  stagedFrames.clear()
+  if (originalGetBoundingClientRect) globalThis.window.Element.prototype.getBoundingClientRect = originalGetBoundingClientRect
+  for (const [key, descriptor] of windowDomDescriptors) {
+    if (descriptor) Object.defineProperty(globalThis.window, key, descriptor)
+    else delete globalThis.window[key]
+  }
+  for (const [key, descriptor] of globalDomDescriptors) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else delete globalThis[key]
+  }
+}
+
+const vueImportToVar = (_line, imports) => {
+  const vueBindings = imports.split(',').map((part) => {
+    const [name, alias] = part.trim().split(/\s+as\s+/)
+    return alias ? `${name}: ${alias}` : name
+  }).join(', ')
+
+  return vueBindings ? `var { ${vueBindings} } = Vue` : ''
+}
+
+const loadSfc = (relativePath, runtimeAgentApi = { post: async () => { throw new Error('runtime API not configured') }, get: async () => { throw new Error('runtime API not configured') } }) => {
+  const filename = new URL(relativePath, import.meta.url).pathname
+  const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+  const { descriptor } = parse(source, { filename })
+  const id = `test-${relativePath.replace(/[^a-z0-9]/gi, '-')}`
+  const script = compileScript(descriptor, {
+    id,
+    inlineTemplate: true,
+    templateOptions: {
+      compilerOptions: {
+        isCustomElement: tag => tag === 'var-icon'
+      }
+    }
+  }).content
+
+  const scriptBody = script
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+hallAssigneeRecommendation.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[11]`)
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+hallDiscussionTurns.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[10]`)
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]@\/composables\/juyiting\/hallAssigneeCandidates\.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[9]`)
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]\.\.\/\.\.\/composables\/juyiting\/hallTaskPresentation\.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[8]`)
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]\.\.\/\.\.\/composables\/juyiting\/useHallOrdinaryCancellation\.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = ordinaryCancellation`)
+    .replace(/^import\s+\{\s*agentApi\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/useHttp\.js['"];?\s*$/gm, 'var agentApi = runtimeAgentApi')
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
+    .replace(/^import\s+HallMessageWindow\s+from\s+['"]\.\/HallMessageWindow\.vue['"];?\s*$/gm, 'var HallMessageWindow = arguments[12]')
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]*hallHistoryWindow\.js['"];?\s*$/gm, (_, names) => `var { ${names} } = arguments[13]`)
+    .replace(/^import\s+AgentToken\s+from\s+['"]@\/components\/juyiting\/AgentToken\.vue['"];?\s*$/gm, 'var AgentToken = { template: \'<button class="agent-token" type="button" @click="$emit(\\\'select-agent\\\', agent)"></button>\', props: [\'agent\'] }')
+    .replace(/^import\s+\{\s*juyitingGame\s*\}\s+from\s+['"]@\/game\/index\.js['"];?\s*$/gm, 'var juyitingGame = arguments[2]')
+    .replace(/^import\s+\{\s*classifyViewportResize\s*\}\s+from\s+['"]@\/game\/camera\/resizePolicy\.js['"];?\s*$/gm, 'var classifyViewportResize = arguments[3]')
+    .replace(/^import\s+BountyActionIcon\s+from\s+['"].\/BountyActionIcon\.vue['"];?\s*$/gm, 'var BountyActionIcon = { template: \'<span />\', props: [\'status\'] }')
+    .replace(/^import\s+OutputList\s+from\s+['"]\.\.\/outputs\/OutputList\.vue['"];?\s*$/gm, 'var OutputList = { template: \'<section class="output-list-stub" />\', props: [\'source\', \'identityFingerprint\'] }')
+    .replace(/^import\s+HallRequirementEditor\s+from\s+['"].\/HallRequirementEditor\.vue['"];?\s*$/gm, 'var HallRequirementEditor = { template: \'<span />\', props: [\'task\', \'enabled\'] }')
+    .replace(/^import\s+HallTaskResources\s+from\s+['"].\/HallTaskResources\.vue['"];?\s*$/gm, 'var HallTaskResources = { template: \'<section class="hall-task-resources-stub" />\' }')
+    .replace(/^import\s+TaskMaterialLinks\s+from\s+['"](?:\.\.\/personal-workspace|@\/components\/personal-workspace)\/TaskMaterialLinks\.vue['"];?\s*$/gm, 'var TaskMaterialLinks = { template: \'<section class="task-material-links-stub" />\', props: [\'taskId\', \'identityFingerprint\'] }')
+    .replace(/^import\s+\{\s*formatWen(?:,\s*isCanonicalWenAmount)?\s*\}\s+from\s+['"]@\/utils\/wenAmount['"];?\s*$/gm, 'var { formatWen, isCanonicalWenAmount } = arguments[4]')
+    .replace(/^import\s+FormalDeliveryList\s+from\s+['"]\.\.\/deliveries\/FormalDeliveryList\.vue['"];?\s*$/gm, 'var FormalDeliveryList = { name: \'FormalDeliveryList\', template: \'<section class="formal-delivery-list-stub" />\', props: [\'taskId\', \'identityFingerprint\'] }')
+    .replace(/^import\s+WorkItemPlanPanel\s+from\s+['"]\.\/WorkItemPlanPanel\.vue['"];?\s*$/gm, 'var WorkItemPlanPanel = { template: \'<section class="work-item-plan-stub" />\', props: [\'task\', \'enabled\', \'authorizationGeneration\'] }')
+    .replace(/^import\s+TeamRecommendationPanel\s+from\s+['"]\.\/TeamRecommendationPanel\.vue['"];?\s*$/gm, 'var TeamRecommendationPanel = { template: \'<section class="team-recommendation-stub" />\', props: [\'task\', \'authorizationGeneration\'] }')
+    .replace(/^import\s+HallDraftEditor\s+from\s+['"]\.\/HallDraftEditor\.vue['"];?\s*$/gm, 'var HallDraftEditor = { template: \'<section class="hall-draft-editor-stub" />\', props: [\'agents\', \'selectedAgent\', \'identityEpoch\'], emits: [\'close\'] }')
+    .replace(/^import\s+HallMaterialPicker\s+from\s+['"]\.\/HallMaterialPicker\.vue['"];?\s*$/gm, `var HallMaterialPicker = { data: () => ({ opened: false }), methods: { open() { this.opened = true } }, template: '<section class="hall-material-picker-stub" :data-open="opened" />', props: ['modelValue', 'identityScope', 'identityEpoch', 'disabled'], emits: ['update:modelValue'] }`)
+    .replace(/^import\s+HallMaterialThumbnail\s+from\s+['"]\.\/HallMaterialThumbnail\.vue['"];?\s*$/gm, `var HallMaterialThumbnail = { template: '<span class="material-thumbnail-stub" />' }`)
+    .replace(/^import\s+HostingRentPanel\s+from\s+['"].\/HostingRentPanel\.vue['"];?\s*$/gm, 'var HostingRentPanel = { template: \'<section class="hosting-rent-stub" />\', props: [\'persona\', \'resolvePersona\'] }')
+    // Dedicated archive-positions tests cover this child; keep the hall fixture scoped to its parent.
+    .replace(/^import\s+ArchivePositions\s+from\s+['"].\/archive\/ArchivePositions\.vue['"];?\s*$/gm, 'var ArchivePositions = Vue.defineComponent({render: () => null})')
+    .replace(/^import\s+ArchiveReader\s+from\s+['"].\/archive\/ArchiveReader\.vue['"];?\s*$/gm, 'var ArchiveReader = { template: \'<section class="archive-reader-stub">典籍阅读</section>\' }')
+    .replace(/^import\s+(\w+)\s+from\s+['"]@\/assets\/juyiting\/[^'"]+['"];?\s*$/gm, 'var $1 = \'/mock-juyiting-asset.png\'')
+    .replace(/^import\s+\{\s*hallPhysicalScene,\s*hallRoomPropVisuals\s*\}\s+from\s+['"]@\/constants\/juyiting['"];?\s*$/gm, 'var hallRoomPropVisuals = []; var hallPhysicalScene = { interactiveZones: [{ key: \'main\', panel: \'chat\', title: \'忠义堂公议\', subtitle: \'厅前公议 / 众好汉\', x: 50, y: 36, w: 12, h: 7, object: \'plaque\', hitShape: \'plaque\' }, { key: \'agents\', panel: \'agents\', title: \'点将册\', subtitle: \'点将调遣\', x: 21, y: 32, w: 13, h: 7, object: \'ledger\' }, { key: \'tasks\', panel: \'tasks\', title: \'悬赏榜\', subtitle: \'榜文\', x: 76, y: 47, w: 19, h: 18, object: \'notice-rack\' }, { key: \'catalog\', panel: \'catalog\', title: \'招贤令\', subtitle: \'遍请豪杰\', x: 14, y: 68, w: 12, h: 7, object: \'banner-flag\' }, { key: \'library\', panel: \'library\', title: \'案卷阁\', subtitle: \'查卷问典\', x: 82, y: 76, w: 22, h: 18, object: \'scroll-shelf\' }, { key: \'back\', panel: null, title: \'整装处\', subtitle: \'兵甲行囊\', x: 67, y: 26, w: 12, h: 8, object: \'rear-gear\' }] }')
+    .replace(/^import\s+HallChatComposer\s+from\s+['"].\/HallChatComposer\.vue['"];?\s*$/gm, 'var HallChatComposer = arguments[1]')
+    .replace(/^import\s+OutputPreview\s+from\s+['"]\.\.\/outputs\/OutputPreview\.vue['"];?\s*$/gm, 'var OutputPreview = { template: \'<section class="output-preview-stub" />\', props: [\'item\', \'load\', \'contextKey\'] }')
+    .replace(/^import\s+\{\s*outputPreviewKind,\s*outputSource,\s*useOutputs\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/useOutputs\.js['"];?\s*$/gm, 'var { outputPreviewKind, outputSource, useOutputs } = arguments[5]')
+    .replace(/^import\s+\{\s*saveOutputBlob\s*\}\s+from\s+['"]\.\.\/\.\.\/utils\/outputDownload\.js['"];?\s*$/gm, 'var { saveOutputBlob } = arguments[5]')
+    .replace(/^import\s+\{\s*useApiStore\s*\}\s+from\s+['"]@\/stores\/api['"];?\s*$/gm, 'var { useApiStore } = arguments[5]')
+    .replace(/^import\s+\{\s*useGlobalStore\s*\}\s+from\s+['"]@\/stores\/global['"];?\s*$/gm, 'var { useGlobalStore } = arguments[5]')
+    .replace(/^import\s+\{\s*usePersonalWorkspace\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspace\.js['"];?\s*$/gm, 'var { usePersonalWorkspace } = arguments[5]')
+    .replace(/^import\s+\{\s*usePersonalWorkspaceExecution\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceExecution\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceExecution } = arguments[5]')
+    .replace(/^import\s+\{\s*usePersonalWorkspaceTaskLinks\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceTaskLinks\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceTaskLinks } = arguments[5]')
+    .replace(/^import\s+\{\s*usePersonalWorkspaceConversationLinks\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceConversationLinks\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceConversationLinks } = arguments[5]')
+    .replace(/^import\s+HallMessageParts\s+from\s+['"]\.\/HallMessageParts\.vue['"];?\s*$/gm, 'var HallMessageParts = { template: \'<section class="hall-message-parts-stub" />\', props: [\'parts\', \'conversationId\', \'identityKey\'] }')
+    .replace(/^import\s+BountyTextSelectionArchive\s+from\s+['"]\.\/BountyTextSelectionArchive\.vue['"];?\s*$/gm, 'var BountyTextSelectionArchive = { template: \'<section class="bounty-text-selection-archive-stub" />\', props: [\'conversationId\', \'identityKey\', \'message\'] }')
+    .replace(/^import\s+HallConversationHistory\s+from\s+['"]\.\/HallConversationHistory\.vue['"];?\s*$/gm, 'var HallConversationHistory = { template: \'<section class="hall-conversation-history-stub" />\', props: [\'conversations\', \'deletingId\', \'disabled\', \'error\', \'hasMore\', \'loading\', \'selectedId\'] }')
+    .replace(/^import\s+BountyTypedOutcomeCard\s+from\s+['"]\.\/BountyTypedOutcomeCard\.vue['"];?\s*$/gm, 'var BountyTypedOutcomeCard = { template: \'<section class="bounty-typed-outcome-card-stub" />\', props: [\'projection\'], emits: [\'reply\', \'confirm-proposal\'] }')
+    .replace(/^import\s+HallVoiceControls\s+from\s+['"].\/HallVoiceControls\.vue['"];?\s*$/gm, 'var HallVoiceControls = { template: \'<div class="hall-voice-controls-stub"></div>\', props: [\'voice\'] }')
+    .replace(/^import\s+HallAccountEntry\s+from\s+['"]\.\/HallAccountEntry\.vue['"];?\s*$/gm, 'var HallAccountEntry = { name: \'HallAccountEntry\', template: \'<button class="hall-account-entry-stub" type="button"></button>\', props: [\'avatar\', \'compact\', \'displayName\', \'disabled\'], emits: [\'open-profile\'] }')
+    .replace(/^import\s+\{\s*marked\s*\}\s+from\s+['"]marked['"];?\s*$/gm, 'var marked = Object.assign(value => value, { setOptions: () => {}, parse: value => value })')
+    .replace(/^import\s+DOMPurify\s+from\s+['"]dompurify['"];?\s*$/gm, 'var DOMPurify = { sanitize: value => value }')
+    .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
+  .replace('export default', 'return')
+
+  const unresolvedImports = scriptBody.match(/^import\s.+$/gm)
+  if (unresolvedImports?.length) throw new SyntaxError(`Unsupported SFC imports in ${relativePath}: ${unresolvedImports.join(', ')}`)
+
+  return new Function('Vue', 'HallChatComposer', 'juyitingGame', 'classifyViewportResize', 'wenAmount', 'chatPanelDependencies', 'ordinaryCancellation', 'runtimeAgentApi', scriptBody)(Vue, HallChatComposer, hallGameMock, classifyViewportResizeMock, wenAmount, chatPanelDependencies, ordinaryCancellation, runtimeAgentApi, taskPresentation, assigneeCandidates, discussionTurnHelpers, recommendationHelpers, HallMessageWindow, historyWindowHelpers)
+}
+
+const stubs = {
+  'var-icon': { template: '<i />' }
+}
+
+// ChatPanel's delivery adapters are covered by dedicated contract tests. Component tests
+// substitute network-bound surfaces, keeping this SFC test focused on presentation behavior.
+let chatPanelDependencies
+const createChatPanelDependencies = () => {
+  const directory = () => ({
+    links: Vue.ref([]), nextCursor: Vue.ref(null), listState: Vue.ref('empty'), loading: Vue.ref(false),
+    pendingWrites: Vue.ref([]), writeNotice: Vue.ref(''), retryWrite: async () => null, actionState: Vue.ref('idle'), error: Vue.ref(''), load: async () => true, loadMore: async () => false,
+    attach: async () => null, detach: async () => null, dispose: () => {}
+  })
+  return {
+    outputPreviewKind: () => 'none',
+    outputSource: (...parts) => parts,
+    useOutputs: () => ({
+      state: Vue.ref('ready'), message: Vue.ref(''), items: Vue.ref([]), loading: Vue.ref(false),
+      cacheKey: Vue.ref(''), refresh: async () => true, preview: async () => new Blob(), download: async () => new Blob()
+    }),
+    saveOutputBlob: () => {},
+    useApiStore: () => ({ authorizationGeneration: 0 }),
+    useGlobalStore: () => ({ user: {}, getUserId: '', getOpenid: '' }),
+    usePersonalWorkspace: () => ({
+      loading: Vue.ref(false), listState: Vue.ref('empty'), error: Vue.ref(''), items: Vue.ref([]),
+      detail: Vue.ref(null), refresh: async () => true, select: async () => null, dispose: () => {}
+    }),
+    usePersonalWorkspaceExecution: () => ({
+      rosterState: Vue.ref('ready'), capabilityState: Vue.ref('ready'), capabilityError: Vue.ref(''),
+      rosterError: Vue.ref(''), selectedAgent: Vue.ref(null), allowedMimeTypes: Vue.ref([]),
+      generationEnabled: Vue.ref(false), executionState: Vue.ref('idle'), execution: Vue.ref(null),
+      completionNotice: Vue.ref(''), error: Vue.ref(''), loadCapabilities: async () => true,
+      loadAgents: async () => true, selectAgent: () => {}, create: async () => null,
+      adoptExecution: () => false, revokeInputs: async () => null, dispose: () => {}
+    }),
+    usePersonalWorkspaceTaskLinks: directory,
+    usePersonalWorkspaceConversationLinks: directory
+  }
+}
+
+const makeHallStageProps = (overrides = {}) => ({
+  agentKey: agent => agent.agentId,
+  agentStyle: () => ({}),
+  portraitName: agent => agent.name,
+  portraitShortName: agent => agent.name,
+  portraitStyle: () => ({}),
+  roleClass: () => '',
+  statusClass: () => '',
+  statusText: () => '',
+  tasksTotal: 3,
+  visibleAgents: [],
+  ...overrides
+})
+
+const cssRule = (source, selector) => {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`))
+  return match?.[1] || ''
+}
+
+const deferred = () => {
+  let resolve
+  let reject
+  const promise = new Promise((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+const flushPromises = async () => {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Vue.nextTick()
+  await flushStageFrames()
+}
+
+const waitForStageReady = async () => {
+  for (let pass = 0; pass < 3; pass += 1) await flushPromises()
+}
+
+after(() => restoreGlobalDomRuntime())
+afterEach(() => {
+  for (const wrapper of mountedWrappers) wrapper.unmount()
+  mountedWrappers.clear()
+  stagedFrames.clear()
+})
+
+// Shared by the component and actual-mounted Hall suites, including targeted runs.
+before(async () => {
+  installGlobalDomRuntime()
+  const { mount: rawMount } = await import('@vue/test-utils')
+  mount = (...args) => {
+    const wrapper = rawMount(...args)
+    const unmount = wrapper.unmount.bind(wrapper)
+    wrapper.unmount = () => {
+      mountedWrappers.delete(wrapper)
+      return unmount()
+    }
+    mountedWrappers.add(wrapper)
+    void Promise.resolve().then(() => flushStageFrames())
+    return wrapper
+  }
+  Vue = await import('vue')
+  chatPanelDependencies = createChatPanelDependencies()
+  wenAmount = await import('../src/utils/wenAmount.js')
+  ;({ classifyViewportResize: classifyViewportResizeMock } = await import('../src/game/camera/resizePolicy.js'))
+  hallGameMock = {
+    destroy: () => {},
+    mount: async (_container, options = {}) => {
+      options.onReady?.()
+    },
+    setSelectedAgent: () => {},
+    start: () => {},
+    syncAgents: () => {}
+  }
+  BottomDock = loadSfc('../src/components/juyiting/BottomDock.vue')
+  BountyPanel = loadSfc('../src/components/juyiting/BountyPanel.vue')
+  HallChatComposer = loadSfc('../src/components/juyiting/HallChatComposer.vue')
+  HallMessageWindow = loadSfc('../src/components/juyiting/HallMessageWindow.vue')
+  ChatPanel = loadSfc('../src/components/juyiting/ChatPanel.vue')
+  CommandPanel = loadSfc('../src/components/juyiting/CommandPanel.vue')
+  CoordinationPanel = loadSfc('../src/components/juyiting/CoordinationPanel.vue')
+  HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+  LibraryPanel = loadSfc('../src/components/juyiting/LibraryPanel.vue')
+  PersonaCatalogPanel = loadSfc('../src/components/juyiting/PersonaCatalogPanel.vue')
+  SelectedAgentCard = loadSfc('../src/components/juyiting/SelectedAgentCard.vue')
+})
+
+const syntheticTaskQuote = () => ({ state: 'AVAILABLE', quoteId: 'fixture-quote', recommendationId: 'fixture-recommendation', amount: { amountMinor: '13', currency: 'WEN' }, unavailableReason: null })
+
+describe('JuyiHall component behavior', () => {
+
+  it('classifies panel layouts for desktop, landscape touch, and portrait touch viewports', async () => {
+    const { classifyPanelLayout } = await import('../src/composables/juyiting/useHallPanels.js')
+
+    expect(classifyPanelLayout({ isMobileCoarse: false, experienceMode: 'portrait-command' })).to.equal('center-modal')
+    expect(classifyPanelLayout({ isMobileCoarse: true, experienceMode: 'landscape-map' })).to.equal('full-window')
+    expect(classifyPanelLayout({ isMobileCoarse: true, experienceMode: 'portrait-command' })).to.equal('full-window')
+  })
+
+  it('locks every SelectedAgentCard action and pointer surface during voice capture', async () => {
+    const props = {
+      abilityText: () => '军情推演',
+      agent: { agentId: 'wuyong', name: '吴用', status: 'idle' },
+      locked: true,
+      portraitName: () => '智多星',
+      portraitStyle: () => ({}),
+      statusText: () => '候令'
+    }
+    const wrapper = mount(SelectedAgentCard, { props, global: { stubs } })
+    const hallSource = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+
+    expect(hallSource).to.include(':locked="voiceInteractionLocked"')
+    expect(wrapper.attributes('inert')).to.equal('')
+    expect(wrapper.attributes('aria-disabled')).to.equal('true')
+    expect(wrapper.findAll('button')).to.have.length(2)
+    wrapper.findAll('button').forEach(button => expect(button.attributes('disabled')).to.equal(''))
+    await wrapper.find('.card-close').trigger('click')
+    await wrapper.find('.card-action').trigger('click')
+    await wrapper.trigger('pointerdown')
+    expect(wrapper.emitted('close-card')).to.equal(undefined)
+    expect(wrapper.emitted('open-agents')).to.equal(undefined)
+
+    await wrapper.setProps({ locked: false })
+    expect(wrapper.attributes('inert')).to.equal(undefined)
+    expect(wrapper.attributes('aria-disabled')).to.equal(undefined)
+    wrapper.findAll('button').forEach(button => expect(button.attributes('disabled')).to.equal(undefined))
+    await wrapper.find('.card-close').trigger('click')
+    await wrapper.find('.card-action').trigger('click')
+    expect(wrapper.emitted('close-card')).to.have.length(1)
+    expect(wrapper.emitted('open-agents')).to.have.length(1)
+    wrapper.unmount()
+  })
+
+  it('exposes accessible modal dialog wiring and focus lifecycle hooks', () => {
+    const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+
+    expect(source).to.include(`:role="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? 'region' : 'dialog'"`)
+    expect(source).to.include(`:aria-modal="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : 'true'"`)
+    expect(source).to.include(`:aria-labelledby="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : panelTitleId"`)
+    expect(source).to.include('aria-label="关闭面板"')
+    expect(source).to.include('@keydown="handlePanelKeydown"')
+    expect(source).to.include('restorePanelFocus')
+  })
+
+  it('focuses and traps a modal panel then restores the prior focus', async () => {
+    const { focusHallPanel, restorePanelFocus, trapPanelFocus } = await import('../src/composables/juyiting/useHallPanels.js')
+    const prior = document.createElement('button')
+    const panel = document.createElement('section')
+    const first = document.createElement('button')
+    const last = document.createElement('input')
+    panel.tabIndex = -1
+    panel.append(first, last)
+    document.body.append(prior, panel)
+    prior.focus()
+
+    try {
+      focusHallPanel(panel)
+      expect(document.activeElement).to.equal(first)
+      last.focus()
+      const forward = new global.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      trapPanelFocus(forward, panel)
+      expect(document.activeElement).to.equal(first)
+      first.focus()
+      const backward = new global.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
+      trapPanelFocus(backward, panel)
+      expect(document.activeElement).to.equal(last)
+      restorePanelFocus(prior)
+      expect(document.activeElement).to.equal(prior)
+    } finally {
+      prior.remove()
+      panel.remove()
+    }
+  })
+
+  it('keeps panel layout a pure experience-mode projection', async () => {
+    const { useHallPanels } = await import('../src/composables/juyiting/useHallPanels.js')
+    const experienceMode = Vue.ref('portrait-command')
+    const isMobileCoarse = Vue.ref(true)
+    const Harness = {
+      setup() {
+        const { panelLayout } = useHallPanels({ experienceMode, isMobileCoarse })
+        return () => Vue.h('div', { class: panelLayout.value }, panelLayout.value)
+      }
+    }
+    const wrapper = mount(Harness)
+    await Vue.nextTick()
+    expect(wrapper.classes()).to.include('full-window')
+    experienceMode.value = 'landscape-map'
+    await Vue.nextTick()
+    expect(wrapper.classes()).to.include('full-window')
+    wrapper.unmount()
+  })
+
+  it('wires the exact responsive panel class and immediate HallStage interaction lock', () => {
+    const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+
+    expect(source).to.include(':interaction-locked="isPanelSessionActive || voiceInteractionLocked"')
+    expect(source).to.include(':class="[`panel-${renderedPanel}`, `layout-${panelLayout}`]"')
+    expect(source).to.include('layout-full-window')
+    expect(source).not.to.include('panel-orientation')
+    expect(source).to.include('panelReturnPanel')
+    expect(source).to.include('layout-center-modal')
+  })
+
+  it('locks and unlocks map interaction immediately for panels and cleans up on unmount', async () => {
+    const lockCalls = []
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => options.onReady?.(),
+      setInteractionLocked: (...args) => lockCalls.push(args),
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps({ interactionLocked: true }) })
+    await flushPromises()
+    await wrapper.setProps({ interactionLocked: false })
+    wrapper.unmount()
+
+    expect(lockCalls).to.deep.include.members([[true, 'panel'], [false, 'panel']])
+    expect(lockCalls.at(-1)).to.deep.equal([true, 'destroy'])
+  })
+
+  it('waits for a nonzero melon layout before publishing scene readiness', async () => {
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => options.onReady?.(),
+      setInteractionLocked: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+    const melonLayer = wrapper.find('.melon-layer')
+    melonLayer.element.dataset.testLayout = 'zero'
+
+    try {
+      await flushPromises()
+      expect(wrapper.find('.hall-board').classes()).not.to.include('is-melon-ready')
+
+      expect(stagedFrames.size).to.be.greaterThan(0)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('classifies visual viewport keyboard resizing without fitting the map transform', async () => {
+    const originalVisualViewport = global.window.visualViewport
+    const originalInnerWidth = global.window.innerWidth
+    const originalInnerHeight = global.window.innerHeight
+    const visualListeners = []
+    const resizeCalls = []
+    let visualHeight = 800
+    Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: 500 })
+    Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: 800 })
+    Object.defineProperty(global.window, 'visualViewport', { configurable: true, value: {
+      get height() { return visualHeight },
+      addEventListener: (_event, callback) => visualListeners.push(callback),
+      removeEventListener: () => {}
+    } })
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      resizeViewport: change => resizeCalls.push(change), setInteractionLocked: () => {},
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+
+    try {
+      const wrapper = mount(HallStage, { attachTo: document.body, global: { stubs }, props: makeHallStageProps() })
+      await flushPromises()
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      input.focus()
+      visualHeight = 560
+      visualListeners.forEach(listener => listener())
+      await flushPromises()
+
+      expect(resizeCalls.at(-1)).to.include({ kind: 'keyboard', width: 500, height: 560 })
+      expect(hallGameMock.fitToViewport).to.equal(undefined)
+      wrapper.unmount()
+      input.remove()
+    } finally {
+      Object.defineProperty(global.window, 'visualViewport', { configurable: true, value: originalVisualViewport })
+      Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+      Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: originalInnerHeight })
+    }
+  })
+
+  it('coalesces resize races, keeps keyboard close classified, and requires an explicit orientation signal', async () => {
+    const originals = {
+      innerWidth: global.window.innerWidth,
+      innerHeight: global.window.innerHeight,
+      visualViewport: global.window.visualViewport,
+      requestAnimationFrame: global.window.requestAnimationFrame,
+      cancelAnimationFrame: global.window.cancelAnimationFrame
+    }
+    const visualListeners = []
+    const frames = new Map()
+    const resizeCalls = []
+    let frameId = 0
+    let visualHeight = 800
+    Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: 500, writable: true })
+    Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: 800, writable: true })
+    Object.defineProperty(global.window, 'visualViewport', { configurable: true, value: {
+      get height() { return visualHeight },
+      addEventListener: (_event, callback) => visualListeners.push(callback),
+      removeEventListener: () => {}
+    } })
+    global.window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId }
+    global.window.cancelAnimationFrame = id => frames.delete(id)
+    const flushFrame = () => {
+      const pending = [...frames.entries()]
+      frames.clear()
+      pending.forEach(([, callback]) => callback(0))
+    }
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      resizeViewport: change => resizeCalls.push(change), setInteractionLocked: () => {},
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    let wrapper
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+
+    try {
+      wrapper = mount(HallStage, { attachTo: document.body, global: { stubs }, props: makeHallStageProps() })
+      for (let pass = 0; pass < 5; pass += 1) {
+        await flushPromises()
+        flushFrame()
+      }
+      await flushPromises()
+      resizeCalls.length = 0
+      input.focus()
+      global.window.innerHeight = 560
+      global.window.dispatchEvent(new global.window.Event('resize'))
+      expect(resizeCalls).to.have.length(0)
+      visualHeight = 560
+      visualListeners.forEach(listener => listener())
+      flushFrame()
+      expect(resizeCalls).to.have.length(1)
+      expect(resizeCalls[0].kind).to.equal('keyboard')
+
+      input.blur()
+      global.window.innerHeight = 800
+      visualHeight = 800
+      global.window.dispatchEvent(new global.window.Event('resize'))
+      visualListeners.forEach(listener => listener())
+      flushFrame()
+      expect(resizeCalls.at(-1).kind).to.equal('keyboard')
+
+      resizeCalls.length = 0
+      global.window.innerWidth = 800
+      global.window.innerHeight = 500
+      visualHeight = 500
+      global.window.dispatchEvent(new global.window.Event('resize'))
+      visualListeners.forEach(listener => listener())
+      await flushPromises()
+      flushFrame()
+      await flushPromises()
+      expect(resizeCalls.filter(call => call.kind === 'layout')).to.have.length(1)
+      expect(resizeCalls).to.have.length(1)
+    } finally {
+      wrapper?.unmount()
+      input.remove()
+      Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: originals.innerWidth })
+      Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: originals.innerHeight })
+      Object.defineProperty(global.window, 'visualViewport', { configurable: true, value: originals.visualViewport })
+      global.window.requestAnimationFrame = originals.requestAnimationFrame
+      global.window.cancelAnimationFrame = originals.cancelAnimationFrame
+    }
+  })
+
+  it('shows loading, times out at 15 seconds, retries fresh, and ignores stale ready callbacks', async () => {
+    const originalSetTimeout = global.window.setTimeout
+    const originalClearTimeout = global.window.clearTimeout
+    const timers = []
+    const readyCallbacks = []
+    const lockCalls = []
+    let destroyCalls = 0
+    let syncCalls = 0
+    global.window.setTimeout = (callback, delay) => {
+      timers.push({ callback, delay, cleared: false })
+      return timers.length
+    }
+    global.window.clearTimeout = id => { if (timers[id - 1]) timers[id - 1].cleared = true }
+    hallGameMock = {
+      destroy: () => { destroyCalls += 1 },
+      mount: (_container, options = {}) => {
+        readyCallbacks.push(options.onReady)
+        return readyCallbacks.length === 1 ? new Promise(() => {}) : Promise.resolve()
+      },
+      setInteractionLocked: (...args) => lockCalls.push(args), setSelectedAgent: () => {}, start: () => {},
+      syncAgents: () => { syncCalls += 1 }, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+
+    try {
+      const wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+      await Vue.nextTick()
+      expect(wrapper.text()).to.include('聚义厅地图加载中…')
+      expect(timers[0].delay).to.equal(15000)
+      expect(lockCalls).to.deep.include([true, 'loading'])
+
+      timers[0].callback()
+      await Vue.nextTick()
+      expect(wrapper.text()).to.include('地图加载超时，请重试')
+      expect(lockCalls).to.deep.include([false, 'loading'])
+      expect(destroyCalls).to.equal(1)
+      await wrapper.find('.scene-error button').trigger('click')
+      await flushPromises()
+      expect(destroyCalls).to.equal(1)
+      readyCallbacks[1]()
+      await flushPromises()
+      const syncAfterFreshReady = syncCalls
+      readyCallbacks[0]()
+      await flushPromises()
+
+      expect(syncCalls).to.equal(syncAfterFreshReady)
+      wrapper.unmount()
+      expect(destroyCalls).to.equal(2)
+      expect(timers.every(timer => timer.cleared || timer.delay !== 15000)).to.equal(true)
+    } finally {
+      global.window.setTimeout = originalSetTimeout
+      global.window.clearTimeout = originalClearTimeout
+    }
+  })
+
+  it('keeps HallStage loading unless JuyitingGame confirms a built scene and publishes success once', async () => {
+    const { JuyitingGame } = await import('../src/game/JuyitingGame.js')
+    const makeContractGame = (sceneBuildState) => {
+      const game = new JuyitingGame()
+      let activeStage = null
+      let sceneReadyCallback = null
+      let readyCount = 0
+      const me = {
+        game: { viewport: { width: 960, height: 640 } },
+        state: {
+          USER: 100,
+          PLAY: 0,
+          set: (_id, stage) => { activeStage = stage },
+          change: () => activeStage?.onResetEvent?.(),
+          pause: () => {}
+        },
+        video: { destroy: () => {} }
+      }
+      const scene = {
+        sceneBuildState,
+        onReady: callback => { sceneReadyCallback = callback },
+        onResetEvent: () => {
+          if (scene.sceneBuildState === 'ready') sceneReadyCallback?.()
+        },
+        onDestroyEvent: () => {},
+        setInteractionLocked: () => {},
+        setSelectedAgent: () => {},
+        syncAgents: () => {},
+        syncHotspots: () => {}
+      }
+      game.mount = async (_container, options = {}) => {
+        const mountToken = ++game._generation
+        game._mountToken = mountToken
+        game._me = me
+        game._hallScene = scene
+        game._callbacks = {
+          ...options,
+          onReady: () => {
+            readyCount += 1
+            options.onReady?.()
+          }
+        }
+        scene.onReady(() => game._publishReadyIfSceneBuilt(mountToken))
+        game._startGame(me, mountToken)
+        return { ready: true }
+      }
+      return { game, readyCount: () => readyCount }
+    }
+
+    const failed = makeContractGame('failed')
+    hallGameMock = failed.game
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const failedWrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+    await new Promise(resolve => setTimeout(resolve, 240))
+    await Vue.nextTick()
+    expect(failed.readyCount()).to.equal(0)
+    expect(failedWrapper.find('.hall-board').classes()).not.to.include('is-melon-ready')
+    expect(failedWrapper.find('.scene-loading').exists()).to.equal(true)
+    failedWrapper.unmount()
+
+    const succeeded = makeContractGame('ready')
+    hallGameMock = succeeded.game
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const succeededWrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+    await new Promise(resolve => setTimeout(resolve, 240))
+    await Vue.nextTick()
+    expect(succeeded.readyCount()).to.equal(1)
+    expect(succeededWrapper.find('.hall-board').classes()).to.include('is-melon-ready')
+    expect(succeededWrapper.find('.scene-loading').exists()).to.equal(false)
+    succeededWrapper.unmount()
+  })
+
+  it('keeps timeout terminal when the old mount resolves late and retries one fresh mount', async () => {
+    const originalSetTimeout = global.window.setTimeout
+    const originalClearTimeout = global.window.clearTimeout
+    const timers = []
+    const oldMount = deferred()
+    const readyCallbacks = []
+    const lockCalls = []
+    let mountCalls = 0
+    let startCalls = 0
+    let destroyCalls = 0
+    global.window.setTimeout = (callback, delay) => { timers.push({ callback, delay }); return timers.length }
+    global.window.clearTimeout = () => {}
+    hallGameMock = {
+      destroy: () => { destroyCalls += 1 },
+      mount: async (_container, options = {}) => {
+        mountCalls += 1
+        readyCallbacks.push(options.onReady)
+        if (mountCalls === 1) await oldMount.promise
+      },
+      setInteractionLocked: (...args) => lockCalls.push(args), setSelectedAgent: () => {},
+      start: () => { startCalls += 1 }, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    let wrapper
+    try {
+      wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+      await Vue.nextTick()
+      timers.find(timer => timer.delay === 15000).callback()
+      await Vue.nextTick()
+      expect(destroyCalls).to.equal(1)
+      expect(wrapper.emitted('simulation-reset')).to.have.length(1)
+      const lockCountAfterTimeout = lockCalls.length
+      oldMount.resolve()
+      await flushPromises()
+      readyCallbacks[0]()
+      await flushPromises()
+      expect(startCalls).to.equal(0)
+      expect(lockCalls).to.have.length(lockCountAfterTimeout)
+
+      await wrapper.find('.scene-error button').trigger('click')
+      await flushPromises()
+      expect(mountCalls).to.equal(2)
+      expect(destroyCalls).to.equal(1)
+      expect(wrapper.emitted('simulation-reset')).to.have.length(2)
+    } finally {
+      wrapper?.unmount()
+      global.window.setTimeout = originalSetTimeout
+      global.window.clearTimeout = originalClearTimeout
+    }
+  })
+
+  it('passes rollback mode into the game mount and declares lifecycle reset wiring', async () => {
+    let mountOptions
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        mountOptions = options
+        options.onReady?.()
+      },
+      setInteractionLocked: () => {}, setSelectedAgent: () => {},
+      start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({ simulationEnabled: false })
+    })
+    await flushPromises()
+
+    expect(mountOptions.simulationEnabled).to.equal(false)
+    expect(readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8'))
+      .to.include('@simulation-reset="resetSimulationLifecycle"')
+    wrapper.unmount()
+  })
+
+  it('restarts a timed-out replacement engine from a fresh authoritative snapshot', async () => {
+    const { useHallCommandQueue } = await import('../src/composables/juyiting/useHallCommandQueue.js')
+    const { useHallSceneState } = await import('../src/composables/juyiting/useHallSceneState.js')
+    const originalSetTimeout = global.window.setTimeout
+    const originalClearTimeout = global.window.clearTimeout
+    const timers = []
+    const engines = [[], []]
+    let mountIndex = 0
+    const movementRuntime = {
+      sceneId: 'juyiting-main', movementSchemaVersion: '1', navGraphVersion: 'graph-v1',
+      spriteManifestVersion: 'persona-sheets-v1', width: 400, height: 300,
+      regions: [
+        { regionId: 'main-seat' },
+        { regionId: 'council-table' }
+      ],
+      nodes: [], edges: [], obstacles: [],
+      slots: [{
+        stableId: 'home-songjiang', slotId: 'home-songjiang', regionId: 'main-seat',
+        point: { x: 20, y: 20 }, personaCode: 'songjiang', kind: 'home'
+      }]
+    }
+    const authoritativeSnapshot = {
+      sceneId: 'juyiting-main', sceneVersion: 16,
+      states: [{
+        agentId: 'agent-songjiang', personaCode: 'songjiang',
+        behavior: 'moving_to_discussion', targetRegionId: 'council-table',
+        stateVersion: 16, startedAt: 1_000, expectedArrivalAt: 5_000, phase: 'moving'
+      }]
+    }
+    global.window.setTimeout = (callback, delay) => {
+      timers.push({ callback, delay })
+      return timers.length
+    }
+    global.window.clearTimeout = () => {}
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        mountIndex += 1
+        options.onReady?.()
+      },
+      getMovementRuntime: () => movementRuntime,
+      enqueueMovementCommands: ([command]) => {
+        engines[mountIndex - 1].push(command)
+        return [{ accepted: true }]
+      },
+      cancelMovement: () => true,
+      setInteractionLocked: () => {}, setSelectedAgent: () => {},
+      start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const commandQueue = useHallCommandQueue()
+    const sceneState = useHallSceneState({ commandQueue, now: () => 2_000 })
+    const Harness = {
+      setup() {
+        const onSimulationReady = ({ movementRuntime: map, simulation }) => {
+          sceneState.setMapRuntime(map)
+          commandQueue.setSimulation(simulation)
+          sceneState.applySnapshot(authoritativeSnapshot)
+        }
+        const onSimulationReset = () => {
+          commandQueue.setSimulation(null)
+          sceneState.reset()
+        }
+        return () => Vue.h(HallStage, {
+          ...makeHallStageProps(),
+          onSimulationReady,
+          onSimulationReset
+        })
+      }
+    }
+    let wrapper
+    try {
+      wrapper = mount(Harness, { global: { stubs } })
+      await waitForStageReady()
+      expect(engines[0]).to.have.length(1)
+
+      timers.find(timer => timer.delay === 15000).callback()
+      await Vue.nextTick()
+      await wrapper.find('.scene-error button').trigger('click')
+      await flushPromises()
+
+      expect(mountIndex).to.equal(2)
+      expect(engines[1]).to.have.length(1)
+      expect(engines[1][0]).to.include({ agentId: 'agent-songjiang', stateVersion: 16 })
+    } finally {
+      wrapper?.unmount()
+      global.window.setTimeout = originalSetTimeout
+      global.window.clearTimeout = originalClearTimeout
+    }
+  })
+
+  it('blocks stage actions while loading and reapplies the loading lock after mount resolves', async () => {
+    const pendingMount = deferred()
+    const lockCalls = []
+    const zoomCalls = []
+    const resetCalls = []
+    let readyCallback
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        readyCallback = options.onReady
+        await pendingMount.promise
+      },
+      resetToMainHall: () => resetCalls.push(true),
+      setInteractionLocked: (...args) => lockCalls.push(args),
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {},
+      zoomBy: delta => zoomCalls.push(delta)
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps({ isMobileCoarse: true }) })
+    const board = wrapper.find('.hall-board')
+
+    await board.trigger('keydown', { key: '+' })
+    await board.trigger('keydown', { key: '0' })
+    await wrapper.find('.orientation-action').trigger('click')
+    expect(zoomCalls).to.deep.equal([])
+    expect(resetCalls).to.deep.equal([])
+
+    pendingMount.resolve()
+    await waitForStageReady()
+    expect(lockCalls.filter(call => call[0] === true && call[1] === 'loading')).to.have.length(2)
+
+    readyCallback()
+    await flushPromises()
+    expect(lockCalls.filter(call => call[0] === false && call[1] === 'loading')).to.have.length(1)
+    wrapper.unmount()
+  })
+
+  it('shows an accessible return-main-hall control away from preset and hides it during a panel lock', async () => {
+    let resetCalls = 0
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      getCameraSnapshot: () => ({ presetKey: 'desktop', transform: { zoom: 1, offsetX: 0, offsetY: 0 } }),
+      resetToMainHall: () => { resetCalls += 1 }, setInteractionLocked: () => {},
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+    await flushPromises()
+    await wrapper.find('.hall-board').trigger('wheel')
+    await Vue.nextTick()
+
+    const button = wrapper.find('.return-main-hall')
+    expect(button.attributes('aria-label')).to.equal('回主厅')
+    expect(button.attributes('title')).to.equal('回主厅')
+    await button.trigger('click')
+    expect(resetCalls).to.equal(1)
+    await wrapper.setProps({ interactionLocked: true })
+    expect(wrapper.find('.return-main-hall').exists()).to.equal(false)
+    wrapper.unmount()
+  })
+
+  it('uses screen-to-world center math for return visibility at non-unit zoom', async () => {
+    const originalInnerWidth = global.window.innerWidth
+    const originalInnerHeight = global.window.innerHeight
+    Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: 500 })
+    Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: 800 })
+    const snapshot = {
+      presetKey: 'mobilePortrait',
+      transform: { zoom: 1.25, offsetX: -727.5, offsetY: 12.5 }
+    }
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      getCameraSnapshot: () => snapshot, setInteractionLocked: () => {}, setSelectedAgent: () => {},
+      start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+
+    let wrapper
+    try {
+      wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+      await waitForStageReady()
+      expect(wrapper.find('.return-main-hall').exists()).to.equal(false)
+
+      snapshot.transform = { zoom: 1.25, offsetX: -791.25, offsetY: 12.5 }
+      await wrapper.find('.hall-board').trigger('wheel')
+      await waitForStageReady()
+      expect(wrapper.find('.return-main-hall').exists()).to.equal(true)
+    } finally {
+      wrapper?.unmount()
+      Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+      Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: originalInnerHeight })
+    }
+  })
+
+  it('throttles return refresh, polls reset completion, and cancels callbacks on unmount', async () => {
+    const originalRaf = global.window.requestAnimationFrame
+    const originalCancelRaf = global.window.cancelAnimationFrame
+    const originalInnerWidth = global.window.innerWidth
+    const originalInnerHeight = global.window.innerHeight
+    const originalResizeObserver = Object.getOwnPropertyDescriptor(global.window, 'ResizeObserver')
+    const viewportRect = { x: 0, y: 0, top: 0, left: 0, right: 960, bottom: 640, width: 960, height: 640, toJSON: () => ({}) }
+    const frames = new Map()
+    let frameId = 0
+    let snapshotCalls = 0
+    let resetCalls = 0
+    let animation = null
+    class FixtureResizeObserver {
+      constructor(callback) { this.callback = callback }
+      observe(target) { this.callback([{ target, contentRect: viewportRect }]) }
+      disconnect() {}
+    }
+    Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: 960 })
+    Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: 640 })
+    Object.defineProperty(global.window, 'ResizeObserver', { configurable: true, value: FixtureResizeObserver })
+    global.window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId }
+    global.window.cancelAnimationFrame = id => frames.delete(id)
+    const runNextFrame = () => {
+      const entry = frames.entries().next().value
+      if (!entry) return null
+      frames.delete(entry[0])
+      entry[1](0)
+      return entry[1]
+    }
+    const pumpFrames = async (limit = 8) => {
+      for (let pass = 0; pass < limit; pass += 1) {
+        await flushPromises()
+        if (!frames.size) return
+        runNextFrame()
+      }
+      await flushPromises()
+      expect(frames.size, `viewport fixture did not settle within ${limit} frames`).to.equal(0)
+    }
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      getCameraSnapshot: () => {
+        snapshotCalls += 1
+        return { presetKey: 'desktop', animation, transform: { zoom: 1, offsetX: 0, offsetY: 0 } }
+      },
+      resetToMainHall: () => { resetCalls += 1; animation = { startedAt: 0, durationMs: 200 } },
+      setInteractionLocked: () => {}, setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    let wrapper
+    try {
+      wrapper = mount(HallStage, { global: { stubs }, props: makeHallStageProps() })
+      wrapper.find('.melon-layer').element.getBoundingClientRect = () => viewportRect
+      await pumpFrames()
+      const baseline = snapshotCalls
+      await wrapper.find('.hall-board').trigger('wheel')
+      await wrapper.find('.hall-board').trigger('wheel')
+      expect(frames.size).to.equal(1)
+      runNextFrame()
+      expect(snapshotCalls).to.equal(baseline + 1)
+
+      await wrapper.find('.return-main-hall').trigger('click')
+      expect(resetCalls).to.equal(1)
+      runNextFrame()
+      expect(frames.size).to.equal(1)
+      animation = null
+      const staleCallback = runNextFrame()
+      expect(frames.size).to.equal(0)
+      const beforeUnmount = snapshotCalls
+      wrapper.unmount()
+      wrapper = null
+      staleCallback?.(0)
+      expect(snapshotCalls).to.equal(beforeUnmount)
+    } finally {
+      wrapper?.unmount()
+      global.window.requestAnimationFrame = originalRaf
+      global.window.cancelAnimationFrame = originalCancelRaf
+      Object.defineProperty(global.window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+      Object.defineProperty(global.window, 'innerHeight', { configurable: true, value: originalInnerHeight })
+      if (originalResizeObserver) Object.defineProperty(global.window, 'ResizeObserver', originalResizeObserver)
+      else delete global.window.ResizeObserver
+    }
+  })
+
+  it('renders the hall scene body as a melonJS canvas shell without DOM room or agent layers', () => {
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps()
+    })
+    const stageSource = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+    const board = wrapper.find('.hall-board')
+
+    expect(wrapper.find('.melon-layer').exists()).to.equal(true)
+    expect(board.attributes('aria-label')).to.equal('聚义厅 melonJS 场景，可使用加减号缩放，0 复位')
+    expect(board.attributes('tabindex')).to.equal('0')
+    expect(wrapper.find('.map-world').exists()).to.equal(false)
+    expect(wrapper.find('.hall-room').exists()).to.equal(false)
+    expect(wrapper.find('.room-prop-layer').exists()).to.equal(false)
+    expect(wrapper.find('.agent-token').exists()).to.equal(false)
+    expect(stageSource).not.to.include('hallBoardRef')
+  })
+
+  it('forwards keyboard zoom controls to the melonJS game layer', async () => {
+    const zoomCalls = []
+    const resetCalls = []
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        options.onReady?.()
+      },
+      resetToMainHall: () => resetCalls.push(true),
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {},
+      zoomBy: delta => zoomCalls.push(delta)
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps()
+    })
+    await waitForStageReady()
+    const board = wrapper.find('.hall-board')
+
+    await board.trigger('keydown', { key: '+' })
+    await board.trigger('keydown', { key: '-' })
+    await board.trigger('keydown', { key: '0' })
+
+    expect(zoomCalls).to.deep.equal([0.12, -0.12])
+    expect(resetCalls).to.have.length(1)
+  })
+
+  it('leaves mobile touch drag and pinch gestures to the melonJS scene layer', async () => {
+    const panCalls = []
+    const zoomCalls = []
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        options.onReady?.()
+      },
+      panBy: (dx, dy) => panCalls.push([dx, dy]),
+      resetTransform: () => {},
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {},
+      zoomBy: delta => zoomCalls.push(delta)
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps()
+    })
+    const board = wrapper.find('.hall-board')
+
+    expect(board.attributes()).not.to.have.property('ontouchstart')
+    await board.trigger('touchmove', {
+      touches: [{ clientX: 128, clientY: 116 }],
+      preventDefault: () => {}
+    })
+
+    expect(panCalls).to.deep.equal([])
+    expect(zoomCalls).to.deep.equal([])
+  })
+
+  it('renders HallStage from the supplied experience mode and delegates orientation requests', async () => {
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({
+        experienceMode: 'portrait-command',
+        isMobileCoarse: true,
+        orientationHint: '请旋转手机横屏查看'
+      })
+    })
+    await waitForStageReady()
+
+    expect(wrapper.find('.hall-board').classes()).to.include('is-scene-portrait')
+    expect(wrapper.find('.orientation-hint').text()).to.equal('请旋转手机横屏查看')
+    await wrapper.find('.orientation-action').trigger('click')
+    expect(wrapper.emitted('request-landscape')).to.have.length(1)
+
+    await wrapper.setProps({ experienceMode: 'landscape-map', orientationHint: '' })
+    expect(wrapper.find('.hall-board').classes()).to.include('is-scene-landscape')
+    expect(wrapper.find('.orientation-action').exists()).to.equal(true)
+    expect(readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8'))
+      .to.include("emit(sceneMode.value === 'landscape' ? 'request-portrait' : 'request-landscape')")
+
+    await wrapper.setProps({ isMobileCoarse: false })
+    expect(wrapper.find('.orientation-action').exists()).to.equal(false)
+    wrapper.unmount()
+  })
+
+  it('mounts exactly one account control in each non-readonly stage mode and forwards its event', async () => {
+    hallGameMock = {
+      destroy: () => {}, mount: async (_container, options = {}) => options.onReady?.(),
+      setSelectedAgent: () => {}, start: () => {}, syncAgents: () => {}, syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const portrait = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({ experienceMode: 'portrait-command' })
+    })
+    await waitForStageReady()
+    expect(portrait.findAll('.hall-account-entry-stub')).to.have.length(1)
+    expect(portrait.find('.stage-header-account.hall-account-entry-stub').exists()).to.equal(true)
+    expect(portrait.find('.stage-landscape-account.hall-account-entry-stub').exists()).to.equal(false)
+    portrait.findComponent({ name: 'HallAccountEntry' }).vm.$emit('open-profile')
+    await Vue.nextTick()
+    expect(portrait.emitted('open-profile')).to.have.length(1)
+    portrait.unmount()
+
+    const landscape = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({ experienceMode: 'landscape-map' })
+    })
+    await waitForStageReady()
+    expect(landscape.findAll('.hall-account-entry-stub')).to.have.length(1)
+    expect(landscape.find('.stage-header-account.hall-account-entry-stub').exists()).to.equal(false)
+    expect(landscape.find('.stage-landscape-account.hall-account-entry-stub').exists()).to.equal(true)
+    landscape.findComponent({ name: 'HallAccountEntry' }).vm.$emit('open-profile')
+    await Vue.nextTick()
+    expect(landscape.emitted('open-profile')).to.have.length(1)
+    landscape.unmount()
+  })
+
+  it('keeps the stage replay control discreet and forwards its invoking element upstream', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+
+    expect(source).to.include('class="tool-action onboarding-replay"')
+    expect(source).to.include("emit('open-onboarding', target)")
+  })
+
+  it('uses supported Varlet icons for the orientation toggle', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+
+    expect(source).not.to.include('crop-landscape')
+    expect(source).not.to.include("sceneMode === 'landscape' ? 'phone'")
+    expect(source).to.include('class="orientation-glyph"')
+    expect(source).to.include("'is-glyph-portrait': sceneMode === 'landscape'")
+    expect(source).to.include("'is-glyph-landscape': sceneMode !== 'landscape'")
+  })
+
+  it('keeps the orientation glyph visible when mobile tool labels are hidden', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+
+    expect(source).to.include('class="tool-label"')
+    expect(source).to.include('.tool-action .tool-label')
+    expect(source).not.to.include('.tool-action span {\n    display: none;')
+  })
+
+  it('uses available glyphs and accessible names for immersive overview and toolbox entries', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+    const icons = readFileSync(new URL('../node_modules/@varlet/icons/dist/css/varlet-icons.scss', import.meta.url), 'utf8')
+    for (const icon of ['format-list-checkbox', 'map-marker-outline', 'wrench']) {
+      expect(source).to.include(icon)
+      expect(icons).to.include(`.var-icon-${icon}::before`)
+    }
+    expect(source).to.include(`:aria-label="homeMode === 'map' ? '办事概览' : '厅中实景'"`)
+    expect(source).not.to.include('view-dashboard-outline')
+    expect(source).not.to.include('briefcase-variant-outline')
+  })
+
+  it('keeps the floating stage header compact so it does not cover the hall map', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+    const headerRule = cssRule(source, '.stage-header')
+
+    expect(headerRule).to.include('right: auto;')
+    expect(headerRule).to.include('width: fit-content;')
+    expect(headerRule).to.include('max-width: min(420px, calc(100% - 36px));')
+    expect(headerRule).to.include('background: rgba(35, 24, 16, 0.38)')
+    expect(source).to.include('@media (max-width: 640px)')
+    expect(source).to.include('max-width: calc(100% - 16px);')
+    expect(source).to.include('.stage-heading .eyebrow {\n    display: none;')
+    expect(source).to.include("'is-virtual-landscape': virtualLandscape")
+    expect(source).to.include('setVirtualViewport?.(props.virtualLandscape ? stageViewportNow() : null)')
+    const hallSource = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    expect(hallSource).to.include('.juyi-page.is-virtual-landscape')
+    expect(hallSource).to.include('transform: rotate(90deg) translateY(-100%);')
+    expect(source).to.include('.hall-stage:has(.hall-board.is-scene-landscape) .stage-header {\n  top: 4px;')
+    expect(source).to.include('.hall-stage:has(.hall-board.is-scene-landscape) .stage-heading .eyebrow {\n  display: none;')
+    expect(source).to.include('.hall-stage:has(.hall-board.is-scene-landscape) .tool-action .tool-label {\n  display: none;')
+  })
+
+  it('renders the recruit entry and persona catalog actions', async () => {
+    const personas = [
+      { personaCode: 'songjiang', name: '宋江', title: '及时雨', rankNo: 1, starName: '天魁星', systemAgent: true, abilities: ['dispatch'] },
+      { personaCode: 'wuyong', name: '吴用', title: '智多星', rankNo: 3, starName: '天机星', canBind: true, abilities: ['planning'] },
+      { personaCode: 'linchong', name: '林冲', title: '豹子头', rankNo: 6, starName: '天雄星', boundToMe: true, abilities: ['battle'] }
+    ]
+    const catalog = mount(PersonaCatalogPanel, {
+      global: { stubs },
+      props: {
+        personas,
+        portraitName: persona => `${persona.name}·${persona.title}`,
+        portraitStyle: () => ({})
+      }
+    })
+
+    expect(catalog.text()).to.include('3 位待请豪杰')
+    expect(catalog.text()).to.include('宋江')
+    expect(catalog.text()).to.include('头领')
+    expect(catalog.text()).to.include('吴用')
+    expect(catalog.text()).to.include('请上梁山')
+    expect(catalog.text()).to.include('林冲')
+    expect(catalog.text()).to.include('移除好汉')
+
+    await catalog.find('.catalog-action.primary').trigger('click')
+    expect(catalog.text()).to.include('择个接应去处')
+    expect(catalog.text()).to.include('平台托管')
+    expect(catalog.text()).to.include('自行部署')
+
+    await catalog.find('.catalog-action.primary').trigger('click')
+    expect(catalog.emitted('bind-persona')).to.equal(undefined)
+    expect(catalog.find('.hosting-rent-stub').exists()).to.equal(true)
+    await catalog.find('.catalog-action.primary').trigger('click')
+    await catalog.findAll('button').find(button => button.text() === '自行部署').trigger('click')
+    expect(catalog.emitted('bind-persona')[0]).to.deep.equal([personas[1], 'local'])
+    catalog.unmount()
+  })
+
+  it('keeps hotspot labels in scene constants instead of the HallStage DOM', () => {
+    const source = readFileSync(new URL('../src/constants/juyiting.js', import.meta.url), 'utf8')
+    const sceneSource = readFileSync(new URL('../src/constants/juyitingScene.js', import.meta.url), 'utf8')
+    const stageSource = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+
+    for (const label of ['忠义堂公议', '点将册', '悬赏榜', '招贤令', '案卷阁', '整装处']) {
+      expect(source).to.include(`title: '${label}'`)
+    }
+
+    for (const oldLabel of ['榜文房', '招贤馆', '藏书阁']) {
+      expect(source).not.to.include(`title: '${oldLabel}'`)
+      expect(sceneSource).not.to.include(`label: '${oldLabel}'`)
+    }
+
+    for (const label of ['忠义堂公议', '点将册', '悬赏榜', '招贤令', '案卷阁', '整装处']) {
+      expect(stageSource).not.to.include(label)
+    }
+    expect(stageSource).not.to.include('object-visual')
+  })
+
+  it('does not import DOM scene assets or AgentToken in HallStage', () => {
+    const stageSource = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+
+    expect(stageSource).not.to.include('AgentToken')
+    expect(stageSource).not.to.include('@/assets/juyiting/')
+    expect(stageSource).not.to.include('hallPhysicalScene')
+    expect(stageSource).not.to.include('hallRoomPropVisuals')
+  })
+
+  it('syncs scene agents to the melonJS game layer when ready', async () => {
+    const syncedAgents = []
+    const syncedHotspots = []
+    const selectedAgentIds = []
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        options.onReady?.()
+      },
+      setSelectedAgent: agentId => selectedAgentIds.push(agentId),
+      start: () => {},
+      syncAgents: agents => syncedAgents.push(agents),
+      syncHotspots: hotspots => syncedHotspots.push(hotspots)
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const sceneAgents = [
+      { agentId: 'songjiang', name: '宋江', x: 50, y: 45 },
+      { agentId: 'linchong', name: '林冲', x: 34, y: 63 }
+    ]
+    const sceneHotspots = [
+      { id: 'bountyBoard', state: 'active', feedbackText: '荐单已出' }
+    ]
+
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({
+        sceneAgents,
+        sceneHotspots,
+        visibleAgents: []
+      })
+    })
+    await waitForStageReady()
+
+    expect(syncedAgents).to.deep.include(sceneAgents)
+    expect(syncedHotspots).to.deep.include(sceneHotspots)
+    expect(wrapper.find('.hall-board').classes()).to.include('is-melon-ready')
+    expect(wrapper.find('.map-world').exists()).to.equal(false)
+
+    const updatedAgents = [{ agentId: 'wuyong', name: '吴用', x: 42, y: 52 }]
+    const updatedHotspots = [{ id: 'catalog', state: 'active' }]
+    const selectedAgent = { agentId: 'wuyong', name: '吴用' }
+    await wrapper.setProps({
+      sceneAgents: updatedAgents,
+      sceneHotspots: updatedHotspots,
+      selectedAgent
+    })
+    await Vue.nextTick()
+
+    expect(syncedAgents).to.deep.include(updatedAgents)
+    expect(syncedHotspots).to.deep.include(updatedHotspots)
+    expect(selectedAgentIds).to.deep.include('wuyong')
+  })
+
+  it('keeps the melonJS layer filling the hall board without leaving unused page space', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+    const boardRule = cssRule(source, '.hall-board')
+    const melonRule = cssRule(source, '.melon-layer')
+
+    expect(boardRule).not.to.include('aspect-ratio: 1672 / 941')
+    expect(boardRule).to.include('flex: 1 1 auto')
+    expect(boardRule).to.include('width: 100%')
+    expect(melonRule).to.include('inset: 0')
+    expect(melonRule).to.include('width: 100%')
+    expect(melonRule).to.include('height: 100%')
+    expect(melonRule).not.to.include('transform')
+    expect(cssRule(source, '.melon-layer :deep(canvas)')).to.include('display: block')
+    expect(source).not.to.include('--map-offset-x')
+    expect(source).not.to.include('--map-zoom')
+  })
+
+  it('wires melonJS agent clicks back to Vue selection', async () => {
+    let clickHandler
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        clickHandler = options.onAgentClick
+        options.onReady?.()
+      },
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const sceneAgents = [{ agentId: 'linchong', name: '林冲', x: 34, y: 63 }]
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({
+        sceneAgents,
+        visibleAgents: []
+      })
+    })
+
+    await waitForStageReady()
+
+    clickHandler({ agentId: 'linchong' })
+
+    expect(wrapper.emitted('select-agent')[0]).to.deep.equal([sceneAgents[0]])
+  })
+
+  it('wires melonJS hotspot clicks back to Vue panel routing', async () => {
+    let hotspotHandler
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        hotspotHandler = options.onHotspotClick
+        options.onReady?.()
+      },
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps()
+    })
+
+    await waitForStageReady()
+
+    hotspotHandler({ panel: 'tasks' })
+
+    expect(wrapper.emitted('open-panel')[0]).to.deep.equal(['tasks'])
+  })
+
+  it('does not expose ground-click movement controls from the melonJS layer', async () => {
+    let mountOptions
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        mountOptions = options
+        options.onReady?.()
+      },
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps()
+    })
+
+    expect(mountOptions).not.to.have.property('onWalkRequest')
+    expect(wrapper.emitted('move-agent')).to.equal(undefined)
+  })
+
+  it('shows a scene error and retries melonJS mounting without restoring DOM rooms', async () => {
+    let mountCalls = 0
+    let destroyCalls = 0
+    const originalWarn = console.warn
+    console.warn = () => {}
+    hallGameMock = {
+      destroy: () => {
+        destroyCalls += 1
+      },
+      mount: async (_container, options = {}) => {
+        mountCalls += 1
+        if (mountCalls === 1) throw new Error('boom')
+        options.onReady?.()
+      },
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+
+    try {
+      const wrapper = mount(HallStage, {
+        global: { stubs },
+        props: makeHallStageProps()
+      })
+
+      await Promise.resolve()
+      await Vue.nextTick()
+
+      expect(wrapper.find('.scene-error').text()).to.include('聚义厅场景暂不可用')
+      expect(wrapper.find('.map-world').exists()).to.equal(false)
+      expect(wrapper.find('.hall-room').exists()).to.equal(false)
+
+      await wrapper.find('.scene-error button').trigger('click')
+      await flushPromises()
+
+      expect(destroyCalls).to.equal(1)
+      expect(mountCalls).to.equal(2)
+      expect(wrapper.find('.hall-board').classes()).to.include('is-melon-ready')
+      expect(wrapper.find('.scene-error').exists()).to.equal(false)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  it('prevents overlapping melonJS retry mounts while retry is pending', async () => {
+    let mountCalls = 0
+    let destroyCalls = 0
+    const pendingRetry = deferred()
+    const originalWarn = console.warn
+    console.warn = () => {}
+    hallGameMock = {
+      destroy: () => {
+        destroyCalls += 1
+      },
+      mount: async (_container, options = {}) => {
+        mountCalls += 1
+        if (mountCalls === 1) throw new Error('boom')
+        await pendingRetry.promise
+        options.onReady?.()
+      },
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {},
+      syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+
+    try {
+      const wrapper = mount(HallStage, {
+        global: { stubs },
+        props: makeHallStageProps()
+      })
+      await flushPromises()
+
+      const retryButton = wrapper.find('.scene-error button')
+      await retryButton.trigger('click')
+      await Vue.nextTick()
+
+      expect(wrapper.find('.scene-loading').exists()).to.equal(true)
+
+      expect(destroyCalls).to.equal(1)
+      expect(mountCalls).to.equal(2)
+
+      pendingRetry.resolve()
+      await flushPromises()
+
+      expect(wrapper.find('.hall-board').classes()).to.include('is-melon-ready')
+      expect(wrapper.find('.scene-error').exists()).to.equal(false)
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  it('ignores stale melonJS ready callbacks after HallStage unmounts', async () => {
+    let readyHandler
+    let syncedAgents = 0
+    hallGameMock = {
+      destroy: () => {},
+      mount: async (_container, options = {}) => {
+        readyHandler = options.onReady
+      },
+      setSelectedAgent: () => {},
+      start: () => {},
+      syncAgents: () => {
+        syncedAgents += 1
+      },
+      syncHotspots: () => {}
+    }
+    HallStage = loadSfc('../src/components/juyiting/HallStage.vue')
+    const wrapper = mount(HallStage, {
+      global: { stubs },
+      props: makeHallStageProps({
+        sceneAgents: [{ agentId: 'songjiang', name: '宋江', x: 50, y: 45 }]
+      })
+    })
+
+    await flushPromises()
+    wrapper.unmount()
+    readyHandler()
+
+    expect(syncedAgents).to.equal(0)
+  })
+
+  it('opens panels and clears locked contexts from BottomDock', async () => {
+    const wrapper = mount(BottomDock, {
+      global: { stubs },
+      props: {
+        activePanel: 'tasks',
+        agentsTotal: 18,
+        tasksTotal: 5,
+        selectedAgent: { agentId: 'agent-wuyong', name: 'Wu Yong' },
+        selectedTask: { id: 'task-1', title: 'Inspect the camp' },
+        agentLabel: 'Strategist / Wu Yong'
+      }
+    })
+
+    const buttons = wrapper.findAll('button')
+    await buttons[0].trigger('click')
+    await buttons[6].trigger('click')
+    await buttons[7].trigger('click')
+
+    expect(wrapper.emitted('open-panel')[0]).to.deep.equal(['command'])
+    expect(wrapper.emitted('clear-agent')).to.have.length(1)
+    expect(wrapper.emitted('clear-task')).to.have.length(1)
+    expect(wrapper.text()).to.include('Strategist / Wu Yong')
+    expect(wrapper.text()).to.include('Inspect the camp')
+  })
+
+  it('shows only candidate ratings on ready and keeps loading and error recovery', async () => {
+    const task = { id: 'rating-task', title: '统计成绩', status: 'open', taskVersion: '1' }
+    const agents = ['MEDIUM', 'HIGH', 'LOW', 'UNKNOWN'].map((level, i) => ({ agentId: `a${i}`, displayName: `好汉${i}`,
+      isMine: i !== 1, availability: 'online', recommendationLevel: level, recommendationReason: `理由${i}`, taskQuote: syntheticTaskQuote() }))
+    const state = { state: 'READY', result: { observedAt: 1, requirementSummary: '读取成绩图片并统计' } }
+    const wrapper = mount(BountyPanel, { global: { stubs }, props: {
+      embeddedHall: true, tasks: [task], selectedTask: task, recommendedAgents: agents,
+      recommendationState: state, abilityText: () => '', canAssign: () => true,
+      formatTime: v => v, portraitName: a => a.displayName, portraitStyle: () => ({}),
+      taskStateClass: () => '', taskStatusText: () => '待承办', taskStatusCount: () => 1, taskStatusFilters: []
+    } })
+    try {
+      await wrapper.find('.task-card').trigger('click')
+      expect(wrapper.find('[aria-label="刷新承办候选"]').exists()).to.equal(false)
+      expect(wrapper.find('.matter-candidate-card').exists()).to.equal(false)
+      expect(wrapper.get('.matter-selected-reason').text()).to.equal('理由0')
+      await wrapper.get('.matter-agent-toggle').trigger('click')
+      expect(wrapper.findAll('.recommendation-level').map(e => e.text())).to.deep.equal(['可以考虑', '优先推荐', '匹配较低', '资料不足'])
+      expect(wrapper.findAll('.matter-candidate-card')[0].attributes('aria-pressed')).to.equal('true')
+      expect(wrapper.find('.matter-recommendation').exists()).to.equal(false)
+      expect(wrapper.find('.recommendation-understanding').exists()).to.equal(false)
+      expect(wrapper.find('.matter-candidate-filters').exists()).to.equal(false)
+      expect(wrapper.text()).not.to.include('确认后，将需求和所选资料')
+      await wrapper.setProps({ recommendationState: { state: 'LOADING', result: null }, recommendedAgents: [] })
+      expect(wrapper.get('.recommendation-status').text()).to.equal('正在为你挑选合适的好汉…')
+      expect(wrapper.find('.recommendation-spinner').exists()).to.equal(true)
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      expect(wrapper.find('.recommendation-understanding').exists()).to.equal(false)
+      expect(wrapper.find('.matter-recommendation button').exists()).to.equal(false)
+      for (const state of ['ERROR', 'STALE']) {
+        await wrapper.setProps({ recommendationState: { state, result: null } })
+        await wrapper.get('.matter-recommendation button').trigger('click')
+      }
+      expect(wrapper.emitted('refresh-recommendation')).to.have.length(2)
+      await wrapper.setProps({ recommendationState: { state: 'NO_MATCH', result: { ...state.result, observedAt: 2 } }, recommendedAgents: agents.slice(2) })
+      expect(wrapper.find('.matter-recommendation').exists()).to.equal(false)
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.findAll('.matter-candidate-card')[1].trigger('click')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(false)
+      expect(wrapper.emitted('assign-task')).to.equal(undefined)
+      await wrapper.get('.matter-primary-action').trigger('click')
+      expect(wrapper.emitted('assign-task')[0][1].recommendationLevel).to.equal('UNKNOWN')
+    } finally { wrapper.unmount() }
+  })
+
+  it('progressively discloses asynchronous recommendations and preserves explicit expansion', async () => {
+    const task = { id: 'collapse-task', status: 'open', taskVersion: '1' }
+    const a = { agentId: 'a', displayName: '林冲', recommendationLevel: 'HIGH', recommendationReason: '能够读取图片', taskQuote: { state: 'AVAILABLE', quoteId: 'qa', recommendationId: 'r1', amount: { amountMinor: '13', currency: 'WEN' }, unavailableReason: null } }
+    const b = { agentId: 'b', displayName: '吴用', recommendationLevel: 'UNKNOWN', recommendationReason: '资料不足', taskQuote: { state: 'AVAILABLE', quoteId: 'qb', recommendationId: 'r1', amount: { amountMinor: '0', currency: 'WEN' }, unavailableReason: null } }
+    const wrapper = mount(BountyPanel, { attachTo: document.body, global: { stubs }, props: {
+      embeddedHall: true, selectedTask: task, tasks: [task], identityScope: 'one', authorizationGeneration: 1,
+      recommendedAgents: [], assigneeCandidates: [a, b], recommendationState: { state: 'LOADING' },
+      canAssign: () => true, abilityText: () => '', formatTime: v => v, portraitName: a => a.displayName,
+      portraitStyle: () => ({}), taskStateClass: () => '', taskStatusText: () => '', taskStatusCount: () => 1, taskStatusFilters: []
+    } })
+    try {
+      wrapper.vm.openTask(task); await Vue.nextTick()
+      expect(wrapper.get('.matter-agent-toggle').attributes('aria-expanded')).to.equal('false')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ recommendedAgents: [a, b], recommendationState: { state: 'READY' } })
+      expect(wrapper.find('.matter-candidate-card').exists()).to.equal(false)
+      expect(wrapper.get('.matter-selected-reason').text()).to.equal(a.recommendationReason)
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由林冲承办')
+      expect(wrapper.get('.matter-quote').text()).to.include('事项报价 13文')
+      await wrapper.setProps({ recommendedAgents: [{ ...a, taskQuote: { state: 'UNAVAILABLE', quoteId: null, recommendationId: 'r1', amount: null, unavailableReason: 'MODEL_PRICE_MISSING' } }, b] })
+      expect(wrapper.get('.matter-quote').text()).to.include('暂无法报价')
+      expect(wrapper.get('.matter-quote').text()).not.to.include('0文')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ recommendedAgents: [a, b] })
+      await wrapper.get('.matter-primary-action').trigger('click')
+      expect(wrapper.emitted('assign-task')[0]).to.deep.equal([task, a])
+      await wrapper.get('.matter-agent-toggle').trigger('click')
+      expect(wrapper.get('.matter-agent-toggle').text()).to.equal('收起候选列表')
+      await wrapper.setProps({ recommendedAgents: [{ ...a }, b] })
+      expect(wrapper.findAll('.matter-candidate-card')).to.have.length(2)
+      await wrapper.findAll('.matter-candidate-card')[1].trigger('click')
+      expect(wrapper.find('.matter-candidate-card').exists()).to.equal(false)
+      expect(wrapper.get('.matter-advice-card').text()).to.include('已选承办')
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
+      expect(document.activeElement).to.equal(wrapper.get('.matter-agent-toggle').element)
+      expect(wrapper.emitted('assign-task')).to.have.length(1)
+      await wrapper.setProps({ recommendedAgents: [a, { ...b }] })
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
+      await wrapper.setProps({ pointAndStartBusy: true })
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      expect(wrapper.get('.matter-agent-toggle').element.disabled).to.equal(true)
+      await wrapper.setProps({ pointAndStartBusy: false, recommendedAgents: [], assigneeCandidates: [a], recommendationState: { state: 'NO_MATCH' } })
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      expect(wrapper.get('.matter-agent-toggle').attributes('aria-expanded')).to.equal('true')
+      for (const change of [{ identityScope: 'two' }, { authorizationGeneration: 2 }, { selectedTask: { ...task, taskVersion: '2' } }, { selectedTask: { ...task, id: 'other' } }]) {
+        await wrapper.setProps({ assigneeCandidates: [a, b], recommendationState: { state: 'NO_MATCH' } })
+        if (wrapper.get('.matter-agent-toggle').attributes('aria-expanded') === 'false') await wrapper.get('.matter-agent-toggle').trigger('click')
+        await wrapper.findAll('.matter-candidate-card')[1].trigger('click')
+        expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
+        await wrapper.setProps(change)
+        if (change.identityScope || change.authorizationGeneration) expect(wrapper.find('.matter-agent-toggle').exists()).to.equal(false)
+        wrapper.vm.openTask(change.selectedTask || task); await Vue.nextTick()
+        expect(wrapper.get('.matter-agent-toggle').attributes('aria-expanded')).to.equal('true')
+        expect(wrapper.get('.matter-primary-action').text()).to.equal('请选择承办人')
+        expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      }
+    } finally { wrapper.unmount() }
+  })
+
+  it('UI parity selects an explicit candidate without assigning until confirmation and keeps secondary phases reachable', async () => {
+    const task = { id: 'parity-task', title: '需求', status: 'open', taskVersion: '1', requiredAbilities: [] }
+    const agents = ['吴用', '林冲'].map((name, i) => ({ agentId: `agent-${i}`, name, status: 'online', canOperate: true, taskQuote: syntheticTaskQuote() }))
+    const wrapper = mount(BountyPanel, { global: { stubs }, props: {
+      embeddedHall: true, tasks: [task], selectedTask: task, recommendedAgents: agents, operableAgents: agents,
+      abilityText: () => '', canAssign: (task, agent) => Boolean(task && agent), formatTime: v => v,
+      portraitName: a => a.name, portraitStyle: () => ({}), taskAgentMatchScore: () => 90,
+      taskStateClass: () => '', taskStatusText: () => '待承办', taskStatusCount: () => 1,
+      taskStatusFilters: [{ label: '待承办', value: 'PENDING_ASSIGNMENT' }, { label: '历史', value: 'HISTORY' }, { label: '待核对', value: 'UNKNOWN' }]
+    } })
+    try {
+      expect(wrapper.findAll('.task-status-tabs button')).to.have.length(2)
+      await wrapper.findAll('.task-status-tabs button').at(-1).trigger('click')
+      expect(wrapper.emitted('set-status-filter')).to.deep.equal([['UNKNOWN']])
+      await wrapper.setProps({ taskStatusFilter: 'UNKNOWN' })
+      expect(wrapper.findAll('.task-secondary-filters button')).to.have.length(2)
+      await wrapper.find('.task-card').trigger('click')
+      expect(wrapper.text()).to.include('事项进展')
+      await wrapper.findAll('.matter-candidates button')[1].trigger('click')
+      expect(wrapper.emitted('assign-task')).to.equal(undefined)
+      await wrapper.get('.matter-primary-action').trigger('click')
+      expect(wrapper.emitted('assign-task')).to.deep.equal([[task, agents[1]]])
+      await wrapper.setProps({ pointAndStartBusy: true })
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ pointAndStartBusy: false }); wrapper.vm.openTask({ ...task, id: 'second' }); await Vue.nextTick()
+      expect(wrapper.find('.matter-candidates').exists()).to.equal(true)
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps all manual candidates without filters and shows only authoritative emptiness', async () => {
+    const task = { id: 'manual-task', taskVersion: '1', status: 'open', title: '需求' }
+    const candidates = [{ agentId: 'a', displayName: '林冲', isMine: true, availability: 'online' },
+      { agentId: 'b', displayName: '吴用', isMine: false, availability: 'offline', providerDisplayName: '他人' }]
+    const wrapper = mount(BountyPanel, { global: { stubs }, props: {
+      embeddedHall: true, tasks: [task], selectedTask: task, assigneeCandidates: candidates,
+      candidatesTaskId: task.id, recommendedAgents: [], recommendationState: { state: 'NO_MATCH' },
+      abilityText: () => '', canAssign: () => true, formatTime: v => v, portraitName: a => a.name,
+      portraitStyle: () => ({}), taskStateClass: () => '', taskStatusText: () => '待承办',
+      taskStatusCount: () => 1, taskStatusFilters: []
+    } })
+    await wrapper.find('.task-card').trigger('click')
+    expect(wrapper.find('.no-agent-recruitment').exists()).to.equal(false)
+    expect(wrapper.findAll('.matter-candidate-card')).to.have.length(2)
+    await wrapper.findAll('.matter-candidate-card')[1].trigger('click')
+    expect(wrapper.emitted('assign-task')).to.equal(undefined)
+    expect(wrapper.find('.matter-candidate-filters').exists()).to.equal(false)
+    expect(wrapper.findAll('.matter-candidate-card')).to.have.length(0)
+    expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
+    await wrapper.get('.matter-agent-toggle').trigger('click')
+    await wrapper.get('.matter-primary-action').trigger('click')
+    expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+    expect(wrapper.text()).to.include('尚无报价，请刷新推荐')
+    expect(wrapper.emitted('assign-task')).to.equal(undefined)
+    await wrapper.setProps({ recommendationState: { state: 'LOADING' } })
+    expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+    expect(wrapper.get('.matter-candidate-card').element.disabled).to.equal(true)
+    await wrapper.setProps({ recommendationState: { state: 'NO_MATCH' }, assigneeCandidates: [], candidatesLoading: true })
+    expect(wrapper.find('.no-agent-recruitment').exists()).to.equal(false)
+    await wrapper.setProps({ candidatesLoading: false, candidatesError: '网络错误' })
+    expect(wrapper.find('.no-agent-recruitment').exists()).to.equal(false)
+    await wrapper.setProps({ candidatesError: '', candidatesNextAfterAgentId: 'next' })
+    expect(wrapper.find('.no-agent-recruitment').exists()).to.equal(false)
+    await wrapper.setProps({ candidatesNextAfterAgentId: null, candidatesTaskId: null })
+    expect(wrapper.find('.no-agent-recruitment').exists()).to.equal(false)
+    await wrapper.setProps({ candidatesTaskId: task.id })
+    expect(wrapper.find('.no-agent-recruitment').exists()).to.equal(true)
+    wrapper.unmount()
+  })
+
+  it('emits explicit recommendation actions from BountyPanel', async () => {
+    const selectedTask = {
+      id: 'task-1',
+      title: 'Inspect the camp',
+      status: 'open',
+      description: 'Inspect every outpost',
+      requiredAbilities: ['planning']
+    }
+    const agent = {
+      agentId: 'agent-wuyong',
+      name: 'Wu Yong',
+      status: 'online',
+      abilities: ['planning']
+    }
+    const wrapper = mount(BountyPanel, {
+      global: { stubs },
+      props: {
+        tasks: [selectedTask],
+        selectedTask,
+        selectedAgent: null,
+        recommendedAgents: [agent],
+        taskAgentOptions: ['planning'],
+        taskStatusFilters: [],
+        abilityText: item => (item.abilities || []).join(' / '),
+        canAssign: (task, targetAgent) => Boolean(task && targetAgent),
+        formatTime: value => value,
+        portraitName: item => item.name,
+        portraitStyle: () => ({}),
+        taskAgentMatchScore: () => 98,
+        taskStateClass: () => 'is-open',
+        taskStatusCount: () => 1,
+        taskStatusText: status => status
+      }
+    })
+
+    await wrapper.find('.task-card').trigger('click')
+
+    expect(wrapper.text()).to.include('议事')
+    expect(wrapper.text()).to.include('进入议事')
+    expect(wrapper.text()).not.to.include('单独议事')
+    expect(wrapper.text()).not.to.include('传令议事')
+
+    const actionButtons = wrapper.findAll('.recommended-agent-actions button')
+    await actionButtons[0].trigger('click')
+    await actionButtons[1].trigger('click')
+    await actionButtons[2].trigger('click')
+    expect(wrapper.find('.auto-assign-task').exists()).to.equal(false)
+
+    expect(wrapper.emitted('select-agent')[0]).to.deep.equal([agent])
+    expect(wrapper.emitted('assign-task')[0]).to.deep.equal([selectedTask, agent])
+    expect(wrapper.emitted('brief-selected-task')[0]).to.deep.equal([selectedTask, agent])
+    expect(wrapper.emitted('auto-assign-task')).to.equal(undefined)
+  })
+
+  it('does not reopen BountyPanel detail modal from a stale selected task', async () => {
+    const selectedTask = {
+      id: 'task-1',
+      title: 'Inspect the camp',
+      status: 'open',
+      description: 'Inspect every outpost',
+      requiredAbilities: ['planning']
+    }
+    const wrapper = mount(BountyPanel, {
+      global: { stubs },
+      props: {
+        tasks: [selectedTask],
+        selectedTask,
+        selectedAgent: null,
+        recommendedAgents: [],
+        taskAgentOptions: ['planning'],
+        taskStatusFilters: [],
+        abilityText: item => (item.abilities || []).join(' / '),
+        canAssign: (task, targetAgent) => Boolean(task && targetAgent),
+        formatTime: value => value,
+        portraitName: item => item.name,
+        portraitStyle: () => ({}),
+        taskAgentMatchScore: () => 98,
+        taskStateClass: () => 'is-open',
+        taskStatusCount: () => 1,
+        taskStatusText: status => status
+      }
+    })
+
+    expect(wrapper.find('.bounty-modal-overlay').exists()).to.equal(false)
+
+    await wrapper.find('.task-card').trigger('click')
+
+    expect(wrapper.find('.bounty-modal-overlay').exists()).to.equal(true)
+    expect(wrapper.emitted('select-task')[0]).to.deep.equal([selectedTask])
+  })
+
+  it('keeps BountyPanel discussion and archive without multi-assign or task creation', async () => {
+    const selectedTask = {
+      id: 'task-1',
+      title: 'Inspect the camp',
+      status: 'assigned',
+      description: 'Inspect every outpost',
+      assignedAgentIds: ['agent-wuyong'],
+      assignedTarget: { agentId: 'agent-wuyong', displayName: 'Wu Yong', providerDisplayName: null, isMine: true, availability: 'online' }
+    }
+    const agents = [
+      { agentId: 'agent-wuyong', name: 'Wu Yong', status: 'online', abilities: ['planning'] },
+      { agentId: 'agent-linchong', name: 'Lin Chong', status: 'online', abilities: ['execute'] }
+    ]
+    const wrapper = mount(BountyPanel, {
+      global: { stubs },
+      props: {
+        tasks: [selectedTask],
+        selectedTask,
+        selectedAgent: null,
+        recommendedAgents: agents,
+        operableAgents: agents,
+        taskAgentOptions: ['planning'],
+        taskStatusFilters: [],
+        abilityText: item => (item.abilities || []).join(' / '),
+        canAssign: () => true,
+        formatTime: value => value,
+        portraitName: item => item.name,
+        portraitStyle: () => ({}),
+        taskAgentMatchScore: () => 98,
+        taskStateClass: () => 'is-open',
+        taskStatusCount: () => 1,
+        taskStatusText: status => status
+      }
+    })
+
+    expect(wrapper.vm.openCreateRequirement).to.equal(undefined)
+    expect(wrapper.find('.task-create-form').exists()).to.equal(false)
+    await wrapper.find('.task-card').trigger('click')
+    expect(wrapper.find('.assignee-check').exists()).to.equal(false)
+    expect(wrapper.find('.assign-selected-agents').exists()).to.equal(false)
+    await wrapper.find('.discuss-task-button').trigger('click')
+    await wrapper.find('.archive-task-button').trigger('click')
+
+    expect(wrapper.emitted('create-task')).to.equal(undefined)
+    expect(wrapper.emitted('assign-task')).to.equal(undefined)
+    expect(wrapper.emitted('discuss-task')[0]).to.deep.equal([selectedTask, selectedTask.assignedTarget])
+    expect(wrapper.emitted('archive-task')[0]).to.deep.equal([selectedTask])
+  })
+
+  it('prioritizes and deduplicates the selected hosted agent in embedded matter assignment', async () => {
+    const selectedTask = {
+      id: 'task-hosted',
+      title: 'Hosted point flow',
+      status: 'open',
+      description: 'Produce a short plain-text result',
+      requiredAbilities: []
+    }
+    const hostedAgent = {
+      agentId: 'agent-gongsunsheng',
+      taskQuote: syntheticTaskQuote(),
+      name: '公孙胜',
+      status: 'online',
+      boundToMe: true,
+      canOperate: true,
+      systemAgent: false,
+      abilities: []
+    }
+    const legacyAgent = {
+      agentId: 'agent-wuyong',
+      name: '吴用',
+      status: 'online',
+      canOperate: true,
+      abilities: ['planning']
+    }
+    const wrapper = mount(BountyPanel, {
+      global: { stubs },
+      props: {
+        embeddedHall: true,
+        tasks: [selectedTask],
+        selectedTask,
+        selectedAgent: hostedAgent,
+        recommendedAgents: [{ ...hostedAgent }, legacyAgent],
+        operableAgents: [hostedAgent, legacyAgent],
+        taskAgentOptions: [],
+        taskStatusFilters: [],
+        abilityText: item => (item.abilities || []).join(' / '),
+        canAssign: (task, agent) => Boolean(task && agent),
+        formatTime: value => value,
+        portraitName: item => item.name,
+        portraitStyle: () => ({}),
+        taskAgentMatchScore: () => 98,
+        taskStateClass: () => 'is-open',
+        taskStatusCount: () => 1,
+        taskStatusText: status => status
+      }
+    })
+
+    await wrapper.find('.task-card').trigger('click')
+
+    const buttons = wrapper.findAll('.matter-candidates button')
+    expect(buttons.map(button => button.get('strong').text())).to.deep.equal(['公孙胜', '吴用'])
+    expect(wrapper.emitted('assign-task')).to.equal(undefined)
+
+    await buttons[0].trigger('click')
+    expect(wrapper.emitted('assign-task')).to.equal(undefined)
+    await wrapper.get('.matter-primary-action').trigger('click')
+    expect(wrapper.emitted('assign-task')[0]).to.deep.equal([selectedTask, hostedAgent])
+  })
+
+  it('keeps completed embedded matters closable by exposing archive and then showing the archived receipt', async () => {
+    const selectedTask = {
+      id: 'task-399',
+      title: 'Mobile closure report',
+      status: 'completed',
+      description: 'Produce and accept a formal PDF',
+      assignedAgentId: 'agent-wuyong',
+      assignedAgentIds: ['agent-wuyong']
+    }
+    const agent = { agentId: 'agent-wuyong', name: '吴用', status: 'online', abilities: ['planning'] }
+    const wrapper = mount(BountyPanel, {
+      global: { stubs },
+      props: {
+        embeddedHall: true,
+        tasks: [selectedTask],
+        selectedTask,
+        selectedAgent: agent,
+        recommendedAgents: [agent],
+        operableAgents: [agent],
+        taskAgentOptions: ['planning'],
+        taskStatusFilters: [],
+        abilityText: item => (item.abilities || []).join(' / '),
+        canAssign: () => true,
+        formatTime: value => value,
+        portraitName: item => item.name,
+        portraitStyle: () => ({}),
+        taskAgentMatchScore: () => 98,
+        taskStateClass: () => 'task-state-done',
+        taskStatusCount: () => 1,
+        taskStatusText: status => status
+      }
+    })
+
+    await wrapper.find('.task-card').trigger('click')
+    expect(wrapper.find('.bounty-back-button').attributes('aria-label')).to.equal('返回事项列表')
+    expect(wrapper.find('.bounty-modal-header h3').text()).to.equal('事项详情')
+    expect(wrapper.find('.matter-archive-action').text()).to.equal('收入案卷')
+    await wrapper.find('.matter-archive-action').trigger('click')
+    expect(wrapper.emitted('archive-task')[0]).to.deep.equal([selectedTask])
+
+    await wrapper.setProps({ tasks: [{ ...selectedTask, status: 'archived' }], selectedTask: { ...selectedTask, status: 'archived' } })
+    expect(wrapper.find('.matter-archive-action').exists()).to.equal(false)
+    expect(wrapper.find('.matter-archive-note').text()).to.include('办事 → 已归档')
+  })
+
+  it('keeps discussion disabled for unassigned bounty tasks with a readable hint', async () => {
+    const selectedTask = {
+      id: 'task-1',
+      title: 'Inspect the camp',
+      status: 'open',
+      description: 'Inspect every outpost',
+      assignedAgentIds: []
+    }
+    const wrapper = mount(BountyPanel, {
+      global: { stubs },
+      props: {
+        tasks: [selectedTask],
+        selectedTask,
+        selectedAgent: null,
+        recommendedAgents: [],
+        taskAgentOptions: ['planning'],
+        taskStatusFilters: [],
+        abilityText: item => (item.abilities || []).join(' / '),
+        canAssign: () => false,
+        formatTime: value => value,
+        portraitName: item => item.name,
+        portraitStyle: () => ({}),
+        taskAgentMatchScore: () => 98,
+        taskStateClass: () => 'is-open',
+        taskStatusCount: () => 1,
+        taskStatusText: status => status
+      }
+    })
+
+    await wrapper.find('.task-card').trigger('click')
+
+    const discussButton = wrapper.find('.discuss-task-button')
+    await discussButton.trigger('click')
+
+    expect(discussButton.attributes('disabled')).to.not.equal(undefined)
+    expect(wrapper.text()).to.include('此榜文尚未点将，暂不可开议')
+    expect(wrapper.emitted('discuss-task')).to.equal(undefined)
+  })
+
+  it('loads one older message page on demand without a competing panel scroll correction', async () => {
+    const wrapper = mount(ChatPanel, { global: { stubs }, props: {
+      agents: [], draft: '', conversationId: '100', messagePageHasMore: true,
+      mentionLabel: agent => agent.name, senderText: message => message.sender,
+      messages: [{ localId: '3', sender: 'USER', content: 'latest' }]
+    } })
+    const box = wrapper.get('.hall-messages').element
+    let height = 400
+    Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => height })
+    box.scrollTop = 25
+    const button = wrapper.get('.message-history-page button')
+    await button.trigger('click')
+    expect(wrapper.emitted('load-older-messages')).to.have.length(1)
+    await wrapper.setProps({ messagePageLoading: true })
+    expect(button.attributes('disabled')).not.to.equal(undefined)
+    height = 700
+    await wrapper.setProps({ messages: [{ localId: '1', sender: 'USER', content: 'older' }, ...wrapper.props('messages')], messagePageLoading: false })
+    await Vue.nextTick()
+    // Real variable-height anchoring is owned by HallMessageWindow and exercised in
+    // juyiting-history-window-browser.mjs; this panel must not apply a second correction.
+    expect(box.scrollTop).to.equal(25)
+    expect(wrapper.emitted('send-message')).to.equal(undefined)
+    await wrapper.setProps({ messagePageError: '读取失败' })
+    expect(button.text()).to.equal('重试加载更早消息')
+    expect(wrapper.get('[role="alert"]').text()).to.equal('读取失败')
+    await wrapper.setProps({ messagePageHasMore: false, messagePageError: '' })
+    expect(wrapper.find('.message-history-page').exists()).to.equal(false)
+  })
+
+  it('shows exact attachment cards for blank task messages without adding user prose or leaking into private chat', async () => {
+    const wrapper = mount(ChatPanel, { global: { stubs }, props: {
+      agents: [], draft: '', discussionVariant: 'bounty', selectedTask: { id: 'task-1' },
+      mentionLabel: agent => agent.name, senderText: message => message.sender,
+      messages: [{ localId: '101', sender: 'USER', content: '', typedTaskId: 'task-1', typedSourceSelectors: [
+        { kind: 'TASK_LINKED_WORKSPACE_VERSION', fileId: 'file-1', version: '7', purpose: 'INPUT', assetId: null, assetRevision: null }
+      ] }]
+    } })
+    const cards = wrapper.get('[aria-label="本条消息资料"]')
+    expect(cards.text()).to.include('资料 file-1')
+    expect(cards.text()).to.include('版本 7')
+    expect(wrapper.find('.message-content').exists()).to.equal(false)
+    expect(wrapper.text()).not.to.include('请处理附件')
+    await wrapper.setProps({ selectedTask: { id: 'other-task' } })
+    expect(wrapper.find('[aria-label="本条消息资料"]').exists()).to.equal(false)
+    await wrapper.setProps({ selectedTask: { id: 'task-1' }, discussionVariant: 'private' })
+    expect(wrapper.find('[aria-label="本条消息资料"]').exists()).to.equal(false)
+  })
+
+  it('replaces revision and execution progress with one final text reply and preserves preview controls', async () => {
+    const revision = { key: 'r', conversationId: '42', outcome: { outcomeId: 'r', taskId: 'task-1', assistantMessageId: 'r-msg', kind: 'REVISION_REQUEST' }, reviewProgress: { state: 'COMMITTED', childRequestId: 'child', childState: 'RUNNING' } }
+    const initial = { localId: 'r-msg', sender: 'AGENT', agentId: 'a', content: '内部修改指令' }
+    const wrapper = mount(ChatPanel, { global: { stubs }, props: {
+      agents: [], draft: '', discussionVariant: 'bounty', selectedTask: { id: 'task-1' }, conversationId: '42',
+      mentionLabel: agent => agent.name, senderText: () => '吴用', messages: [initial], typedOutcomes: [revision]
+    } })
+    try {
+      expect(wrapper.findAll('.hall-message')).to.have.length(1)
+      expect(wrapper.text()).to.include('正在处理…')
+      expect(wrapper.text()).not.to.include('内部修改指令')
+      const answer = { localId: 'answer-msg', requestId: 'child', sender: 'AGENT', agentId: 'a', content: '这是调整后的建议。', typedOutcomeKind: 'ANSWER', typedOutcomeTaskId: 'task-1' }
+      await wrapper.setProps({ messages: [initial, answer], outputCandidates: [{ taskId: 'task-1', requestId: 'child', messageSource: { messageId: 'answer-msg', turnId: 't' } }] })
+      expect(wrapper.findAll('.hall-message')).to.have.length(1)
+      expect(wrapper.findAll('.message-content')).to.have.length(1)
+      expect(wrapper.text()).to.include(answer.content)
+      expect(wrapper.find('.discussion-turn-progress').exists()).to.equal(false)
+      expect(wrapper.find('[aria-label="预览文字成果"]').exists()).to.equal(true)
+      expect(wrapper.text()).not.to.include('本轮回复已完成')
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps conversation actions in the upper toolbar and preserves their events', async () => {
+    const wrapper = mount(ChatPanel, { global: { stubs }, props: {
+      mentionLabel: agent => agent.name, senderText: message => message.sender
+    } })
+    try {
+      const toolbar = wrapper.get('.panel-toolbar')
+      expect(toolbar.find('.material-reference-entry').exists()).to.equal(false)
+      expect(toolbar.find('.workspace-entry').exists()).to.equal(false)
+      for (const button of toolbar.findAll('.icon-button')) {
+        expect(button.get('svg').attributes('width')).to.equal('20')
+        expect(button.get('svg').attributes('height')).to.equal('20')
+        expect(button.get('svg').attributes('stroke-width')).to.equal('1.8')
+        expect(button.attributes('title')).to.equal(button.attributes('aria-label'))
+      }
+      await toolbar.get('[aria-label="刷新议事记录"]').trigger('click')
+      expect(wrapper.emitted('load-messages')).to.have.length(1)
+      await toolbar.get('[aria-label="新对话"]').trigger('click')
+      expect(wrapper.emitted('new-conversation')).to.have.length(1)
+      await toolbar.get('[aria-label="议事记录"]').trigger('click')
+      expect(toolbar.get('[aria-label="议事记录"]').attributes('aria-expanded')).to.equal('true')
+      expect(wrapper.get('.hall-chat-composer').find('[aria-label="刷新议事记录"]').exists()).to.equal(false)
+      await wrapper.setProps({ conversationBusy: true })
+      expect(toolbar.get('[aria-label="刷新议事记录"]').attributes('disabled')).to.equal('')
+      expect(toolbar.get('[aria-label="新对话"]').attributes('disabled')).to.equal('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('removes only the redundant discussion brief, retaining task controls', () => {
+    for (const name of ['PublicDiscussionPanel', 'PrivateDiscussionPanel', 'BountyDiscussionPanel']) {
+      const source = readFileSync(new URL(`../src/components/juyiting/${name}.vue`, import.meta.url), 'utf8')
+      expect(source).not.to.contain('discussion-brief')
+      expect(source).to.contain('<ChatPanel')
+      if (name === 'BountyDiscussionPanel') {
+        expect(source).to.contain('<BountyDeliberationStatus')
+        expect(source).to.contain('<BountyExecutionTermination')
+        expect(source).to.contain('@click="$emit(\'typed-resume\')"')
+      }
+    }
+  })
+
+  it('keeps persistent command templates out of ChatPanel', async () => {
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents: [],
+        draft: '',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        selectedTask: { id: 'task-1', title: 'Inspect the camp' },
+        targetText: 'Strategist / Wu Yong',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(wrapper.find('.command-templates').exists()).to.equal(false)
+    expect(wrapper.text()).to.include('Inspect the camp')
+    expect(wrapper.emitted('apply-template')).to.equal(undefined)
+    expect(wrapper.emitted('send-message')).to.equal(undefined)
+  })
+
+  it('emits explicit durable cancellation targets and offers no unscoped stop', async () => {
+    const durable = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents: [], draft: '', messages: [], durableCancelTarget: { allPending: true },
+        mentionLabel: agent => agent.name, senderText: message => message.sender
+      }
+    })
+    await durable.find('[aria-label="停止本轮回复"]').trigger('click')
+    expect(durable.emitted('cancel-deliberation')?.[0]?.[0]).to.deep.equal({ allPending: true })
+    expect(durable.find('[aria-label="停止旧版回话等待"]').exists()).to.equal(false)
+
+    const idle = mount(ChatPanel, {
+      global: { stubs },
+      props: { agents: [], draft: '', messages: [], mentionLabel: agent => agent.name, senderText: message => message.sender }
+    })
+    expect(idle.find('[aria-label="停止旧版回话等待"]').exists()).to.equal(false)
+    expect(idle.find('[aria-label="停止本轮回复"]').exists()).to.equal(false)
+    idle.unmount()
+    durable.unmount()
+  })
+
+  for (const discussionVariant of ['public', 'private', 'bounty']) {
+    it(`keeps ${discussionVariant} stop/reconcile in the send position without submitting the draft`, async () => {
+      const target = { turnId: 'turn-wuyong' }
+      const wrapper = mount(ChatPanel, { global: { stubs }, props: {
+        discussionVariant, draft: '保留这段草稿', messages: [],
+        durableCancelTarget: target, isAwaitingReply: true,
+        mentionLabel: agent => agent.name, senderText: message => message.sender
+      } })
+      try {
+        expect(wrapper.find('.toolbar-actions [aria-label="停止本轮回复"]').exists()).to.equal(false)
+        expect(wrapper.findAll('.composer-send')).to.have.length(1)
+        expect(wrapper.get('.composer-stop').attributes('type')).to.equal('button')
+        expect(wrapper.get('.composer-stop svg').attributes('width')).to.equal('20')
+        await wrapper.get('.composer-stop').trigger('click')
+        expect(wrapper.emitted('cancel-deliberation')[0][0]).to.deep.equal(target)
+        expect(wrapper.emitted('send-message')).to.equal(undefined)
+        await wrapper.setProps({ replyCancellationState: { inFlight: true, unknown: false, target } })
+        expect(wrapper.get('.composer-stop').element.disabled).to.equal(true)
+        expect(wrapper.get('[role="status"]').text()).to.equal('正在停止本轮回复')
+        await wrapper.setProps({ durableCancelTarget: null, replyCancellationState: { inFlight: false, unknown: true, target } })
+        await wrapper.get('[aria-label="核对停止结果"]').trigger('click')
+        expect(wrapper.emitted('cancel-deliberation')[1][0]).to.deep.equal(target)
+        await wrapper.get('form').trigger('submit')
+        expect(wrapper.emitted('send-message')).to.equal(undefined)
+        await wrapper.setProps({ replyCancellationState: null, isAwaitingReply: false })
+        expect(wrapper.find('.composer-stop').exists()).to.equal(false)
+        expect(wrapper.get('textarea').element.value).to.equal('保留这段草稿')
+        await wrapper.get('form').trigger('submit')
+        expect(wrapper.emitted('send-message')).to.have.length(1)
+      } finally { wrapper.unmount() }
+    })
+  }
+
+  it('opens the shared material selector without sending or changing the draft', async () => {
+    const wrapper = mount(ChatPanel, {
+      global: { stubs }, props: { conversationId: 'conversation-1', draft: '保留草稿',
+        mentionLabel: agent => agent.name, senderText: message => message.sender }
+    })
+    try {
+      await wrapper.get('[aria-label="添加资料"]').trigger('click')
+      await waitForStageReady()
+      expect(wrapper.get('.hall-material-picker-stub').attributes('data-open')).to.equal('true')
+      expect(wrapper.find('.material-reference-picker').exists()).to.equal(false)
+      expect(wrapper.emitted('open-workspace')).to.equal(undefined)
+      expect(wrapper.emitted('send-message')).to.equal(undefined)
+      expect(wrapper.emitted('update:draft')).to.equal(undefined)
+      expect(wrapper.get('textarea').element.value).to.equal('保留草稿')
+    } finally { wrapper.unmount() }
+  })
+
+  it('explains that a material reference needs an established conversation', async () => {
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents: [], draft: '', messages: [],
+        mentionLabel: agent => agent.name, senderText: message => message.sender
+      }
+    })
+    await wrapper.find('.composer-add-materials').trigger('click')
+    expect(wrapper.get('.composer-more').attributes('aria-expanded')).to.equal('false')
+    const picker = wrapper.get('.material-reference-notice').element
+    for (let node = picker; node; node = node.parentElement) {
+      expect(node.style.display).not.to.equal('none')
+    }
+    expect(wrapper.text()).to.include('请先发送一条消息建立议事，再从资料中选择引用。')
+  })
+
+  it('integrates mentions and the more menu into the ChatPanel composer', async () => {
+    const agents = [
+      { agentId: 'wuyong', name: 'Wu Yong' },
+      { agentId: 'linchong', name: 'Lin Chong' }
+    ]
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents,
+        draft: '',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        targetText: 'All agents',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(wrapper.find('.discussion-target-controls').exists()).to.equal(false)
+    expect(wrapper.find('.compact-mention-strip').exists()).to.equal(false)
+    expect(wrapper.find('.hall-chat-composer').exists(), 'composer mounted').to.equal(true)
+
+    await wrapper.find('.composer-textarea').trigger('focus')
+    await wrapper.find('.composer-textarea').setValue('@')
+    await wrapper.setProps({ draft: '@' })
+    expect(wrapper.find('.composer-mention-menu').exists(), 'mention menu opens after @').to.equal(true)
+
+    await wrapper.findAll('.composer-mention-option')[0].trigger('click')
+    expect(wrapper.emitted('mention-agent')[0]).to.deep.equal([agents[1]])
+
+    const clearWrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents,
+        draft: '@Lin Chong ready',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        targetText: 'All agents',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(clearWrapper.find('.composer-clear').exists(), 'no permanent clear action').to.equal(false)
+    await clearWrapper.find('.composer-more').trigger('click')
+    expect(clearWrapper.find('.composer-more-panel').element.style.display).not.to.equal('none')
+    expect(clearWrapper.find('.composer-textarea').element.value).to.equal('@Lin Chong ready')
+    clearWrapper.unmount()
+    wrapper.unmount()
+  })
+
+  it('renders variant-specific target chips in ChatPanel composer', () => {
+    const agents = [
+      { agentId: 'wuyong', name: 'Wu Yong' },
+      { agentId: 'linchong', name: 'Lin Chong' }
+    ]
+    const bountyWrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents,
+        draft: '',
+        discussionVariant: 'bounty',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        targetText: 'Inspect camp / 2 participants',
+        connectionStatus: 'Synced'
+      }
+    })
+    const privateWrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents,
+        draft: '',
+        discussionVariant: 'private',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        selectedAgent: agents[0],
+        senderText: message => message.sender,
+        targetText: 'Wu Yong',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(bountyWrapper.find('.composer-context.is-bounty').exists()).to.equal(true)
+    expect(bountyWrapper.findAll('.composer-target-chip')).to.have.length(2)
+    const publicWrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents,
+        draft: '',
+        discussionVariant: 'public',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        selectedAgent: { agentId: 'other-user-agent', name: 'Other User Agent' },
+        senderText: message => message.sender,
+        targetText: 'All agents',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(privateWrapper.find('.composer-context.is-private').exists()).to.equal(true)
+    expect(privateWrapper.find('.composer-target-chip.is-locked').exists()).to.equal(true)
+    expect(privateWrapper.find('.composer-target-remove').exists()).to.equal(false)
+    expect(publicWrapper.find('.composer-target-chip').exists()).to.equal(false)
+  })
+
+  it('does not expose a cross-scope mode switch inside the shared ChatPanel', () => {
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents: [],
+        draft: '',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        targetText: 'All agents',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(wrapper.find('.mode-switch').exists()).to.equal(false)
+    expect(wrapper.find('.mode-icon-button').exists()).to.equal(false)
+    expect(wrapper.text()).not.to.include('公开会谈')
+    expect(wrapper.text()).not.to.include('私聊')
+  })
+
+  it('keeps ChatPanel composer as a dedicated bottom region', () => {
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents: [],
+        draft: '',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        targetText: 'All agents',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(wrapper.find('.chat-composer').exists()).to.equal(true)
+    expect(wrapper.find('.hall-messages').exists()).to.equal(true)
+  })
+
+  it('keeps low-value SongJiang and coordination actions out of ChatPanel', async () => {
+    const agents = [
+      { agentId: 'wuyong', name: '吴用' },
+      { agentId: 'linchong', name: '林冲' }
+    ]
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents,
+        draft: '',
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        selectedTask: { id: 'task-1', title: 'Inspect the camp' },
+        targetText: '众好汉',
+        connectionStatus: 'Synced'
+      }
+    })
+
+    expect(wrapper.find('.command-templates').exists()).to.equal(false)
+    expect(wrapper.emitted('apply-template')).to.equal(undefined)
+    expect(wrapper.find('.chief-templates').exists()).to.equal(false)
+    expect(wrapper.find('.coordination-inline').exists()).to.equal(false)
+    expect(wrapper.text()).not.to.include('宋江号令')
+    expect(wrapper.text()).not.to.include('往来传话')
+    expect(wrapper.text()).not.to.include('结伴办事')
+    expect(wrapper.emitted('relay-message')).to.equal(undefined)
+    expect(wrapper.emitted('coordinate-work')).to.equal(undefined)
+  })
+
+  it('shows a readable recovery status while chat event stream reconnects', () => {
+    const wrapper = mount(ChatPanel, {
+      global: { stubs },
+      props: {
+        agents: [],
+        draft: '',
+        eventStreamRecovering: true,
+        messages: [],
+        mentionLabel: agent => agent.name,
+        senderText: message => message.sender,
+        targetText: '众好汉'
+      }
+    })
+
+    expect(wrapper.text()).to.include('正在恢复连接')
+  })
+
+  it('emits SongJiang management commands from CommandPanel', async () => {
+    const wrapper = mount(CommandPanel, {
+      global: { stubs },
+      props: {
+        agentsTotal: 10,
+        chiefAgent: { agentId: 'songjiang', name: '宋江' },
+        portraitStyle: () => ({}),
+        selectedAgent: null,
+        selectedTask: { id: 'task-1', title: 'Inspect the camp' },
+        tasksTotal: 3
+      }
+    })
+
+    expect(wrapper.text()).to.include('巡看榜文')
+    expect(wrapper.text()).to.include('整点点将册')
+    expect(wrapper.text()).to.include('厅前发话')
+
+    await wrapper.findAll('.command-grid button')[0].trigger('click')
+    expect(wrapper.emitted('issue-command')[0]).to.deep.equal(['reviewBounties'])
+  })
+
+  it('emits relay and coordination actions from CoordinationPanel', async () => {
+    const agents = [
+      { agentId: 'wuyong', name: '吴用', abilities: ['planning'] },
+      { agentId: 'linchong', name: '林冲', abilities: ['execute'] }
+    ]
+    const wrapper = mount(CoordinationPanel, {
+      global: { stubs },
+      props: {
+        abilityText: agent => (agent.abilities || []).join(' / '),
+        agents,
+        fromAgentId: 'wuyong',
+        message: '请同步风险',
+        portraitStyle: () => ({}),
+        selectedTask: { id: 'task-1', title: 'Inspect the camp' },
+        toAgentId: 'linchong'
+      }
+    })
+
+    const actionButtons = wrapper.findAll('.action-row button')
+    await actionButtons[0].trigger('click')
+    await actionButtons[1].trigger('click')
+
+    expect(wrapper.text()).to.include('往来传话')
+    expect(wrapper.text()).to.include('结伴办事')
+    expect(wrapper.emitted('relay-message')).to.have.length(1)
+    expect(wrapper.emitted('coordinate-work')).to.have.length(1)
+  })
+
+  it('searches and cites vector library results from LibraryPanel', async () => {
+    const wrapper = mount(LibraryPanel, {
+      global: { stubs },
+      props: {
+        formatTime: value => String(value),
+        keyword: 'deploy',
+        loading: false,
+        results: [{ id: 'm1', content: 'Deployment notes', summaryType: 'project', score: 0.8 }],
+        sourceType: 'project'
+      }
+    })
+
+    expect(wrapper.text()).to.include('典籍阅读')
+    expect(wrapper.find('.archive-reader-stub').exists()).to.equal(true)
+    await wrapper.get('#library-search-tab').trigger('click')
+    await wrapper.find('form').trigger('submit')
+    await wrapper.find('.result-card button').trigger('click')
+
+    expect(wrapper.text()).to.include('案卷搜索')
+    expect(wrapper.emitted('search-library')).to.have.length(1)
+    expect(wrapper.emitted('cite-library')[0][0].content).to.equal('Deployment notes')
+  })
+
+  it('uses roving tab focus and keyboard navigation in LibraryPanel', async () => {
+    const wrapper = mount(LibraryPanel, {
+      global: { stubs },
+      attachTo: document.body,
+      props: {
+        formatTime: value => String(value),
+        results: []
+      }
+    })
+    const readerTab = wrapper.get('#library-reader-tab')
+    const searchTab = wrapper.get('#library-search-tab')
+    const positionsTab = wrapper.get('#library-positions-tab')
+
+    expect(readerTab.attributes('tabindex')).to.equal('0')
+    expect(searchTab.attributes('tabindex')).to.equal('-1')
+    await readerTab.trigger('keydown', { key: 'ArrowRight' })
+    expect(document.activeElement).to.equal(searchTab.element)
+    expect(searchTab.attributes('tabindex')).to.equal('0')
+    await searchTab.trigger('keydown', { key: 'Home' })
+    expect(document.activeElement).to.equal(readerTab.element)
+    await readerTab.trigger('keydown', { key: 'End' })
+    expect(document.activeElement).to.equal(positionsTab.element)
+    expect(positionsTab.attributes('tabindex')).to.equal('0')
+    await positionsTab.trigger('keydown', { key: 'ArrowLeft' })
+    expect(document.activeElement).to.equal(searchTab.element)
+    await searchTab.trigger('keydown', { key: 'ArrowLeft' })
+    expect(document.activeElement).to.equal(readerTab.element)
+    wrapper.unmount()
+  })
+
+  it('shows public beta empty and error states for LibraryPanel', async () => {
+    const emptyWrapper = mount(LibraryPanel, {
+      global: { stubs },
+      props: {
+        formatTime: value => String(value),
+        hasSearched: true,
+        keyword: 'unknown',
+        loading: false,
+        results: [],
+        sourceType: 'project'
+      }
+    })
+
+    await emptyWrapper.get('#library-search-tab').trigger('click')
+    expect(emptyWrapper.text()).to.include('暂未查得案卷')
+
+    const errorWrapper = mount(LibraryPanel, {
+      global: { stubs },
+      props: {
+        errorMessage: '案卷阁暂不可查，主线不受影响',
+        formatTime: value => String(value),
+        hasSearched: true,
+        keyword: 'deploy',
+        loading: false,
+        results: [],
+        sourceType: 'project'
+      }
+    })
+
+    await errorWrapper.get('#library-search-tab').trigger('click')
+    expect(errorWrapper.text()).to.include('案卷阁暂不可查，主线不受影响')
+  })
+})
+
+const VALID_HALL_TMX = readFileSync('public/juyiting/hall.tmx', 'utf8')
+
+const createFakeGameMelon = ({ deferDeviceReady = false } = {}) => {
+  const loadCallbacks = []
+  const stateSets = []
+  const stateChanges = []
+  const deviceReadyCallbacks = []
+  let videoInitCalls = 0
+  let completeFutureLoads = false
+  const completeLoads = () => {
+    completeFutureLoads = true
+    loadCallbacks.splice(0).forEach(item => queueMicrotask(item.onload))
+  }
+
+  class Stage {}
+  class Sprite {}
+  class Renderable {}
+  class Body {}
+  class Color {}
+
+  const me = {
+    Body,
+    Color,
+    Renderable,
+    Sprite,
+    Stage,
+    game: {
+      viewport: { width: 960, height: 640 },
+      world: {
+        addChild: () => {},
+        removeChild: () => {}
+      }
+    },
+    input: {
+      registerPointerEvent: () => {},
+      releaseAllPointerEvents: () => {}
+    },
+    device: {
+      onReady: callback => {
+        if (deferDeviceReady) deviceReadyCallbacks.push(callback)
+        else callback()
+      }
+    },
+    loader: {
+      getImage: () => ({ complete: true }),
+      getTMX: () => VALID_HALL_TMX,
+      load: (_resource, onload, onerror) => {
+        if (completeFutureLoads) queueMicrotask(onload)
+        else loadCallbacks.push({ onload, onerror })
+        return 1
+      }
+    },
+    state: {
+      PLAY: 'PLAY',
+      change: (...args) => stateChanges.push(args),
+      pause: () => {},
+      set: (...args) => stateSets.push(args)
+    },
+    video: {
+      CANVAS: 'canvas',
+      init: () => {
+        videoInitCalls += 1
+        return true
+      }
+    }
+  }
+
+  return { completeLoads, deviceReadyCallbacks, loadCallbacks, me, stateChanges, stateSets, videoInitCalls: () => videoInitCalls }
+}
+
+// The fake loader completes via callbacks, not a wall-clock polling budget.
+// Await the actual mount result so ready/cancellation assertions remain authoritative.
+const settleMountWithLoaderSuccess = (fake, mountPromise) => {
+  fake.completeLoads()
+  return mountPromise
+}
+
+describe('JuyitingGame lifecycle guards', () => {
+  it('waits for the melonJS engine ready callback before video initialization', async () => {
+    const mod = await import('../src/game/JuyitingGame.js')
+    const game = new mod.JuyitingGame()
+    const fake = createFakeGameMelon({ deferDeviceReady: true })
+    game._me = fake.me
+
+    const mountPromise = game.mount({ querySelector: () => null })
+    await Promise.resolve()
+
+    expect(fake.deviceReadyCallbacks).to.have.length(1)
+    expect(fake.videoInitCalls()).to.equal(0)
+
+    fake.deviceReadyCallbacks[0]()
+    await settleMountWithLoaderSuccess(fake, mountPromise)
+
+    expect(fake.videoInitCalls()).to.equal(1)
+  })
+
+  it('inverse-maps virtual landscape pointer coordinates before melonJS reads them', async () => {
+    const { inverseVirtualLandscapePoint } = await import('../src/game/JuyitingGame.js')
+    expect(inverseVirtualLandscapePoint({ clientX: 92, clientY: 37 }, { width: 844, height: 390 }))
+      .to.deep.equal({ clientX: 37, clientY: 298 })
+  })
+
+  it('reuses the melonJS 15 global video canvas across a portrait destroy and later map mount', async () => {
+    const mod = await import('../src/game/JuyitingGame.js')
+    const game = new mod.JuyitingGame()
+    const fake = createFakeGameMelon()
+    const canvas = {
+      parentElement: null,
+      style: { setProperty: () => {} },
+      remove() { this.parentElement = null }
+    }
+    const firstContainer = {
+      querySelector: selector => selector === 'canvas' ? canvas : null,
+      appendChild: node => { node.parentElement = firstContainer }
+    }
+    const secondContainer = {
+      querySelector: selector => selector === 'canvas' ? null : null,
+      appendChild: node => { node.parentElement = secondContainer }
+    }
+    game._me = fake.me
+
+    await settleMountWithLoaderSuccess(fake, game.mount(firstContainer))
+    expect(fake.videoInitCalls()).to.equal(1)
+    game.destroy()
+    expect(canvas.parentElement).to.equal(null)
+
+    await settleMountWithLoaderSuccess(fake, game.mount(secondContainer))
+    expect(fake.videoInitCalls()).to.equal(1)
+    expect(canvas.parentElement).to.equal(secondContainer)
+    game.destroy()
+  })
+
+  it('ignores stale loader callbacks after destroy invalidates a mount', async () => {
+    const mod = await import('../src/game/JuyitingGame.js')
+    expect(mod.JuyitingGame).to.be.a('function')
+
+    const game = new mod.JuyitingGame()
+    const fake = createFakeGameMelon()
+    let readyCalls = 0
+    game._me = fake.me
+
+    const mountPromise = game.mount({ querySelector: () => null }, {
+      onReady: () => {
+        readyCalls += 1
+      }
+    })
+    await Promise.resolve()
+    game.destroy()
+    await settleMountWithLoaderSuccess(fake, mountPromise)
+
+    expect(fake.stateSets).to.have.length(0)
+    expect(readyCalls).to.equal(0)
+  })
+
+  it('ignores delayed ready callbacks after destroy invalidates a started game', async () => {
+    const mod = await import('../src/game/JuyitingGame.js')
+    expect(mod.JuyitingGame).to.be.a('function')
+
+    const game = new mod.JuyitingGame()
+    const fake = createFakeGameMelon()
+    let readyCalls = 0
+    game._me = fake.me
+
+    const mountPromise = game.mount({ querySelector: () => null }, {
+      onReady: () => {
+        readyCalls += 1
+      }
+    })
+    await settleMountWithLoaderSuccess(fake, mountPromise)
+    game.destroy()
+    await new Promise(resolve => setTimeout(resolve, 240))
+
+    expect(fake.stateSets).to.have.length(1)
+    expect(readyCalls).to.equal(0)
+  })
+})
+
+describe('O03 map snapshot lifecycle contract', () => {
+  it('serializes snapshot destroy/remount and consumes only strict latest landscape targets', () => {
+    const source = readFileSync(new URL('../src/components/juyiting/HallStage.vue', import.meta.url), 'utf8')
+    const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    expect(source).to.include("const mapLifecycleState = ref('unmounted')")
+    expect(source).to.include("mapLifecycleState.value = 'suspending'")
+    expect(source).to.include("mapLifecycleState.value = 'suspended'")
+    expect(source).to.include("mapLifecycleState.value = props.mapResumeSnapshot?.cameraSnapshot ? 'resuming' : 'mounting'")
+    expect(source).to.include("mapLifecycleState.value = 'running'")
+    expect(source).to.include("mapLifecycleState.value = 'destroying'")
+    expect(source).to.include("mapLifecycleState.value = 'unmounted'")
+    expect(source).to.include('captureResumeSnapshot?.()')
+    expect(source).to.include('settleFinalViewport')
+    expect(source).to.include('stableFrames < 2')
+    expect(source).to.include("kind: 'orientation'")
+    expect(source).to.include('restoreResumeSnapshot?.(snapshot, viewport)')
+    expect(source).to.include('consumeLandscapeEntryTarget')
+    expect(source).to.include('assignedIds.includes(target.agentId) || assigneeIds.includes(target.agentId)')
+    expect(source).to.include('juyitingGame.resetToMainHall?.()')
+    expect(hall).to.include('const mapResumeSnapshot = ref(null)')
+    expect(hall).to.include('const landscapeEntryTarget = ref(null)')
+    expect(hall).to.include('const setLandscapeEntryTarget = target => {')
+    expect(hall).to.include('@map-snapshot="handleMapSnapshot"')
+    expect(hall).to.include('@landscape-target-consumed="handleLandscapeTargetConsumed"')
+  })
+})
+
+describe('O04 shared panel session contract', () => {
+  it('keeps the rendered session through leave, fences stale generations, and shields the active shell', async () => {
+    const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    const { capturePanelReturnTarget, isCurrentPanelGeneration, resolvePanelReturnTarget } = await import('../src/composables/juyiting/useHallPanels.js')
+
+    // Assert both fences on the same overlay, independent of intervening help-replay attributes.
+    const overlay = source.match(/<div\b[^>]*class="panel-overlay"[^>]*>/)?.[0]
+    expect(overlay).to.be.a('string')
+    expect(overlay).to.include('v-if="activePanel"')
+    expect(overlay).to.include(':key="panelSessionGeneration"')
+    expect(source).to.include(':data-panel-generation="panelSessionGeneration"')
+    expect(source).to.include(':interaction-locked="isPanelSessionActive || voiceInteractionLocked"')
+    expect(source).to.include(':inert="isPanelSessionActive ? \'\' : null"')
+    expect(source).to.include(':aria-hidden="isPanelSessionActive ? \'true\' : null"')
+    expect(source).to.include('const panelWhitelist = new Set(')
+    expect(source).to.include('panelDisposed || voiceInteractionLocked.value || !panelWhitelist.has(panel)')
+    expect(source).to.include('isCurrentPanelGeneration({')
+    expect(source).to.include('await nextTick()')
+
+    expect(isCurrentPanelGeneration({ leavingGeneration: 1, closingGeneration: 1, sessionGeneration: 2, activePanel: '', disposed: false })).to.equal(false)
+    expect(isCurrentPanelGeneration({ leavingGeneration: 2, closingGeneration: 2, sessionGeneration: 2, activePanel: 'library', disposed: false })).to.equal(false)
+    expect(isCurrentPanelGeneration({ leavingGeneration: 2, closingGeneration: 2, sessionGeneration: 2, activePanel: '', disposed: true })).to.equal(false)
+    expect(isCurrentPanelGeneration({ leavingGeneration: 2, closingGeneration: 2, sessionGeneration: 2, activePanel: '', disposed: false })).to.equal(true)
+
+    const root = document.createElement('main')
+    const prior = document.createElement('button')
+    const rotatedTrigger = document.createElement('button')
+    prior.setAttribute('data-portrait-action', 'library')
+    rotatedTrigger.setAttribute('data-portrait-action', 'library')
+    root.append(rotatedTrigger)
+    document.body.append(prior, root)
+    try {
+      const origin = capturePanelReturnTarget(prior, 'library')
+      prior.remove()
+      expect(resolvePanelReturnTarget({ origin, root })).to.equal(rotatedTrigger)
+    } finally {
+      root.remove()
+      prior.remove()
+    }
+  })
+})
+
+const loadActualJuyiHall = (mocks) => {
+  const relativePath = '../src/components/world/JuyiHall.vue'
+  const filename = new URL(relativePath, import.meta.url).pathname
+  const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+  const { descriptor } = parse(source, { filename })
+  // Keep setup bindings available for transition-race assertions, while using
+  // the real compiled template rather than exposing internals in production.
+  const script = compileScript(descriptor, { id: 'o04-actual-juyi-hall' })
+  const template = compileTemplate({ source: descriptor.template.content, filename, id: 'o04-actual-juyi-hall', compilerOptions: { bindingMetadata: script.bindings } })
+  const body = script.content
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, imports) => `var { ${imports} } = mocks`)
+    .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, name) => `var ${name} = mocks.${name}`)
+    .replace(/import\.meta\.env/g, 'mocks.env')
+    .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
+  .replace('export default', 'return')
+  const component = new Function('Vue', 'mocks', body)(Vue, { useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
+  const renderBody = template.code
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
+    .replace('export function render', 'return function render')
+  component.render = new Function('Vue', renderBody)(Vue)
+  return component
+}
+
+const createActualHallMocks = ({ mode, mounts, counters = {}, taskActions = null, actualBountyPanel = null, economyCapability = null, navigation = null }) => {
+  const noop = () => {}
+  const asyncNoop = async () => {}
+  const value = Vue.ref([])
+  const scalar = Vue.ref('')
+  const HallPortraitHome = Vue.defineComponent({
+    emits: ['quick-action', 'open-profile'],
+    setup (_props, { attrs, emit }) {
+      Vue.onMounted(() => { mounts.portrait = (mounts.portrait || 0) + 1 })
+      Vue.onUnmounted(() => { mounts.portraitUnmount = (mounts.portraitUnmount || 0) + 1 })
+      return () => Vue.h('main', { ...attrs, class: 'portrait-shell' }, [
+        Vue.h('button', { type: 'button', 'data-hall-account-entry': 'portrait', onClick: () => emit('open-profile') }, '个人中心'),
+        ...['agents', 'tasks', 'discussion', 'catalog', 'library'].map(action => Vue.h('button', { type: 'button', 'data-portrait-action': action, onClick: () => emit('quick-action', action) }, action))
+      ])
+    }
+  })
+  const ArchiveReader = Vue.defineComponent({ setup: () => { Vue.onMounted(() => { mounts.archive += 1 }); Vue.onUnmounted(() => { mounts.archiveUnmount = (mounts.archiveUnmount || 0) + 1 }); return () => Vue.h('div', { class: 'archive-reader-instance' }, 'reader') } })
+  const LibraryPanel = Vue.defineComponent({ setup: () => { Vue.onMounted(() => { mounts.library += 1 }); Vue.onUnmounted(() => { mounts.libraryUnmount = (mounts.libraryUnmount || 0) + 1 }); return () => Vue.h('section', { class: 'library-panel-instance' }, [Vue.h('button', { class: 'library-last' }, '末项'), Vue.h(ArchiveReader)]) } })
+  const HallStage = Vue.defineComponent({ setup: (_props, { attrs }) => () => Vue.h('section', { ...attrs, class: 'hall-board', tabindex: 0 }) })
+  const EmptyPanel = Vue.defineComponent({ setup: () => () => Vue.h('section') })
+  counters.loads ||= { agents: 0, tasks: 0, messages: 0 }
+  counters.owners ||= { data: 0, conversation: 0, debug: 0 }
+  counters.refs ||= {
+    conversationId: Vue.ref('conversation-o04'),
+    draft: Vue.ref('draft-o04'),
+    messages: Vue.ref([{ id: 'message-o04', content: 'sentinel' }])
+  }
+  const hallData = {
+    applySceneEvent: noop, applySceneSnapshot: noop, agentFilter: scalar, agents: value, bindPersona: asyncNoop, canAssign: () => true,
+    catalogError: scalar, catalogLoading: Vue.ref(false), filteredAgents: value, hiddenAgentCount: Vue.ref(0), loadAgents: async () => { counters.loads.agents += 1 }, loadPersonaCatalog: asyncNoop, loadRosterAgents: asyncNoop, loadTasks: async () => { counters.loads.tasks += 1 }, loadTaskDetail: asyncNoop, loadTaskRecommendations: asyncNoop,
+    operableRosterAgents: Vue.ref([{ agentId: 'agent-o04', name: '显式 roster 好汉' }]),
+    mapAgents: value, mapError: scalar, personaCatalog: value, recommendedAgents: value, rosterError: scalar, rosterLoading: Vue.ref(false), setAgentFilter: asyncNoop, setTaskStatusFilter: asyncNoop,
+    taskAgentFilter: scalar, taskAgentOptions: value, taskCountsError: scalar, taskCountsLoading: Vue.ref(false), taskKeyword: scalar, tasks: value, tasksError: scalar, tasksLoading: Vue.ref(false), taskStatusCount: () => 0, taskStatusFilter: scalar, preparePersonaRemoval: asyncNoop, unbindPersona: asyncNoop, visibleAgents: value
+  }
+  const panelHelpers = counters.panelHelpers || {}
+  return {
+    ...panelHelpers, useFormalTaskExecutionScope, ...ordinaryCancellation,
+    Dialog: async () => 'cancel', saveOutputBlob: noop, completedTextItem: async () => null, OutputPreview: EmptyPanel,
+    useOutputs: () => ({ items: Vue.ref([]), loading: Vue.ref(false), message: scalar, cacheKey: scalar, nextCursor: Vue.ref(null), refresh: asyncNoop, loadMore: asyncNoop, download: asyncNoop, preview: asyncNoop, dispose: noop }),
+    useHallBountyAcceptance: () => ({ scope: Vue.ref(null), error: scalar, refresh: asyncNoop, catalog: { error: scalar, entries: Vue.ref([]) } }),
+    env: {}, isMultimediaDeliberationUiEnabled: () => false, capturePanelReturnTarget: panelHelpers.capturePanelReturnTarget, focusHallPanel: panelHelpers.focusHallPanel, isCurrentPanelGeneration: panelHelpers.isCurrentPanelGeneration, isSafePanelFocusTarget: panelHelpers.isSafePanelFocusTarget, resolveLiveMapPreviewActivation, resolvePanelReturnTarget: panelHelpers.resolvePanelReturnTarget, restorePanelFocus: panelHelpers.restorePanelFocus, trapPanelFocus: panelHelpers.trapPanelFocus,
+    onBeforeRouteLeave: navigation?.onBeforeRouteLeave || noop, useRouter: () => navigation?.router || ({ push: asyncNoop }), confirmHallLeave: navigation?.confirmHallLeave || (() => true), hasMeaningfulHallLeaveWork: navigation?.hasMeaningfulHallLeaveWork || (() => false), useGlobalStore: () => ({ setTitle: noop, setShowBack: noop, setShowAppBar: noop, setShowMore: noop }), useApiStore: () => ({ token: asyncNoop }), agentApi: {}, chatApi: {}, log: { warn: noop }, juyitingGame: {},
+    resolveAccountDisplayName, createHydratedIdentityScope, hasHydratedIdentity,
+    isEconomyPreviewBuildEnabled: () => Boolean(economyCapability), isEconomyPreviewCapability: capability => Boolean(capability && capability.principalScopeFingerprint === economyCapability?.principalScopeFingerprint), loadEconomyPreviewCapability: async () => economyCapability,
+    projectHallTask: taskPresentation.projectHallTask,
+    roleDialogues: { default: [''] }, statusFilters: [], taskStatusFilters: [{ value: 'open', label: '待承办', className: 'task-state-open' }],
+    useHallData: ({ selectedAgent, selectedTask }) => { counters.owners.data += 1; selectedAgent.value = { agentId: 'agent-o04', name: 'sentinel-agent' }; selectedTask.value = counters.initialSelectedTask || { id: 'task-o04', title: 'sentinel-task' }; return hallData },
+    useHallHomeMode: () => ({ homeMode: Vue.ref('map'), isOverviewHome: Vue.ref(false), setHomeMode: noop }),
+    useHallExperienceMode: () => ({ experienceMode: mode, isMobileCoarse: Vue.ref(true), orientationHint: scalar, orientationRequestPending: Vue.ref(false), requestLandscape: asyncNoop, requestPortrait: asyncNoop }),
+    useHallPanels: ({ isMobileCoarse }) => ({ panelLayout: Vue.computed(() => isMobileCoarse.value ? 'full-window' : 'center-modal') }),
+    useHallSceneState: () => ({ setMapRuntime: noop, reset: noop, forwardPhaseEvents: asyncNoop }),
+    useHallCommandQueue: () => ({ ready: Vue.ref(false), setSimulation: noop }),
+    useHallBackendSceneState: () => ({ start: asyncNoop, stop: noop, dispose: noop, reportPhase: noop }), useHallSceneDebugBridge: () => { counters.owners.debug += 1; return { sentinel: 'debug-owner-o04', republish: noop, stop: noop } },
+    useHallSound: () => ({ playAgentSelect: noop, playError: noop, playPanelOpen: noop, playRefresh: noop, playSend: noop, playSuccess: noop, playTap: noop, setSoundEnabled: noop, setSoundSuppressed: noop, soundEnabled: Vue.ref(false) }),
+    bountyInteractionTargetId,
+    useHallChatContext: () => ({ chatContext: Vue.ref({}), conversationAgent: Vue.ref(null), conversationTask: Vue.ref(null), refreshConversationTask: asyncNoop, chatMentionAgentIds: Vue.ref([]), chatMentionAgents: value, chatMode: Vue.ref('public'), chatTargetText: scalar, enterBountyDiscussion: noop, enterPrivateConversation: noop, resetToPublic: noop, setMentionAgent: noop }),
+    useHallScene: () => ({ markAgentSpeaking: noop, markDiscussionStarted: noop, markLibraryCitation: noop, markLibrarySearching: noop, markRecommendedAgents: noop, markTaskArchived: noop, markTaskAssigned: noop, markTaskAutoAssigned: noop, markTaskCreated: task => { counters.markedTasks ||= []; counters.markedTasks.push(task) }, resetSceneFeedback: noop, sceneAgents: value, sceneAgentStyle: () => ({}), sceneHotspots: value, syncAfterPersonaChanged: noop }),
+    useHallTaskActions: () => taskActions || ({ archiveTask: asyncNoop, autoAssignTask: asyncNoop, assignTask: async () => true, cancelFunding: async () => false, createTask: asyncNoop, fundedClaimState: Vue.ref(null), fundedCreateRecovery: Vue.ref(null), loadSettlement: async () => null, refreshFundedClaim: asyncNoop, resumeFundedCreate: asyncNoop }),
+    useHallDrafts: () => ({ unresolvedIntent: Vue.ref(null) }),
+    useHallConversation: () => { counters.owners.conversation += 1; return ({ messageWindows: Vue.ref([]), messageWindowLoading: Vue.ref(new Set()), messageWindowErrors: Vue.ref({}), messageRequestPage: Vue.ref(null), messageTypedOutcomes: Vue.ref([]), messagePageHasMore: Vue.ref(false), messagePageLoading: Vue.ref(false), messagePageError: Vue.ref(''), retainMessageWindows: noop, loadMessageWindow: asyncNoop, refreshHallMessagePage: asyncNoop, activeRequest: Vue.ref(null), activeTurns: Vue.ref([]), adoptBountyBootstrap: async () => false, adoptTypedDiscussionReceipt: async () => false, capabilityState: scalar, cancelDeliberation: asyncNoop, cancelHallReplyTurn: noop, chatConnectionStatus: scalar, conversationHistory: value, conversationHistoryDeletingId: scalar, conversationHistoryError: scalar, conversationHistoryHasMore: Vue.ref(false), conversationHistoryLoading: Vue.ref(false), conversationId: counters.refs.conversationId, conversationLoadError: scalar, deleteHallConversation: asyncNoop, draft: counters.refs.draft, draftRevision: Vue.ref(0), durableCancelTarget: Vue.ref(null), eventStreamRecovering: Vue.ref(false), insertAgentMention: noop, isAwaitingReply: Vue.ref(false), isConversationBusy: Vue.ref(false), isSubmitting: Vue.ref(false), isStreaming: Vue.ref(false), loadHallConversationHistory: asyncNoop, loadHallMessages: async () => { counters.loads.messages += 1 }, loadMoreHallConversationHistory: asyncNoop, mentionAgent: noop, messages: counters.refs.messages, newHallConversation: noop, pendingAgentName: scalar, replyEventSequence: Vue.ref(0), retryHallConversation: asyncNoop, refreshHallProjections: asyncNoop, selectHallConversation: asyncNoop, sendHallMessage: asyncNoop, senderText: scalar, setDraft: value => { counters.refs.draft.value = value }, disposeHallConversation: noop, stopHallEventStream: noop, stopHallReplyPolling: noop, stopHallReplyStreaming: noop }) },
+    useHallVoiceConversation: () => ({ supported: false, voiceInteractionLocked: navigation?.voiceInteractionLocked ?? false, voiceTurnActive: navigation?.voiceTurnActive ?? false, cancel: noop, dispose: noop, applyTranscript: noop }),
+    createHallVoiceReplyCorrelation: () => ({ start: () => true, observe: noop, resolveConversation: () => true, close: noop }),
+    useHallLibrary: () => ({ citeLibraryItem: noop, libraryErrorMessage: scalar, libraryHasSearched: Vue.ref(false), libraryKeyword: scalar, libraryLoading: Vue.ref(false), libraryResults: value, librarySourceType: scalar, searchLibrary: asyncNoop }),
+    useHallRequirementCreate: () => ({ state: Vue.ref({ error: '' }), busy: Vue.ref(false), create: async () => false, checkOriginal: async () => false, resumeOriginal: async () => false, readOriginal: () => ({ state: 'ABSENT' }), dispose: noop }),
+    useHallBountyAssignmentContext: () => ({ projection: Vue.ref(null), error: Vue.ref(''), refresh: async () => false, dispose: noop }),
+    useHallBountyRequestCatalog: () => ({ entries: Vue.ref([]), adoptPage: () => true, hint: noop, reset: noop, dispose: noop }),
+    useHallBountyFollowup: () => ({ state: Vue.ref({}), busy: Vue.ref(false), prepareGenerate: async () => false, prepareEdit: async () => false, confirm: async () => false, checkOriginal: async () => false, invalidate: noop, dispose: noop }),
+    useHallTypedDeliberation: () => ({ deliveryHasMore: Vue.ref(false), deliveryLoading: Vue.ref(false), deliveryError: Vue.ref(''), loadMoreDeliveries: asyncNoop, adoptPage: () => true, deliveryChoices: Vue.ref([]), selectedDeliveryId: Vue.ref(''), chooseDelivery: noop, cards: Vue.ref([]), selectedPending: Vue.ref(null), recoveryAvailable: Vue.ref(false), inspectionStatus: Vue.ref(''), refresh: asyncNoop, readOne: asyncNoop, invalidate: noop, dispose: noop }), typedLong: () => '',
+    createControlledImageCapabilityObservationFence: () => ({ capture: () => ({ isCurrent: () => true }), invalidate: noop }), capabilityOffersControlledImageConsent: () => false, loadControlledImageBountyCapability: async () => null,
+    useHallTaskLinkedReferenceInputs: () => ({ resolve: async () => ({ state: 'STALE', inputRefs: [] }), invalidate: noop, dispose: noop }), createPointAndStartIntentStore: () => ({ read: () => ({ state: 'ABSENT' }) }), pointAndStartRecoveryLane: () => 'NONE', providerConsentAcknowledgement: {},
+    createNativeCapabilityObservationFence: () => ({ capture: () => ({ identityScope: '', authorizationGeneration: 0, isCurrent: () => true }), invalidate: noop }), loadNativeBountyCapability: async () => null, capabilityAllowsNewStart: () => false, capabilityAllowsOriginalReplay: () => false, pointAndStartIntentReadLane: () => 'ABSENT',
+    useHallPointAndStartControlledBridge: () => ({ state: Vue.ref({ intent: null, status: 'IDLE' }), busy: Vue.ref(false), selectContext: () => false, start: async () => false, checkOriginal: async () => false, resumeOriginal: async () => false, dispose: noop, invalidate: noop }),
+    useHallPointAndStart: () => ({ state: Vue.ref({ intent: null, status: 'IDLE' }), busy: Vue.ref(false), start: async () => false, checkOriginal: async () => false, resumeOriginal: async () => false, observeOriginal: asyncNoop, stopObservation: noop, dispose: noop }),
+    useTaskWorkspace: () => null, createDisabledTaskWorkspaceBinding: () => ({ selectExplicitActor: noop, clearExplicitActor: noop, dispose: noop }), isTaskWorkspaceBuildEnabled: () => false, useTaskWorkspaceView: () => ({ subject: Vue.ref(null), workspace: Vue.ref(null), connectionState: scalar, error: Vue.ref(null), retry: noop }), useTaskWorkspaceBinding: () => ({ selectExplicitActor: noop, clearExplicitActor: noop }),
+    portraitName: () => '', portraitRole: () => ({ slug: 'default' }), portraitShortName: () => '', portraitStyle: () => ({}), roleClass: () => '',
+    HallCompletedRecords: Vue.defineComponent({ name: 'HallCompletedRecords', props: ['taskId', 'identityKey', 'taskVersion', 'title', 'context'], setup: () => () => Vue.h('section', { class: 'completed-records-probe' }) }),
+    BountyAcceptancePanel: Vue.defineComponent({ name: 'BountyAcceptancePanel', props: ['taskId', 'identityKey', 'taskVersion', 'conversationId'],
+      emits: ['review-delivery', 'continue-modification'], setup: (_props, { slots }) => () => Vue.h('section', { class: 'acceptance-probe' }, slots.preview?.()) }),
+    FormalTaskDeliveryPanel: Vue.defineComponent({ name: 'FormalTaskDeliveryPanel', props: ['taskId', 'identityFingerprint', 'focusDeliveryId', 'executionContext', 'selectedAgentId'], setup: () => () => Vue.h('section', { class: 'formal-delivery-probe' }) }),
+    HallDeliveryReviewDialog: EmptyPanel, HallPortraitHome, HallStage, HallVoiceHud: EmptyPanel, HallMinePage: EmptyPanel, LibraryPanel, AgentPanel: EmptyPanel, ArtifactOutcomePanel: EmptyPanel, ArtifactTransferPanel: EmptyPanel, BountyDiscussionPanel: EmptyPanel, BountyPanel: actualBountyPanel || EmptyPanel, TaskWorkspacePanel: EmptyPanel, PersonaCatalogPanel: EmptyPanel, PrivateDiscussionPanel: EmptyPanel, PublicDiscussionPanel: EmptyPanel, SelectedAgentCard: EmptyPanel
+  }
+}
+
+describe('JuyiHall restored-identity initialization', () => {
+  it('hydrates a retained token despite a cached local ID and restores the exact tenant-zero scope before Hall data loads', async () => {
+    const mode = Vue.ref('portrait-command')
+    const order = []
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    const originalUseHallData = mocks.useHallData
+    const globalStore = Vue.reactive({
+      user: {}, getUserId: 5, getOpenid: '',
+      setTitle: () => {}, setShowBack: () => {}, setShowAppBar: () => {}, setShowMore: () => {}
+    })
+    const apiStore = Vue.reactive({
+      authorizationGeneration: 0, oauthClientId: 'client-a',
+      token: async () => 'retained-bearer-token',
+      getUserInfo: async () => {
+        order.push('profile')
+        globalStore.user = { id: 5, tenantId: '0', displayName: '已验证账号' }
+      }
+    })
+    mocks.useGlobalStore = () => globalStore
+    mocks.useApiStore = () => apiStore
+    mocks.useHallData = bindings => {
+      const data = originalUseHallData(bindings)
+      const loadAgents = data.loadAgents
+      const loadTasks = data.loadTasks
+      data.loadAgents = async () => { order.push('agents'); return loadAgents() }
+      data.loadTasks = async () => { order.push('tasks'); return loadTasks() }
+      return data
+    }
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      expect(order[0]).to.equal('profile')
+      expect(order).to.include('agents')
+      expect(state.hallIdentityScope).to.equal('0\u0000client-a\u00005')
+      expect(state.accountDisplayName).to.equal('已验证账号')
+      expect(state.accountDisplayName).not.to.equal('5')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not start Hall loaders after logout or account switch while profile hydration is pending', async () => {
+    const mode = Vue.ref('portrait-command')
+    const hydration = deferred()
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    const globalStore = Vue.reactive({
+      user: {}, getUserId: 5, getOpenid: '',
+      setTitle: () => {}, setShowBack: () => {}, setShowAppBar: () => {}, setShowMore: () => {}
+    })
+    const apiStore = Vue.reactive({
+      authorizationGeneration: 7, oauthClientId: 'client-a',
+      token: async () => 'retained-bearer-token',
+      getUserInfo: async () => hydration.promise
+    })
+    mocks.useGlobalStore = () => globalStore
+    mocks.useApiStore = () => apiStore
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      apiStore.authorizationGeneration = 8
+      hydration.resolve({ id: 5, tenantId: '0' })
+      await flushPromises()
+      expect(counters.loads.agents).to.equal(0)
+      expect(counters.loads.tasks).to.equal(0)
+      expect(wrapper.vm.$.setupState.hallIdentityScope).to.equal('')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})
+
+describe('lightweight workbench real panel navigation', () => {
+  for (const mobile of [true, false]) {
+    it(`keeps real ${mobile ? 'mobile' : 'desktop'} navigation visible but inert during onboarding`, async () => {
+      const home = Vue.ref('overview')
+      const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+      const mocks = createActualHallMocks({ mode: Vue.ref(mobile ? 'portrait-command' : 'landscape-map'), mounts: { library: 0, archive: 0 }, counters })
+      mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: mode => { home.value = mode } })
+      const experience = mocks.useHallExperienceMode
+      mocks.useHallExperienceMode = () => ({ ...experience(), isMobileCoarse: Vue.ref(mobile) })
+      const wrapper = mount(loadActualJuyiHall(mocks), { props: { onboardingVisible: true }, attachTo: document.body, global: { stubs } })
+      try {
+        await flushPromises()
+        expect(wrapper.vm.$.setupState.showWorkbenchDock).to.equal(true)
+        expect(wrapper.find('.workbench-mobile-nav').attributes('style') || '').not.to.include('display: none')
+        expect(wrapper.classes()).to.include('has-workbench-dock')
+        expect(wrapper.find('.workbench-mobile-nav').attributes('inert')).to.equal('')
+        expect(wrapper.find('.hall-workbench-sidebar').attributes('inert')).to.equal('')
+        await wrapper.setProps({ onboardingVisible: false })
+        await Vue.nextTick()
+        expect(wrapper.vm.$.setupState.showWorkbenchDock).to.equal(true)
+        expect(wrapper.find('.workbench-mobile-nav').attributes('style') || '').not.to.include('display: none')
+        expect(wrapper.find('.workbench-mobile-nav').attributes('inert')).to.equal(undefined)
+        expect(wrapper.find('.hall-workbench-sidebar').attributes('inert')).to.equal(undefined)
+      } finally { wrapper.unmount() }
+    })
+  }
+  it('keeps overview request drafting root-owned while task drafting remains a nested return', async () => {
+    const home = Vue.ref('overview')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: mode => { home.value = mode } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPrivateDraft()
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['draft'])
+      expect(state.panelReturnPanel).to.equal('')
+      expect(state.navigationPresentation.returnOwner).to.equal('none')
+      expect(state.navigationPresentation.showRootReturn).to.equal(true)
+      expect(state.navigationPresentation.showHallReturn).to.equal(true)
+      expect(state.navigationPresentation.showHallClose).to.equal(false)
+      const rootOverlay = wrapper.find('.panel-overlay').element
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义厅')
+      await wrapper.find('.panel-return').trigger('click')
+      expect(state.activePanel).to.equal('')
+      await state.handlePanelAfterLeave(rootOverlay)
+      await Vue.nextTick()
+
+      state.openPanel('tasks', { root: true })
+      await Vue.nextTick()
+      state.openPrivateDraft()
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['tasks', 'draft'])
+      expect(state.panelReturnPanel).to.equal('tasks')
+      expect(state.navigationPresentation.returnOwner).to.equal('hall')
+      expect(state.returnPanel()).to.equal(true)
+      await Vue.nextTick()
+      expect(state.renderedPanel).to.equal('tasks')
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps the expanded mobile menu within the header and bottom dock on short screens', () => {
+    // jsdom does not lay out CSS: assert the responsive constraints here and
+    // separately verify actual bounding boxes in a browser fixture.
+    const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    const style = parse(source).descriptor.styles.at(-1).content
+    const rule = style.match(/\.home-overview \.workbench-more-menu \{([^}]+)\}/)?.[1]
+    expect(rule).to.include('box-sizing: border-box')
+    expect(rule).to.include('width: min(330px, calc(100% - 30px))')
+    expect(style).to.include('The absolute containing block is .juyi-page')
+    expect(rule).to.include('top: 64px')
+    expect(rule).to.include('max-height: calc(100% - 64px - var(--hall-content-bottom-inset))')
+    expect(rule).to.include('overflow-y: auto')
+    const short = style.match(/@media \(max-height: 560px\) \{([\s\S]+?)\n\}/)?.[1]
+    expect(short).to.include('.home-overview .workbench-more-menu { top: 58px; max-height: calc(100% - 58px - var(--hall-content-bottom-inset)); }')
+  })
+
+  it('targets page-level workbench tabs without changing detail or map tabs', () => {
+    const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    const style = parse(source).descriptor.styles.at(-1).content
+    expect(style).to.include(':deep(.overview-tabs)')
+    expect(style).to.include(':deep(.library-tabs)')
+    expect(style).to.include(':deep(.overview-tabs button[aria-pressed=\"true\"])')
+    expect(style).to.include(':deep(.library-tabs button.active)')
+    expect(style).to.not.include(':deep(.hall-tabs)')
+    expect(style).to.not.include(':deep(.case-tabs)')
+    expect(style).to.include('.juyi-page.is-keyboard-active { --hall-dock-reserve: 0px; }')
+    expect(style).to.include('--hall-content-bottom-inset: calc(var(--hall-safe-bottom) + var(--hall-dock-reserve));')
+  })
+
+  it('keeps tiny reflow navigation named and lets short chat windows scroll to the composer', () => {
+    const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
+    const style = parse(source).descriptor.styles.at(-1).content
+    expect(source).to.include(':data-workbench-tab="tab.panel" :aria-label="tab.label"')
+    const narrow = style.match(/@media \(max-width: 240px\) \{([\s\S]+?)\n\}/)?.[1]
+    expect(narrow).to.include('.workbench-mobile-nav button:not(:last-child) span { display: none; }')
+    expect(narrow).to.include(':deep(.panel-toolbar) { overflow-x: auto;')
+    const veryNarrow = style.match(/@media \(max-width: 180px\) \{([\s\S]+?)\n\}/)?.[1]
+    expect(veryNarrow).to.include(':deep(.hall-messages) { padding: 4px 8px; }')
+    const short = style.match(/@media \(max-height: 260px\) and \(max-width: 760px\) \{([\s\S]+?)\n\}/)?.[1]
+    expect(short).to.include('> .floating-panel { overflow-y: auto;')
+    expect(short).to.include(':deep(.chat-panel) { flex: 0 0 auto; height: auto;')
+  })
+
+  it('repairs legacy UTF-8 mojibake in the Hall account label', async () => {
+    const home = Vue.ref('overview')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('landscape-map'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: value => { home.value = value } })
+    const oldGlobal = mocks.useGlobalStore
+    mocks.useGlobalStore = () => ({ ...oldGlobal(), user: { id: 'owner-a', nickname: 'ä½ å¥½' } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      expect(wrapper.find('.workbench-sidebar-account > span').text()).to.include('你好')
+      expect(wrapper.find('.workbench-sidebar-account').text()).not.to.include('ä½')
+    } finally { wrapper.unmount() }
+  })
+
+  it('returns focus to the persistent more trigger when its menu item unmounts on first open', async () => {
+    const home = Vue.ref('overview')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: mode => { home.value = mode } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const trigger = wrapper.find('.hall-header-tools .workbench-mobile-more')
+      trigger.element.style.display = 'inline-flex' // emulate narrow viewport in jsdom
+      trigger.element.focus()
+      await trigger.trigger('click')
+      await Vue.nextTick()
+      const menuButtons = wrapper.findAll('.workbench-more-menu button')
+      for (const [label, icon] of [['办事', 'home-outline'], ['事项', 'format-list-checkbox'],
+        ['资料', 'file-document-outline'], ['我的', 'account-circle-outline'], ['厅中实景', 'map-marker-outline']]) {
+        expect(menuButtons.find(button => button.text() === label)?.find('i').attributes('name')).to.equal(icon)
+      }
+      expect(wrapper.find('.hall-header-tools .workbench-message-action').attributes('aria-label')).to.equal('查看消息')
+      expect(wrapper.find('.hall-header-tools .workbench-account-action i').attributes('name')).to.equal('account-circle-outline')
+      const menuItem = menuButtons.find(button => button.text() === '资料')
+      expect(menuItem).to.exist
+      // Simulate mobile WebKit, where tapping a button need not focus it.
+      trigger.element.focus()
+      await menuItem.trigger('click')
+      await Vue.nextTick()
+      expect(wrapper.find('.workbench-more-menu').exists()).to.equal(false)
+      expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['treasure'])
+      const overlay = wrapper.find('.panel-overlay').element
+      wrapper.vm.$.setupState.closePanel()
+      await wrapper.vm.$.setupState.handlePanelAfterLeave(overlay)
+      await Vue.nextTick()
+      expect(document.activeElement).to.equal(trigger.element)
+    } finally { wrapper.unmount() }
+  })
+
+  it('treats header utilities as root pages and returns focus to the latest visible workbench tab', async () => {
+    const home = Vue.ref('overview')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: mode => { home.value = mode } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const mineTab = wrapper.find('.hall-workbench-sidebar [data-workbench-tab="mine"]')
+      mineTab.element.focus(); await mineTab.trigger('click'); await Vue.nextTick()
+      const taskTab = wrapper.find('.hall-workbench-sidebar [data-workbench-tab="tasks"]')
+      taskTab.element.focus(); await taskTab.trigger('click'); await Vue.nextTick()
+      expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['tasks'])
+      expect(wrapper.find('.workbench-breadcrumb strong').text()).to.equal('事项')
+      expect(wrapper.find('.panel-title').exists()).to.equal(false)
+      expect(wrapper.find('.floating-panel').attributes('role')).to.equal('region')
+      expect(wrapper.find('.floating-panel').attributes('aria-label')).to.equal('事项')
+      expect(document.activeElement).to.equal(wrapper.find('.floating-panel').element)
+      expect(wrapper.find('.task-search input').exists()).to.equal(false) // this harness stubs the task surface
+      expect(wrapper.find('.workbench-sidebar-account').attributes('aria-label')).to.equal('个人中心')
+      let overlay = wrapper.find('.panel-overlay').element
+      wrapper.vm.$.setupState.closePanel(); await wrapper.vm.$.setupState.handlePanelAfterLeave(overlay)
+      await Vue.nextTick()
+      expect(document.activeElement).to.equal(taskTab.element)
+      await wrapper.find('.hall-header-tools [aria-label="查看消息"]').trigger('click'); await Vue.nextTick()
+      expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['messages'])
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义厅')
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回聚义厅')
+      expect(wrapper.find('.panel-close').exists()).to.equal(false)
+      await wrapper.find('.hall-header-tools > button:first-child').trigger('click'); await Vue.nextTick()
+      expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['agents'])
+      await wrapper.find('.hall-header-tools [aria-label="查看消息"]').trigger('click'); await Vue.nextTick()
+      expect(wrapper.vm.$.setupState.panelFrames).to.deep.equal(['messages'])
+    } finally { wrapper.unmount() }
+  })
+
+  it('shows a Hall-owned return for explicit historical delivery over an already-open primary task detail', async () => {
+    const home = Vue.ref('overview')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({
+      mode: Vue.ref('portrait-command'),
+      mounts: { library: 0, archive: 0 },
+      counters,
+      actualBountyPanel: BountyPanel
+    })
+    mocks.useHallHomeMode = () => ({
+      homeMode: home,
+      isOverviewHome: Vue.computed(() => home.value === 'overview'),
+      setHomeMode: value => { home.value = value }
+    })
+    const oldGlobal = mocks.useGlobalStore
+    mocks.useGlobalStore = () => ({ ...oldGlobal(), user: { id: 'owner-a', tenantId: 'tenant-a' } })
+    mocks.useApiStore = () => ({ oauthClientId: 'client-a', authorizationGeneration: 1, token: async () => {} })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      const task = { id: 'task-formal-overlap', title: '保留榜文详情', status: 'assigned' }
+      await state.openOverviewTask(task, {
+        code: 'FORMAL_DELIVERY_SUBMITTED', deliveryId: 'delivery-overlap', taskVersion: '2'
+      })
+      await Vue.nextTick()
+
+      expect(wrapper.find('.bounty-modal').exists()).to.equal(true)
+      expect(wrapper.find('.acceptance-probe').exists()).to.equal(false)
+      state.openFormalResults(task)
+      await Vue.nextTick()
+      expect(wrapper.find('.acceptance-probe').exists()).to.equal(true)
+      expect(wrapper.find('.floating-panel').attributes('role')).to.equal('region')
+      expect(wrapper.find('.panel-title').exists()).to.equal(true)
+      expect(wrapper.find('.panel-return').attributes('aria-label')).to.equal('返回上一层')
+      expect(wrapper.find('.panel-close').exists()).to.equal(false)
+
+      await wrapper.find('.panel-return').trigger('click')
+      await Vue.nextTick()
+      expect(wrapper.find('.acceptance-probe').exists()).to.equal(false)
+      expect(wrapper.find('.bounty-modal').text()).to.include('保留榜文详情')
+      expect(state.panelFrames).to.deep.equal(['tasks'])
+    } finally { wrapper.unmount() }
+  })
+
+  it('reuses the Stage, exposes the four primary mobile pages, and restores map on exit', async () => {
+    const mode = Vue.ref('portrait-command')
+    const home = Vue.ref('overview')
+    const mounts = { library: 0, archive: 0 }
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts, counters })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: value => { home.value = value } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      expect(wrapper.find('.hall-board').exists()).to.equal(false) // lazy Stage has never been entered
+      expect(wrapper.find('.hall-workbench-sidebar').exists()).to.equal(true)
+      expect(wrapper.findAll('.workbench-mobile-nav [data-workbench-tab]').map(tab => tab.attributes('data-workbench-tab'))).to.deep.equal(['overview', 'tasks', 'treasure', 'mine'])
+      await wrapper.find('.workbench-mobile-nav [data-workbench-tab="mine"]').trigger('click')
+      await Vue.nextTick()
+      expect(wrapper.find('.panel-mine').exists()).to.equal(true)
+      expect(wrapper.find('.floating-panel').attributes('aria-modal')).to.equal(undefined)
+      expect(wrapper.find('.floating-panel').attributes('role')).to.equal('region')
+      expect(wrapper.find('.floating-panel').attributes('aria-label')).to.equal('我的')
+      expect(wrapper.find('.hall-app-header').attributes('inert')).to.equal(undefined)
+      expect(wrapper.find('.hall-workbench-sidebar').attributes('inert')).to.equal(undefined)
+      await wrapper.find('.workbench-mobile-nav [data-workbench-tab="tasks"]').trigger('click')
+      await Vue.nextTick()
+      expect(wrapper.find('.panel-tasks').exists()).to.equal(true)
+      expect(state.panelFrames).to.deep.equal(['tasks'])
+      await wrapper.find('.workbench-map-entry').trigger('click')
+      mode.value = 'landscape-map'
+      await Vue.nextTick()
+      const stage = wrapper.find('.hall-board').element
+      expect(home.value).to.equal('map')
+      expect(state.activePanel).to.equal('')
+      expect(wrapper.find('.hall-board').element).to.equal(stage)
+      home.value = 'overview'; await Vue.nextTick()
+      await wrapper.find('.workbench-mobile-nav [data-workbench-tab="mine"]').trigger('click')
+      await Vue.nextTick()
+      expect(wrapper.find('.hall-board').element).to.equal(stage)
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('O04 actual-mounted JuyiHall panel identity', () => {
+  it('continues an external task via actual page handler without owner roster authority, retaining private-chat guard', async () => {
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallChatContext = useHallChatContext
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      const target = { agentId: 'other-owner-agent', displayName: '他人承办', providerDisplayName: null, isMine: false, availability: 'offline' }
+      const task = { id: 'external-task', taskVersion: '1', status: 'assigned', assignedAgentId: target.agentId, assignedTarget: target }
+      expect(state.canStartAgentConversation(target)).to.equal(false)
+      expect(state.handleStartAgentConversation(target)).to.equal(false)
+      expect(state.discussTask(task, { ...target, agentId: 'forged' })).to.equal(false)
+      expect(state.discussTask(task, target)).to.equal(true)
+      expect(state.chatContext.targetAgentIds).to.deep.equal([target.agentId])
+      expect(state.discussTask({ ...task, status: 'cancelled' }, target)).to.equal(false)
+      expect(state.canStartAgentConversation(target)).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('adopts external assignedTarget absent from the owner roster across real watchers but fences later target edits', async () => {
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallChatContext = useHallChatContext
+    const originalConversation = mocks.useHallConversation
+    const adopted = []
+    mocks.useHallConversation = (...args) => ({ ...originalConversation(...args), adoptBountyBootstrap: async reference => { adopted.push(reference); return true } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      const task = { id: 'task-o04', title: 'original', taskVersion: '1', requirementRevision: '1', status: 'assigned', assignedAgentId: 'external-agent',
+        assignedTarget: { agentId: 'external-agent', displayName: '他人承办', providerDisplayName: null, isMine: false, availability: 'offline' } }
+      const reference = { taskId: task.id, targetAgentId: 'external-agent' }
+      const generation = state.pointAndStartContextGeneration
+      const isCurrent = () => state.pointAndStartContextGeneration === generation
+      expect(await state.attachAdmittedPointAndStart({ task, targetAgentId: 'external-agent', reference, isCurrent })).to.equal(true)
+      expect(adopted).to.deep.equal([reference])
+      expect(state.selectedAgent).to.equal(null)
+      expect(isCurrent()).to.equal(true)
+      state.selectedAgent = { agentId: 'different-agent' }
+      expect(isCurrent()).to.equal(false)
+      expect(await state.attachAdmittedPointAndStart({ task, targetAgentId: 'external-agent', reference, isCurrent })).to.equal(false)
+      expect(adopted).to.have.length(1)
+    } finally { wrapper.unmount() }
+  })
+
+  for (const modeName of ['landscape-map', 'portrait-command']) it(`consumes admitted agent selection and returns to saved task in ${modeName}`, async () => {
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref(modeName), mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
+    mocks.AgentPanel = Vue.defineComponent({ setup: (_props, { expose }) => {
+      expose({ canGoBack: Vue.ref(true) })
+      return () => Vue.h('section', 'agent detail')
+    } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      const task = { id: 'task-navigation', title: '保存后的原事项', status: 'open' }
+      state.openPanel('formalDraft')
+      await state.openPendingTaskDetail(task)
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['tasks'])
+      expect(wrapper.find('.bounty-panel').exists()).to.equal(true)
+      expect(wrapper.find('.bounty-panel').text()).to.include('待承办')
+      expect(state.panelDepth).to.equal(2)
+      expect(state.openPanel('agents')).to.equal(true)
+      await Vue.nextTick()
+      expect(state.openPanel('chat')).to.equal(false)
+      expect(state.openPanel('chat', { consumeAgentSelection: true })).to.equal(true)
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['tasks', 'chat'])
+      expect(state.panelDepth).to.equal(3)
+      expect(state.openPanel('library')).to.equal(false)
+      state.returnPanel()
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['tasks'])
+      expect(wrapper.find('.bounty-modal').text()).to.include('保存后的原事项')
+    } finally { wrapper.unmount() }
+  })
+
+  it('restores landscape immersion, removes portrait map controls, and preserves open panels when rotating', async () => {
+    const mode = Vue.ref('portrait-command')
+    const home = Vue.ref('map')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: value => { home.value = value } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      expect(wrapper.find('.hall-app-header').element.style.display).not.to.equal('none')
+      expect(wrapper.find('[aria-label="方向控制"]').exists()).to.equal(false)
+      expect(wrapper.find('[aria-label="放大地图"]').exists()).to.equal(false)
+      expect(wrapper.find('[aria-label="缩小地图"]').exists()).to.equal(false)
+      expect(wrapper.findAll('.hall-scene-tools button').some(b => b.text() === '全景')).to.equal(false)
+      state.openPanel('library')
+      await Vue.nextTick()
+      expect(wrapper.find('.panel-orientation').exists()).to.equal(false)
+      const panel = wrapper.find('.floating-panel').element
+      mode.value = 'landscape-map'
+      await Vue.nextTick()
+      expect(state.isImmersiveMap).to.equal(true)
+      expect(wrapper.find('.hall-app-header').element.style.display).to.equal('none')
+      expect(wrapper.find('.hall-mode-toolbar').element.style.display).to.equal('none')
+      expect(wrapper.find('.hall-map-actions').exists()).to.equal(false)
+      expect(wrapper.find('.floating-panel').element).to.equal(panel)
+      expect(wrapper.find('.panel-orientation').exists()).to.equal(false)
+      home.value = 'overview'
+      await Vue.nextTick()
+      expect(state.isImmersiveMap).to.equal(false)
+      expect(wrapper.find('.hall-app-header').element.style.display).not.to.equal('none')
+      mode.value = 'portrait-command'
+      await Vue.nextTick()
+      expect(wrapper.find('.panel-orientation').exists()).to.equal(false)
+      expect(wrapper.find('.floating-panel').element).to.equal(panel)
+    } finally { wrapper.unmount() }
+  })
+
+  it('W05 routes a formal review hint to task detail and keeps explicit history separate, never a private mark', async () => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
+    const oldGlobal = mocks.useGlobalStore
+    mocks.useGlobalStore = () => ({ ...oldGlobal(), user: { id: 'owner-a', tenantId: 'tenant-a' } })
+    mocks.useApiStore = () => ({ oauthClientId: 'client-a', authorizationGeneration: 1, token: async () => {} })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      await state.openOverviewTask({ id: 'task-a', title: '待验收的正式事项', status: 'assigned' }, {
+        code: 'FORMAL_DELIVERY_SUBMITTED', deliveryId: 'delivery-exact', workItemId: 'work-a', deliveryVersion: '0', taskVersion: '9007199254740993'
+      })
+      await Vue.nextTick()
+      expect(wrapper.findComponent({ name: 'BountyAcceptancePanel' }).exists()).to.equal(false)
+      expect(state.formalTaskRef).to.equal(null)
+      expect(state.taskReviewRef.deliveryId).to.equal('delivery-exact')
+      expect(state.taskReviewRef.taskVersion).to.equal('9007199254740993')
+      expect(wrapper.findComponent(BountyPanel).attributes('inert')).to.equal(undefined)
+      expect(wrapper.find('.bounty-modal').text()).to.include('待验收的正式事项')
+      // The duplicate acceptance CTA is gone; read-only history keeps its original route.
+      await state.openOverviewTask({ id: 'task-a', title: '已完成事项', status: 'completed' })
+      await Vue.nextTick()
+      expect(wrapper.find('.bounty-modal').text()).to.include('不能继续修改或重复验收')
+      expect(wrapper.find('.bounty-modal').text()).not.to.include('补充要求、查看结果和提出修改')
+      expect(wrapper.findAll('button').some(button => button.text() === '查看议事记录')).to.equal(true)
+      await wrapper.findAll('button').find(button => button.text() === '查看成果与验收记录').trigger('click')
+      expect(wrapper.findComponent({ name: 'HallCompletedRecords' }).props('taskId')).to.equal('task-a')
+      expect(wrapper.findComponent({ name: 'BountyAcceptancePanel' }).exists()).to.equal(false)
+      expect(wrapper.text()).to.include('成果与验收记录')
+      expect(wrapper.find('.hall-private-mark').exists()).to.equal(false)
+      state.closePanel()
+      state.openPanel('tasks')
+      await Vue.nextTick()
+      expect(wrapper.find('.acceptance-probe').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
+  for (const modeName of ['landscape-map', 'portrait-command']) {
+    for (const multimedia of [true, false]) it(`opens standalone requirement page from ${modeName} header (multimedia=${multimedia}) and restores tasks`, async () => {
+      const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+      const mocks = createActualHallMocks({ mode: Vue.ref(modeName), mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
+      mocks.env.VITE_JUYITING_MULTIMEDIA_DELIBERATION_V2_UI = multimedia ? 'true' : 'false'
+      mocks.isMultimediaDeliberationUiEnabled = () => multimedia
+      mocks.useHallHomeMode = () => ({ homeMode: Vue.ref('overview'), isOverviewHome: Vue.ref(true), setHomeMode: () => {} })
+      mocks.HallDraftEditor = Vue.defineComponent({
+        props: ['initialContext'], emits: ['close'],
+        setup: (_props, { emit }) => () => Vue.h('section', { class: 'requirement-page-probe' }, [
+          Vue.h('label', '事项名称'), Vue.h('button', { class: 'return-to-tasks', onClick: () => emit('close') }, '返回')
+        ])
+      })
+      const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+      try {
+        await flushPromises()
+        const state = wrapper.vm.$.setupState
+        state.openPanel('tasks')
+        await Vue.nextTick()
+        const bounty = wrapper.findComponent(BountyPanel)
+        await bounty.find('input[type="search"]').setValue('428')
+        const source = bounty.element
+        await wrapper.get('.workbench-create-action').trigger('click')
+        await Vue.nextTick()
+        expect(state.renderedPanel).to.equal('formalDraft')
+        expect(state.panelFrames).to.deep.equal(['tasks', 'formalDraft'])
+        expect(wrapper.get('.panel-title').text()).to.include('提出需求')
+        expect(wrapper.get('.panel-overlay').classes()).not.to.include('is-workbench-page')
+        expect(wrapper.find('.requirement-page-probe').exists()).to.equal(true)
+        expect(source.hasAttribute('inert')).to.equal(true)
+        expect(wrapper.find('.task-create-form').exists()).to.equal(false)
+        expect(bounty.vm.$.exposed.openCreateRequirement).to.equal(undefined)
+        expect(bounty.emitted('create-task')).to.equal(undefined)
+        await wrapper.get('.return-to-tasks').trigger('click')
+        await Vue.nextTick()
+        expect(state.renderedPanel).to.equal('tasks')
+        expect(wrapper.findComponent(BountyPanel).element).to.equal(source)
+        expect(bounty.find('input[type="search"]').element.value).to.equal('428')
+        expect(source.hasAttribute('inert')).to.equal(false)
+      } finally { wrapper.unmount() }
+    })
+  }
+
+  it('W05 keeps the formal draft route separate and returns without clearing task search or orientation', async () => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
+    mocks.HallDraftEditor = Vue.defineComponent({
+      props: ['initialKind', 'selectedAgent', 'identityScope'],
+      setup: props => () => Vue.h('section', { class: 'formal-draft-probe' }, props.initialKind)
+    })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('tasks')
+      await Vue.nextTick()
+      const bounty = wrapper.findComponent(BountyPanel)
+      await bounty.find('input[type="search"]').setValue('428')
+      const source = bounty.element
+      expect(bounty.findAll('button').some(button => button.text() === '起草正式任务')).to.equal(false)
+      state.openPanel('formalDraft', { restore: true })
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['tasks', 'formalDraft'])
+      expect(wrapper.find('.formal-draft-probe').text()).to.equal('TASK_CREATE')
+      expect(wrapper.findComponent(mocks.HallDraftEditor).props('selectedAgent')).to.equal(undefined)
+      expect(source.hasAttribute('inert')).to.equal(true)
+      expect(wrapper.find('.panel-orientation').exists()).to.equal(false)
+      mode.value = 'landscape-map'
+      await Vue.nextTick()
+      expect(wrapper.find('.panel-orientation').exists()).to.equal(false)
+      state.returnPanel()
+      await Vue.nextTick()
+      expect(wrapper.findComponent(BountyPanel).element).to.equal(source)
+      expect(source.hasAttribute('inert')).to.equal(false)
+      expect(bounty.find('input[type="search"]').element.value).to.equal('428')
+      expect(state.panelFrames).to.deep.equal(['tasks'])
+      expect(bounty.emitted('create-task')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+
+  it('W05 opens the actual formal task detail as the third logical layer and returns one layer at a time', async () => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
+    mocks.HallOverview = Vue.defineComponent({ setup: () => () => Vue.h('section', '来源列表') })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('messages')
+      await Vue.nextTick()
+      await state.openOverviewTask({ id: 'task-from-overview', title: '原正式榜文', status: 'open', requiredAbilities: [] })
+      await Vue.nextTick()
+      expect(wrapper.find('.bounty-modal').text()).to.include('原正式榜文')
+      expect(wrapper.find('.bounty-source').attributes('inert')).to.equal('')
+      expect(state.panelDepth).to.equal(3)
+      expect(state.openPanel('treasure')).to.equal(false)
+      expect(wrapper.find('.panel-orientation').exists()).to.equal(false)
+      state.returnPanel()
+      await Vue.nextTick()
+      expect(wrapper.find('.bounty-modal').exists()).to.equal(false)
+      expect(state.panelFrames).to.deep.equal(['messages', 'tasks'])
+      expect(state.panelDepth).to.equal(2)
+      state.returnPanel()
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['messages'])
+    } finally { wrapper.unmount() }
+  })
+
+  for (const layout of ['portrait-command', 'landscape-map']) {
+    it(`loads the task list when returning from a direct home detail (${layout})`, async () => {
+      const mode = Vue.ref(layout)
+      const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+      const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
+      const originalData = mocks.useHallData
+      const task = { id: 'pending-return', title: '返回后应展示的事项', status: 'open', requiredAbilities: [] }
+      let data
+      mocks.useHallData = bindings => {
+        data = originalData(bindings)
+        data.tasks = Vue.ref([])
+        data.taskKeyword = Vue.ref('返回')
+        data.taskStatusFilter = Vue.ref('pending_assignment')
+        data.loadTasks = async () => { counters.loads.tasks += 1; data.tasks.value = [task] }
+        return data
+      }
+      const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+      try {
+        await flushPromises()
+        const state = wrapper.vm.$.setupState
+        await state.openPendingTaskDetail(task)
+        await flushPromises()
+        expect(counters.loads.tasks).to.equal(0)
+        expect(wrapper.find('.bounty-modal').text()).to.include(task.title)
+        await wrapper.get('.bounty-back-button').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('.bounty-modal').exists()).to.equal(false)
+        expect(counters.loads.tasks).to.equal(1)
+        expect(data.tasks.value.map(row => row.id)).to.deep.equal([task.id])
+        expect(wrapper.get('.task-card').text()).to.include(task.title)
+        expect(data.taskKeyword.value).to.equal('返回')
+        expect(data.taskStatusFilter.value).to.equal('pending_assignment')
+        expect(state.selectedTask).to.equal(null)
+        await state.selectTask(null)
+        expect(counters.loads.tasks).to.equal(1)
+      } finally { wrapper.unmount() }
+    })
+  }
+
+  it('W05 restores exact overview refs and canonical tasks without reloading filtered task lists', async () => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    const openedTasks = []
+    mocks.HallOverview = Vue.defineComponent({ setup: () => () => Vue.h('section', { class: 'w05-messages' }, '来源列表') })
+    mocks.HallDraftEditor = Vue.defineComponent({
+      props: ['initialRef'],
+      setup: props => () => Vue.h('section', { class: 'w05-restored-draft' }, `${props.initialRef.sourceType}:${props.initialRef.sourceId}`)
+    })
+    mocks.BountyPanel = Vue.defineComponent({
+      setup (_props, { expose }) {
+        expose({ openTask: task => openedTasks.push(task) })
+        return () => Vue.h('section', { class: 'w05-original-task' }, '原悬赏入口')
+      }
+    })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('messages')
+      await Vue.nextTick()
+      const source = wrapper.find('.w05-messages').element
+      expect(state.openOverviewItem({ sourceType: 'DRAFT', sourceId: 'draft-exact' })).to.equal(true)
+      await Vue.nextTick()
+      expect(wrapper.find('.w05-restored-draft').text()).to.equal('DRAFT:draft-exact')
+      expect(source.hasAttribute('inert')).to.equal(true)
+      state.returnPanel()
+      await Vue.nextTick()
+      expect(wrapper.find('.w05-messages').element).to.equal(source)
+      expect(source.hasAttribute('inert')).to.equal(false)
+      const canonical = { id: 'task-outside-filter', title: '原榜文', status: 'assigned' }
+      expect(await state.openOverviewTask(canonical)).to.equal(true)
+      expect(openedTasks).to.deep.equal([canonical])
+      expect(state.selectedTask.id).to.equal('task-outside-filter')
+      expect(counters.loads.tasks).to.equal(0)
+      expect(state.panelFrames).to.deep.equal(['messages', 'tasks'])
+      expect(wrapper.findAll('[role="dialog"]')).to.have.length(1)
+    } finally { wrapper.unmount() }
+  })
+
+  it('W04 returns from treasure to the same source pane, focus and unsaved text without resetting chat', async () => {
+    const mode = Vue.ref('portrait-command')
+    const mounts = { library: 0, archive: 0 }
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts, counters })
+    let publicResets = 0
+    const makeChatContext = mocks.useHallChatContext
+    mocks.useHallChatContext = () => ({ ...makeChatContext(), resetToPublic: () => { publicResets += 1 } })
+    const SourcePane = Vue.defineComponent({
+      setup () {
+        const text = Vue.ref('尚未保存的来源编辑')
+        return () => Vue.h('section', { class: 'w04-source' }, [
+          Vue.h('textarea', { value: text.value, onInput: event => { text.value = event.target.value } }),
+          Vue.h('button', { class: 'w04-source-trigger' }, '取资料')
+        ])
+      }
+    })
+    mocks.BountyPanel = SourcePane
+    mocks.PersonalWorkspace = Vue.defineComponent({ setup: () => () => Vue.h('section', { class: 'w04-files' }, '资料列表') })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('tasks')
+      await Vue.nextTick()
+      const source = wrapper.find('.w04-source').element
+      const trigger = wrapper.find('.w04-source-trigger').element
+      trigger.focus()
+      wrapper.find('.floating-panel').element.scrollTop = 91
+      state.openBabaoBox()
+      await Vue.nextTick()
+      expect(state.panelFrames).to.deep.equal(['tasks', 'treasure'])
+      expect(source.getAttribute('inert')).to.equal('')
+      expect(source.getAttribute('aria-hidden')).to.equal('true')
+      expect(wrapper.findAll('[role="dialog"]')).to.have.length(1)
+      mode.value = 'landscape-map'
+      await Vue.nextTick()
+      state.returnPanel()
+      await Vue.nextTick()
+      expect(wrapper.find('.w04-source').element).to.equal(source)
+      expect(wrapper.find('.w04-source textarea').element.value).to.equal('尚未保存的来源编辑')
+      expect(source.hasAttribute('inert')).to.equal(false)
+      expect(wrapper.find('.floating-panel').element.scrollTop).to.equal(91)
+      expect(document.activeElement).to.equal(trigger)
+      expect(publicResets).to.equal(0)
+      expect(counters.loads.tasks).to.equal(1)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('W04 bounds navigation to three frames, does not consume composing Escape, and clears hidden panes on identity change', async () => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    const apiStore = Vue.reactive({ authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => '' })
+    mocks.useApiStore = () => apiStore
+    mocks.PersonalWorkspace = Vue.defineComponent({ setup: () => () => Vue.h('section', 'files') })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('agents')
+      state.openPanel('chat')
+      state.openPanel('treasure')
+      expect(state.openPanel('catalog')).to.equal(false)
+      expect(state.panelFrames).to.deep.equal(['agents', 'chat', 'treasure'])
+      await Vue.nextTick()
+      await wrapper.find('.floating-panel').trigger('keydown', { key: 'Escape', isComposing: true })
+      expect(state.activePanel).to.equal('treasure')
+      await wrapper.find('.floating-panel').trigger('keydown', { key: 'Escape' })
+      expect(state.activePanel).to.equal('chat')
+      apiStore.authorizationGeneration += 1
+      await Vue.nextTick()
+      expect(state.activePanel).to.equal('')
+      expect(state.panelFrames).to.deep.equal([])
+      expect(wrapper.find('.floating-panel').exists()).to.equal(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('retains panel/state identity for five cycles and fences stale keyed leaves', async () => {
+    const mode = Vue.ref('portrait-command')
+    const mounts = { library: 0, archive: 0 }
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const JuyiHall = loadActualJuyiHall(createActualHallMocks({ mode, mounts, counters }))
+    const wrapper = mount(JuyiHall, { attachTo: document.body, global: { stubs: { ...stubs, transition: false } } })
+    try {
+      await flushPromises()
+      const originalTrigger = wrapper.find('[data-portrait-action="library"]').element
+      originalTrigger.focus()
+      await wrapper.find('[data-portrait-action="library"]').trigger('click')
+      await Vue.nextTick()
+      const floatingPanel = wrapper.find('.floating-panel').element
+      const library = wrapper.find('.library-panel-instance').element
+      const archive = wrapper.find('.archive-reader-instance').element
+      expect(document.activeElement).to.equal(wrapper.find('.panel-return').element)
+      expect(wrapper.find('.portrait-shell').attributes('inert')).to.equal('')
+      expect(wrapper.find('.portrait-shell').attributes('aria-hidden')).to.equal('true')
+      expect(counters.owners).to.deep.equal({ data: 1, conversation: 1, debug: 1 })
+      const initialLoads = { ...counters.loads }
+      const conversationId = counters.refs.conversationId.value
+      const draft = counters.refs.draft.value
+      const messages = counters.refs.messages.value
+
+      for (let cycle = 0; cycle < 5; cycle += 1) {
+        mode.value = 'landscape-map'; await Vue.nextTick()
+        expect(wrapper.find('.floating-panel').classes()).to.include('layout-full-window')
+        expect(wrapper.find('.hall-board').attributes('inert')).to.equal('')
+        mode.value = 'portrait-command'; await Vue.nextTick()
+        expect(wrapper.find('.floating-panel').classes()).to.include('layout-full-window')
+        expect(wrapper.find('.floating-panel').element).to.equal(floatingPanel)
+        expect(wrapper.find('.library-panel-instance').element).to.equal(library)
+        expect(wrapper.find('.archive-reader-instance').element).to.equal(archive)
+        expect(counters.refs.conversationId.value).to.equal(conversationId)
+        expect(counters.refs.draft.value).to.equal(draft)
+        expect(counters.refs.messages.value).to.equal(messages)
+        expect(counters.loads).to.deep.equal(initialLoads)
+        expect(mounts.libraryUnmount || 0).to.equal(0)
+        expect(mounts.archiveUnmount || 0).to.equal(0)
+      }
+
+      const state = wrapper.vm.$.setupState
+      const overlayA = wrapper.find('.panel-overlay').element
+      const generationA = overlayA.dataset.panelGeneration
+      state.closePanel()
+      state.openPanel('library')
+      await Vue.nextTick()
+      const overlayB = wrapper.findAll('.panel-overlay').find(overlay => overlay.element.dataset.panelGeneration !== generationA).element
+      expect(overlayB).not.to.equal(overlayA)
+      expect(overlayB.dataset.panelGeneration).not.to.equal(generationA)
+      await state.handlePanelAfterLeave(overlayA)
+      expect(overlayB.isConnected).to.equal(true)
+      state.closePanel()
+      await state.handlePanelAfterLeave(overlayA)
+      expect(state.renderedPanel).to.equal('library')
+      await state.handlePanelAfterLeave(overlayB)
+      await Vue.nextTick()
+      expect(state.renderedPanel).to.equal('')
+      expect(document.activeElement).to.equal(wrapper.find('[data-portrait-action="library"]').element)
+      expect(mounts.library).to.equal(2)
+      expect(mounts.archive).to.equal(2)
+    } finally {
+      wrapper.unmount()
+    }
+    expect(mounts.libraryUnmount).to.equal(2)
+    expect(mounts.archiveUnmount).to.equal(2)
+  })
+
+  it('cancels chat load and deferred focus when actual JuyiHall unmounts', async () => {
+    const mode = Vue.ref('portrait-command')
+    const mounts = { library: 0, archive: 0 }
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const JuyiHall = loadActualJuyiHall(createActualHallMocks({ mode, mounts, counters }))
+    const external = document.createElement('button')
+    document.body.append(external)
+    external.focus()
+    const wrapper = mount(JuyiHall, { attachTo: document.body, global: { stubs: { ...stubs, transition: false } } })
+    await flushPromises()
+    wrapper.vm.$.setupState.openPanel('chat')
+    wrapper.unmount()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(counters.loads.messages).to.equal(0)
+    expect(document.activeElement).to.equal(external)
+    external.remove()
+  })
+
+  it('converges Escape, close button, and backdrop and restores landscape/root fallbacks', async () => {
+    const mode = Vue.ref('portrait-command')
+    const mounts = { library: 0, archive: 0 }
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const JuyiHall = loadActualJuyiHall(createActualHallMocks({ mode, mounts, counters }))
+    const wrapper = mount(JuyiHall, { attachTo: document.body, global: { stubs: { ...stubs, transition: false } } })
+    const state = wrapper.vm.$.setupState
+    try {
+      await flushPromises()
+      const trigger = wrapper.find('[data-portrait-action="library"]')
+      trigger.element.focus()
+      await trigger.trigger('click')
+      await Vue.nextTick()
+      const last = wrapper.find('.library-last').element
+      last.focus()
+      await wrapper.find('.floating-panel').trigger('keydown', { key: 'Tab' })
+      expect(document.activeElement).to.equal(wrapper.find('.panel-return').element)
+      await wrapper.find('.floating-panel').trigger('keydown', { key: 'Tab', shiftKey: true })
+      expect(document.activeElement).to.equal(last)
+
+      mode.value = 'landscape-map'; await Vue.nextTick()
+      const escapeOverlay = wrapper.find('.panel-overlay').element
+      await wrapper.find('.floating-panel').trigger('keydown', { key: 'Escape' })
+      expect(state.activePanel).to.equal('')
+      await state.handlePanelAfterLeave(escapeOverlay)
+      await Vue.nextTick()
+      expect(document.activeElement).to.equal(wrapper.find('.hall-board').element)
+
+      document.activeElement.blur()
+      // A persistent landscape Stage is now the first fallback. Make it
+      // unavailable explicitly to exercise the final page-root fallback.
+      wrapper.find('.hall-board').element.hidden = true
+      state.openPanel('library')
+      await Vue.nextTick()
+      const closeOverlayWrapper = wrapper.findAll('.panel-overlay').at(-1)
+      const closeOverlay = closeOverlayWrapper.element
+      await closeOverlayWrapper.find('.panel-close').trigger('click')
+      expect(state.activePanel).to.equal('')
+      await state.handlePanelAfterLeave(closeOverlay)
+      await Vue.nextTick()
+      expect(document.activeElement).to.equal(wrapper.find('.juyi-page').element)
+
+      state.openPanel('library')
+      await Vue.nextTick()
+      const backdropOverlayWrapper = wrapper.findAll('.panel-overlay').at(-1)
+      const backdropOverlay = backdropOverlayWrapper.element
+      await backdropOverlayWrapper.trigger('pointerdown')
+      expect(state.activePanel).to.equal('')
+      await state.handlePanelAfterLeave(backdropOverlay)
+      expect(state.renderedPanel).to.equal('')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+})
+
+describe('V1-8 actual JuyiHall profile route leave guard', () => {
+  it('stays on cancellation, confirms a voice-only turn once, and ignores a duplicate profile click while navigation is pending', async () => {
+    global.history = global.window.history
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/juyiting', name: 'JuyiHall', component: { template: '<div />' } },
+        { path: '/profile', name: 'UserProfile', component: { template: '<div />' } }
+      ]
+    })
+    await router.push({ name: 'JuyiHall' })
+    await router.isReady()
+    let profilePushes = 0
+    const originalPush = router.push.bind(router)
+    router.push = target => {
+      if (target?.name === 'UserProfile') profilePushes += 1
+      return originalPush(target)
+    }
+    const decisions = [false, true, true]
+    let confirmCalls = 0
+    const routeGate = deferred()
+    const navigation = {
+      router,
+      voiceInteractionLocked: false,
+      voiceTurnActive: true,
+      hasMeaningfulHallLeaveWork,
+      confirmHallLeave: ({ hasMeaningfulWork }) => {
+        confirmCalls += 1
+        expect(hasMeaningfulWork).to.equal(true)
+        return decisions.shift()
+      },
+      onBeforeRouteLeave: guard => router.beforeEach(async (to, from) => {
+        if (from.name !== 'JuyiHall') return true
+        const allowed = guard(to, from)
+        if (!allowed) return false
+        if (to.name === 'UserProfile') await routeGate.promise
+        return true
+      })
+    }
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const JuyiHall = loadActualJuyiHall(createActualHallMocks({
+      mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters, navigation
+    }))
+    const wrapper = mount(JuyiHall, { attachTo: document.body, global: { stubs: { ...stubs, transition: false } } })
+    try {
+      await flushPromises()
+      const account = wrapper.get('[data-hall-account-entry="portrait"]')
+      await account.trigger('click')
+      await Vue.nextTick()
+      expect(router.currentRoute.value.name).to.equal('JuyiHall')
+      expect(confirmCalls).to.equal(1)
+      expect(profilePushes).to.equal(0)
+
+      await account.trigger('click')
+      await account.trigger('click')
+      expect(confirmCalls).to.equal(2)
+      expect(profilePushes).to.equal(1)
+      routeGate.resolve()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await Vue.nextTick()
+      expect(router.currentRoute.value.name).to.equal('UserProfile')
+      expect(confirmCalls).to.equal(2)
+
+      await router.push({ name: 'JuyiHall' })
+      await account.trigger('click')
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(router.currentRoute.value.name).to.equal('UserProfile')
+      expect(profilePushes).to.equal(2)
+      expect(confirmCalls).to.equal(3)
+    } finally {
+      routeGate.resolve()
+      wrapper.unmount()
+    }
+  })
+})
+
+
+
+describe('W04 shared-source save-before-leave wiring', () => {
+  it('retains the file source/detail through failed close, retry, rotation and one-level return; fences identity changes', async () => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    const epoch = Vue.reactive({ authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => {} })
+    const originalGlobal = mocks.useGlobalStore
+    mocks.useGlobalStore = () => ({ ...originalGlobal(), user: { id: 'owner-a', tenantId: 'tenant-a' } })
+    mocks.useApiStore = () => epoch
+    let fail = true
+    let calls = 0
+    let complete
+    const needsSave = Vue.ref(true)
+    mocks.HallDraftEditor = Vue.defineComponent({
+      props: ['initialContext'],
+      setup: (props, { expose }) => {
+        expose({ needsSave, busy: false, saveBeforeLeave: async () => {
+          calls += 1
+          if (complete === 'defer') return new Promise(resolve => { complete = resolve })
+          if (fail) return false
+          needsSave.value = false
+          return true
+        }, discardLocalChanges: () => { needsSave.value = false } })
+        return () => Vue.h('textarea', { class: 'source-draft-probe', value: props.initialContext?.instruction || '编辑保留' })
+      }
+    })
+    mocks.PersonalWorkspace = Vue.defineComponent({ setup: (_props, { expose }) => {
+      expose({ canGoBack: true, back: () => true })
+      return () => Vue.h('section', { class: 'file-source-probe' }, '固定旧版本 v2')
+    } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('treasure')
+      await Vue.nextTick()
+      const sourceElement = wrapper.find('.file-source-probe').element
+      const context = { originRef: 'juyiting:file', sourceRef: { sourceType: 'FILE', sourceId: 'f', version: 2 }, inputs: [{ fileId: 'f', version: 2 }] }
+      state.openPrivateDraft(context)
+      await Vue.nextTick()
+      expect(state.panelDepth).to.equal(3)
+      expect(sourceElement.hasAttribute('inert')).to.equal(true)
+      await wrapper.find('.panel-return').trigger('click')
+      await flushPromises()
+      expect(calls).to.equal(1)
+      expect(state.renderedPanel).to.equal('draft')
+      expect(wrapper.find('.panel-save-warning').text()).to.include('尚未保存')
+      mode.value = 'landscape-map'
+      await Vue.nextTick()
+      expect(wrapper.findComponent(mocks.HallDraftEditor).props('initialContext').sourceRef).to.deep.equal(context.sourceRef)
+      fail = false
+      await wrapper.findAll('button').find(button => button.text() === '重试保存并继续').trigger('click')
+      await flushPromises()
+      expect(calls).to.equal(2)
+      expect(state.renderedPanel).to.equal('treasure')
+      expect(wrapper.find('.file-source-probe').element).to.equal(sourceElement)
+      expect(sourceElement.hasAttribute('inert')).to.equal(false)
+      needsSave.value = true
+      state.openPrivateDraft(context)
+      await Vue.nextTick()
+      complete = 'defer'
+      expect(wrapper.find('.panel-close').exists()).to.equal(false)
+      await wrapper.find('.panel-return').trigger('click')
+      expect(calls).to.equal(3)
+      epoch.authorizationGeneration = 2
+      await Vue.nextTick()
+      complete(true)
+      await flushPromises()
+      expect(state.activePanel).to.equal('')
+      expect(state.panelFrames).to.deep.equal([])
+      expect(wrapper.find('.source-draft-probe').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('intercepts navigation and Escape without clearing edits; explicit abandonment does not submit', async () => {
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    let routeLeave
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters, navigation: { onBeforeRouteLeave: hook => { routeLeave = hook } } })
+    let saves = 0
+    let discards = 0
+    mocks.HallDraftEditor = Vue.defineComponent({ setup: (_props, { expose }) => {
+      expose({ needsSave: true, busy: false, saveBeforeLeave: async () => { saves += 1; return false }, discardLocalChanges: () => { discards += 1 } })
+      return () => Vue.h('textarea', '原文')
+    } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPrivateDraft()
+      await Vue.nextTick()
+      expect(await routeLeave()).to.equal(false)
+      expect(state.renderedPanel).to.equal('draft')
+      state.openPanel('library')
+      await flushPromises()
+      expect(state.renderedPanel).to.equal('draft')
+      await wrapper.findAll('button').find(button => button.text() === '留在当前页').trigger('click')
+      await wrapper.find('.floating-panel').trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(saves).to.equal(3)
+      expect(state.activePanel).to.equal('draft')
+      await wrapper.findAll('button').find(button => button.text() === '放弃未保存修改并继续').trigger('click')
+      expect(discards).to.equal(1)
+      expect(state.activePanel).to.equal('')
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('A03 real Hall low-height layout wiring', () => {
+  it('enables overview before the map mounts and wires its draft action to the explicit roster while retaining the later map', async () => {
+    const helpers = await import('../src/composables/juyiting/useHallPanels.js')
+    const mode = Vue.ref('landscape-map')
+    const home = Vue.ref('overview')
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters: { panelHelpers: helpers } })
+    const oldGlobal = mocks.useGlobalStore
+    mocks.useGlobalStore = () => ({ ...oldGlobal(), user: { id: 'owner-a', tenantId: 'tenant-a' } })
+    mocks.useApiStore = () => ({ oauthClientId: 'client-a', authorizationGeneration: 1, token: async () => {} })
+    mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: value => { home.value = value } })
+    mocks.HallPortraitHome = Vue.defineComponent({ setup: (_props, { slots, expose }) => {
+      const target = Vue.ref(null)
+      expose({ livePreviewTarget: target })
+      return () => Vue.h('main', [Vue.h('div', { ref: target }), slots.overview?.()])
+    } })
+    mocks.HallOverview = Vue.defineComponent({ props: ['enabled'], emits: ['start-draft'], setup: (props, { emit }) => () =>
+      Vue.h('button', { class: 'overview-create-probe', disabled: !props.enabled, onClick: () => emit('start-draft') }, '提出需求') })
+    mocks.HallDraftEditor = Vue.defineComponent({ props: ['initialContext'], setup: (_props, { expose }) => {
+      expose({ needsSave: false, busy: false, saveBeforeLeave: async () => true })
+      return () => Vue.h('section', '起草交办')
+    } })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      expect(state.stageMounted).to.equal(false)
+      expect(wrapper.findComponent(mocks.HallOverview).props('enabled')).to.equal(true)
+      await wrapper.find('.overview-create-probe').trigger('click')
+      expect(state.renderedPanel).to.equal('formalDraft')
+      expect(wrapper.findComponent(mocks.HallDraftEditor).props('initialContext')).to.equal(null)
+      const overlay = wrapper.find('.panel-overlay').element
+      state.closePanel()
+      await state.handlePanelAfterLeave(overlay)
+      home.value = 'map'
+      await flushPromises()
+      expect(state.stageMounted).to.equal(true)
+      expect(state.portraitPreviewVisible).to.equal(true)
+      const stage = wrapper.findComponent(mocks.HallStage).vm
+      mode.value = 'portrait-command'
+      await flushPromises()
+      expect(wrapper.findComponent(mocks.HallStage).vm).to.equal(stage)
+      home.value = 'overview'
+      await flushPromises()
+      expect(state.stageDrawVisible).to.equal(false)
+      expect(wrapper.findComponent(mocks.HallStage).vm).to.equal(stage)
+      home.value = 'map'
+      await flushPromises()
+      expect(state.portraitPreviewVisible).to.equal(true)
+      expect(wrapper.findComponent(mocks.HallStage).vm).to.equal(stage)
+      expect(state.selectedAgent.agentId).to.equal('agent-o04')
+      expect(mode.value).to.equal('portrait-command')
+    } finally { wrapper.unmount() }
+  })
+
+  it('uses available height for fine-pointer windows without remounting the selected file pane on resize', async () => {
+    const helpers = await import('../src/composables/juyiting/useHallPanels.js')
+    const counters = { panelHelpers: helpers }
+    const mode = Vue.ref('landscape-map')
+    const height = Vue.ref(390)
+    const mocks = createActualHallMocks({ mode, mounts: { library: 0, archive: 0 }, counters })
+    const oldExperience = mocks.useHallExperienceMode
+    mocks.useHallExperienceMode = () => ({ ...oldExperience(), isMobileCoarse: Vue.ref(false), hallViewportHeight: height })
+    mocks.useHallPanels = helpers.useHallPanels
+    mocks.PersonalWorkspace = Vue.defineComponent({ props: ['compact'], setup: props => () => Vue.h('section', { class: 'height-file-probe' }, String(props.compact)) })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      const state = wrapper.vm.$.setupState
+      state.openPanel('treasure')
+      await Vue.nextTick()
+      const pane = wrapper.findComponent(mocks.PersonalWorkspace).vm
+      expect(wrapper.find('.floating-panel').classes()).to.include('layout-full-window')
+      expect(wrapper.find('.panel-overlay').classes()).to.include('is-full-window').and.include('is-low-height')
+      expect(wrapper.findComponent(mocks.PersonalWorkspace).props('compact')).to.equal(true)
+      height.value = 900
+      await Vue.nextTick()
+      expect(wrapper.find('.floating-panel').classes()).to.include('layout-center-modal')
+      expect(wrapper.findComponent(mocks.PersonalWorkspace).vm).to.equal(pane)
+      expect(wrapper.findComponent(mocks.PersonalWorkspace).props('compact')).to.equal(false)
+      height.value = 300
+      await Vue.nextTick()
+      expect(wrapper.find('.floating-panel').classes()).to.include('layout-full-window')
+      expect(wrapper.findComponent(mocks.PersonalWorkspace).vm).to.equal(pane)
+      expect(mode.value).to.equal('landscape-map')
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('Agent roster visual close contract', () => {
+  it('uses one return for roster details and the workbench root without a duplicate close', async () => {
+    const helpers = await import('../src/composables/juyiting/useHallPanels.js')
+    const mocks = createActualHallMocks({ mode: Vue.ref('landscape-map'), mounts: { library: 0, archive: 0 }, counters: { panelHelpers: helpers } })
+    const oldExperience = mocks.useHallExperienceMode
+    mocks.useHallExperienceMode = () => ({ ...oldExperience(), isMobileCoarse: Vue.ref(false) })
+    const canGoBack = Vue.ref(true)
+    mocks.AgentPanel = Vue.defineComponent({ setup: (_props, { expose }) => { expose({ canGoBack, profileVisible: false, back: () => { canGoBack.value = false; return true } }); return () => Vue.h('div', '详情层') } })
+    mocks.useHallPanels = helpers.useHallPanels
+    mocks.useHallHomeMode = () => ({ homeMode: Vue.ref('overview'), isOverviewHome: Vue.ref(true), setHomeMode: () => {} })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      const state = wrapper.vm.$.setupState
+      state.openPanel('agents')
+      await flushPromises()
+      expect(wrapper.find('.panel-close').exists()).to.equal(false)
+      await wrapper.get('.panel-return').trigger('click')
+      await Vue.nextTick()
+      expect(state.activePanel).to.equal('agents')
+      expect(wrapper.find('.panel-close').exists()).to.equal(false)
+      const rootReturn = wrapper.get('.panel-return')
+      await rootReturn.trigger('click')
+      expect(state.activePanel).to.equal('')
+    } finally { wrapper.unmount() }
+  })
+})
+
+
+describe('discussion retest task status and scroll', () => {
+  const props = () => ({ agents: [], draft: '', messages: [{ localId: 'm1', sender: 'AGENT', content: '第一条' }], mentionLabel: a => a.name, senderText: m => m.sender, discussionVariant: 'bounty', selectedTask: { id: '567', status: 'running', title: '复测' }, conversationId: 'c1', connectionStatus: '已完成' })
+  it('uses the task phase instead of a completed chat request in the header', async () => {
+    const wrapper = mount(ChatPanel, { global: { stubs }, props: props() })
+    try {
+      expect(wrapper.get('.panel-toolbar').text()).to.include('进行中').and.not.to.include('已完成')
+      await wrapper.setProps({ selectedTask: { id: '567', status: 'reviewing' } })
+      expect(wrapper.get('.panel-toolbar').text()).to.include('待验收')
+    } finally { wrapper.unmount() }
+  })
+  it('does not pull a reader to the bottom and follows again on explicit action', async () => {
+    const wrapper = mount(ChatPanel, { global: { stubs }, props: props() })
+    try {
+      await Vue.nextTick()
+      const box = wrapper.get('.hall-messages').element
+      Object.defineProperty(box, 'scrollHeight', { configurable: true, value: 1200 })
+      Object.defineProperty(box, 'clientHeight', { configurable: true, value: 400 })
+      box.scrollTop = 200
+      await wrapper.get('.hall-messages').trigger('scroll')
+      await wrapper.setProps({ messages: [...props().messages, { localId: 'm2', sender: 'AGENT', content: '新消息' }] })
+      await Vue.nextTick()
+      expect(box.scrollTop).to.equal(200)
+      await wrapper.get('.new-messages-button').trigger('click')
+      expect(box.scrollTop).to.equal(1200)
+      expect(wrapper.find('.new-messages-button').exists()).to.equal(false)
+      box.scrollTop = 200
+      await wrapper.get('.hall-messages').trigger('scroll')
+      await wrapper.setProps({ identityScope: 'other-owner', identityEpoch: 2 })
+      await Vue.nextTick()
+      expect(box.scrollTop).to.equal(1200)
+      expect(wrapper.find('.new-messages-button').exists()).to.equal(false)
+      await wrapper.setProps({ conversationId: 'c2' })
+      expect(wrapper.find('.new-messages-button').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+})

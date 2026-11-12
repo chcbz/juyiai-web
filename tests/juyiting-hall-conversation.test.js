@@ -1,0 +1,1865 @@
+import { createHallRequestReadbackScheduler } from '../src/composables/juyiting/hallRequestReadbackScheduler.js'
+import { getHallCapabilities } from './fixtures/hall-current-protocol.js'
+import { expect } from 'chai'
+import { ref } from 'vue'
+import { useHallConversation as actualHallConversation } from '../src/composables/juyiting/useHallConversation.js'
+import { currentChatStreamMock, conversationFrame } from './fixtures/current-chat-stream-mock.js'
+const useHallConversation = options => actualHallConversation({ ...options, chatApi: currentChatStreamMock(options.chatApi) })
+import { stopIdentityBoundWork } from '../src/utils/identityLifecycle.js'
+import { createHallVoiceReplyCorrelation } from '../src/composables/juyiting/hallVoiceReplyCorrelation.js'
+import {
+  appendHallEventMessage,
+  appendStreamPayload,
+  normalizeHallMessage,
+  resolveHallUserSenderName
+} from '../src/composables/juyiting/hallConversationMessages.js'
+import { isOwnMessage } from '../src/utils/displayName.js'
+
+const scopedConversation = (id = '1001', overrides = {}) => ({
+  id,
+  jiacn: 'hero',
+  conversationType: 'juyiting',
+  conversationScopeType: 'public',
+  conversationScopeKey: 'public',
+  ...overrides
+})
+
+const deferred = () => {
+  let resolve
+  const promise = new Promise(resolvePromise => { resolve = resolvePromise })
+  return { promise, resolve }
+}
+
+describe('useHallConversation scoped message loading', () => {
+  it('retains attachment-only USER messages with exact scoped references and no invented text', () => {
+    const source = { kind: 'TASK_LINKED_WORKSPACE_VERSION', fileId: 'file-1', version: '7', purpose: 'INPUT', assetId: null, assetRevision: null }
+    const message = normalizeHallMessage({ id: '101', messageType: 'USER', senderType: 'user', jiacn: 'owner', content: '',
+      metadata: JSON.stringify({ conversationScopeType: 'bounty', selectedTaskId: 'task-1', typedSourceSelectors: [source] }) }, 'owner')
+    expect(message.content).to.equal('')
+    expect(message.typedTaskId).to.equal('task-1')
+    expect(message.typedSourceSelectors).to.deep.equal([source])
+    expect(normalizeHallMessage({ id: '102', senderType: 'user', content: '', metadata: { conversationScopeType: 'private', typedSourceSelectors: [source] } }, 'owner').typedSourceSelectors).to.deep.equal([])
+  })
+  it('does not fetch or schedule SSE recovery when token acquisition returns null', async () => {
+    const originalFetch = global.fetch
+    const originalSetTimeout = window.setTimeout
+    let fetchCount = 0
+    let reconnectTimerCount = 0
+    let tokenCount = 0
+    global.fetch = async () => {
+      fetchCount += 1
+      throw new Error('fetch must not run without a token')
+    }
+    window.setTimeout = () => {
+      reconnectTimerCount += 1
+      return 1
+    }
+
+    try {
+      const chatContext = ref({
+        conversationScopeType: 'public',
+        conversationScopeKey: 'public',
+        mode: 'public',
+        participantAgentIds: [],
+        targetAgentIds: []
+      })
+      const conversation = useHallConversation({
+        apiStore: {
+          token: async () => {
+            tokenCount += 1
+            return null
+          }
+        },
+        chatApi: {
+          list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation()], nextCursor: null, hasMore: false })),
+          getById: async (_path, _id, options) => options.onSuccess(([]))
+        },
+        chatContext,
+        chatMode: ref('public'),
+        globalStore: { getJiacn: 'jia-user', user: {} },
+        log: { warn: () => {}, error: () => {} },
+        openPanel: () => {},
+        outgoingMetadata: ref({}),
+        portraitShortName: agent => agent?.name || agent?.agentId || '',
+        selectedAgent: ref(null),
+        selectedTask: ref(null),
+        showToast: () => {}
+      })
+
+      await conversation.loadHallMessages()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(tokenCount).to.equal(1)
+      expect(fetchCount).to.equal(0)
+      expect(reconnectTimerCount).to.equal(0)
+      expect(conversation.eventStreamRecovering.value).to.equal(false)
+    } finally {
+      global.fetch = originalFetch
+      window.setTimeout = originalSetTimeout
+    }
+  })
+
+  it('falls back to authoritative polling without reconnecting when durable SSE is unsupported', async () => {
+    const originalFetch = global.fetch
+    const originalSetTimeout = window.setTimeout
+    let fetchCount = 0
+    let reconnectTimerCount = 0
+    let contentLoads = 0
+    global.fetch = async () => {
+      fetchCount += 1
+      return new Response('', { status: 501 })
+    }
+    window.setTimeout = () => {
+      reconnectTimerCount += 1
+      return 1
+    }
+    try {
+      const conversation = useHallConversation({
+        apiStore: { token: async () => 'token', authorizationGeneration: 1 },
+        chatApi: {
+          list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation()], nextCursor: null, hasMore: false })),
+          getById: async (_path, _id, options) => { contentLoads += 1; options.onSuccess(([])) }
+        },
+        chatContext: ref({ conversationScopeType: 'public', conversationScopeKey: 'public', mode: 'public', participantAgentIds: [], targetAgentIds: [] }),
+        chatMode: ref('public'), globalStore: { getJiacn: 'jia-user', user: {} },
+        log: { warn: () => {}, error: () => {} }, openPanel: () => {}, outgoingMetadata: ref({}),
+        portraitShortName: agent => agent?.name || agent?.agentId || '', selectedAgent: ref(null), selectedTask: ref(null), showToast: () => {}
+      })
+      await conversation.loadHallMessages()
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+      expect(fetchCount).to.equal(1)
+      expect(contentLoads).to.be.at.least(2)
+      expect(reconnectTimerCount).to.equal(0)
+      conversation.disposeHallConversation()
+    } finally {
+      global.fetch = originalFetch
+      window.setTimeout = originalSetTimeout
+    }
+  })
+
+  it('does not reconnect or replay when the protected SSE endpoint returns 401', async () => {
+    const originalFetch = global.fetch
+    const originalSetTimeout = window.setTimeout
+    let fetchCount = 0
+    let cleanCount = 0
+    let authorizationCount = 0
+    let reconnectTimerCount = 0
+    global.fetch = async () => {
+      fetchCount += 1
+      return new Response('', { status: 401 })
+    }
+    window.setTimeout = () => {
+      reconnectTimerCount += 1
+      return 1
+    }
+
+    try {
+      const conversation = useHallConversation({
+        apiStore: {
+          token: async () => 'expired-token',
+          cleanToken: () => { cleanCount += 1 },
+          beginAuthorization: async () => { authorizationCount += 1 }
+        },
+        chatApi: {
+          list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation()], nextCursor: null, hasMore: false })),
+          getById: async (_path, _id, options) => options.onSuccess(([]))
+        },
+        chatContext: ref({
+          conversationScopeType: 'public',
+          conversationScopeKey: 'public',
+          mode: 'public',
+          participantAgentIds: [],
+          targetAgentIds: []
+        }),
+        chatMode: ref('public'),
+        globalStore: { getJiacn: 'jia-user', user: {} },
+        log: { warn: () => {}, error: () => {} },
+        openPanel: () => {},
+        outgoingMetadata: ref({}),
+        portraitShortName: agent => agent?.name || agent?.agentId || '',
+        selectedAgent: ref(null),
+        selectedTask: ref(null),
+        showToast: () => {}
+      })
+
+      await conversation.loadHallMessages()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(fetchCount).to.equal(1)
+      expect(cleanCount).to.equal(1)
+      expect(authorizationCount).to.equal(1)
+      expect(reconnectTimerCount).to.equal(0)
+      expect(conversation.eventStreamRecovering.value).to.equal(false)
+    } finally {
+      global.fetch = originalFetch
+      window.setTimeout = originalSetTimeout
+    }
+  })
+
+  it('clears stale messages when the current bounty scope has no conversation yet', async () => {
+    const chatContext = ref({
+      conversationScopeType: 'bounty',
+      conversationScopeKey: 'task:task-2',
+      mode: 'bounty',
+      participantAgentIds: ['wuyong'],
+      selectedTaskId: 'task-2',
+      targetAgentIds: ['wuyong'],
+      taskId: 'task-2',
+      targetAgentId: 'wuyong'
+    })
+    const listPayloads = []
+    const conversation = useHallConversation({
+      apiStore: { token: async () => '' },
+      chatApi: {
+        list: async (_path, payload, options) => {
+          listPayloads.push(payload)
+          await options.onSuccess(({ items: [], nextCursor: null, hasMore: false }))
+        },
+        getById: async () => {
+          throw new Error('content should not load without a scoped conversation')
+        }
+      },
+      chatContext,
+      chatMode: ref('bounty'),
+      globalStore: { getJiacn: 'jia-user', user: {} },
+      log: { warn: () => {}, error: () => {} },
+      openPanel: () => {},
+      outgoingMetadata: ref({}),
+      portraitShortName: agent => agent?.name || agent?.agentId || '',
+      selectedAgent: ref(null),
+      selectedTask: ref({ id: 'task-2', title: 'Task 2' }),
+      showToast: () => {}
+    })
+
+    conversation.conversationId.value = 'public-conversation'
+    conversation.messages.value = [
+      { localId: 'public-1', sender: 'USER', content: 'stale public message' }
+    ]
+
+    await conversation.loadHallMessages()
+
+    expect(listPayloads[0].search).to.include({
+      conversationType: 'juyiting',
+      conversationScopeType: 'bounty',
+      conversationScopeKey: 'task:task-2'
+    })
+    expect(conversation.conversationId.value).to.equal('')
+    expect(conversation.messages.value).to.deep.equal([])
+  })
+
+  it('clears only the draft while keeping scoped target agents intact', () => {
+    const chatContext = ref({
+      conversationScopeType: 'bounty',
+      conversationScopeKey: 'task:task-2',
+      mode: 'bounty',
+      participantAgentIds: ['wuyong'],
+      selectedTaskId: 'task-2',
+      targetAgentIds: ['wuyong'],
+      taskId: 'task-2',
+      targetAgentId: 'wuyong'
+    })
+    const conversation = useHallConversation({
+      apiStore: { token: async () => '' },
+      chatApi: {},
+      chatContext,
+      chatMode: ref('bounty'),
+      globalStore: { getJiacn: 'jia-user', user: {} },
+      log: { warn: () => {}, error: () => {} },
+      openPanel: () => {},
+      outgoingMetadata: ref({}),
+      portraitShortName: agent => agent?.name || agent?.agentId || '',
+      selectedAgent: ref(null),
+      selectedTask: ref({ id: 'task-2', title: 'Task 2' }),
+      showToast: () => {}
+    })
+
+    conversation.setDraft('  @Wu Yong inspect logs  ')
+    conversation.clearDraft()
+
+    expect(conversation.draft.value).to.equal('')
+    expect(chatContext.value.targetAgentIds).to.deep.equal(['wuyong'])
+  })
+
+  it('replaces an active @ trigger when inserting an agent mention', () => {
+    const chatContext = ref({
+      conversationScopeType: 'public',
+      conversationScopeKey: 'public',
+      mode: 'public',
+      participantAgentIds: [],
+      selectedTaskId: undefined,
+      targetAgentIds: ['songjiang'],
+      taskId: undefined,
+      targetAgentId: 'songjiang'
+    })
+    const conversation = useHallConversation({
+      apiStore: { token: async () => '' },
+      chatApi: {},
+      chatContext,
+      chatMode: ref('public'),
+      globalStore: { getJiacn: 'jia-user', user: {} },
+      log: { warn: () => {}, error: () => {} },
+      openPanel: () => {},
+      outgoingMetadata: ref({}),
+      portraitShortName: agent => agent?.name || agent?.agentId || '',
+      selectedAgent: ref(null),
+      selectedTask: ref(null),
+      showToast: () => {}
+    })
+
+    conversation.setDraft('@')
+    conversation.mentionAgent({ agentId: 'songjiang', name: '宋江' })
+
+    expect(conversation.draft.value).to.equal('@宋江 ')
+  })
+
+  it('opens private discussion without prefilling, preserving drafts and explicit mentions', () => {
+    const selectedAgent = ref(null)
+    const chatMode = ref('public')
+    const panels = []
+    const agent = { agentId: 'wuyong', name: '吴用' }
+    const conversation = useHallConversation({
+      apiStore: {}, chatApi: {}, chatContext: ref({}), chatMode,
+      globalStore: { user: {} }, log: { warn: () => {}, error: () => {} },
+      openPanel: panel => panels.push(panel), outgoingMetadata: ref({}),
+      portraitShortName: agent => agent.name, selectedAgent,
+      selectedTask: ref(null), showToast: () => {}
+    })
+    try {
+      conversation.startAgentConversation(agent)
+      expect(conversation.draft.value).to.equal('')
+      expect(chatMode.value).to.equal('private')
+      expect(selectedAgent.value.agentId).to.equal('wuyong')
+      expect(panels).to.deep.equal(['chat'])
+      conversation.setDraft('  保留我写的 @宋江 内容  ')
+      conversation.startAgentConversation(agent)
+      expect(conversation.draft.value).to.equal('  保留我写的 @宋江 内容  ')
+      conversation.setDraft('   ')
+      conversation.startAgentConversation(agent)
+      expect(conversation.draft.value).to.equal('   ')
+      conversation.setDraft('')
+      conversation.mentionAgent(agent)
+      expect(conversation.draft.value).to.equal('@吴用 ')
+    } finally {
+      conversation.disposeHallConversation()
+    }
+  })
+
+  it('trims sent hall messages while preserving scoped payload fields', async () => {
+    const chatContext = ref({
+      conversationScopeType: 'private',
+      conversationScopeKey: 'task:task-2:agent:wuyong',
+      mode: 'private',
+      participantAgentIds: ['wuyong'],
+      selectedTaskId: 'task-2',
+      targetAgentIds: ['wuyong'],
+      taskId: 'task-2',
+      targetAgentId: 'wuyong'
+    })
+    const payloads = []
+    const conversation = useHallConversation({
+      apiStore: { token: async () => '' },
+      chatApi: {
+        get: getHallCapabilities,
+        create: async (_path, payload, options) => {
+          payloads.push(payload)
+          options.onStream('{"conversationId":"1003"}')
+          options.onStreamEnd()
+        }
+      },
+      chatContext,
+      chatMode: ref('private'),
+      globalStore: { getJiacn: 'jia-user', user: { name: 'legacy-name', nickname: '  Test\u0000er  ', username: 'account-name' } },
+      log: { warn: () => {}, error: () => {} },
+      openPanel: () => {},
+      outgoingMetadata: ref({ senderName: '旧客户端显示名', senderType: 'agent' }),
+      portraitShortName: agent => agent?.name || agent?.agentId || '',
+      selectedAgent: ref({ agentId: 'wuyong', name: 'Wu Yong' }),
+      selectedTask: ref({ id: 'task-2', title: 'Task 2' }),
+      showToast: () => {}
+    })
+
+    conversation.setDraft('  discuss this task  ')
+    await conversation.sendHallMessage()
+
+    expect(payloads[0]).to.deep.include({
+      content: 'discuss this task',
+      conversationType: 'juyiting',
+      conversationScopeType: 'private',
+      conversationScopeKey: 'task:task-2:agent:wuyong',
+      targetAgentId: 'wuyong',
+      taskId: 'task-2'
+    })
+    expect(payloads[0].targetAgentIds).to.deep.equal(['wuyong'])
+    expect(payloads[0].metadata.mentionAgentIds).to.deep.equal(['wuyong'])
+    expect(payloads[0].metadata).not.to.have.any.keys('senderName', 'senderType')
+    expect(payloads[0]).not.to.have.any.keys('senderName', 'senderType')
+    expect(conversation.messages.value[0]).to.include({ content: 'discuss this task', senderName: '你', isSelf: true })
+  })
+
+  it('resolves a safe hall sender name from nickname, then username, then self label', () => {
+    expect(resolveHallUserSenderName({ nickname: '  林\u0000冲\n', username: '豹子头' })).to.equal('林冲')
+    expect(resolveHallUserSenderName({ nickname: '\u0000\n', username: '  豹子\u007F头  ' })).to.equal('豹子头')
+    expect(resolveHallUserSenderName({ name: 'legacy-name', nickname: '', username: '\t' })).to.equal('你')
+  })
+
+  it('labels only exact server identities as self after a history refresh or identity switch', () => {
+    const own = normalizeHallMessage({ id: 'self', senderType: 'user', jiacn: 'hero', senderName: 'old name', content: '自己' }, 'hero')
+    const other = normalizeHallMessage({ id: 'other', senderType: 'user', jiacn: 'hero', senderName: 'old name', content: '旧身份' }, 'next-hero')
+
+    expect(own).to.include({ isSelf: true, senderName: '你' })
+    expect(other).to.include({ isSelf: false, senderName: 'old name' })
+    expect(isOwnMessage({ jiacn: 'hero' }, 'next-hero')).to.equal(false)
+  })
+
+  it('normalizes persisted agent messages with metadata', () => {
+    const message = normalizeHallMessage({
+      id: '12',
+      senderType: 'agent',
+      senderName: '',
+      content: '已完成',
+      createTime: 1782000000000,
+      metadata: JSON.stringify({
+        agentId: 'wuyong',
+        senderName: '吴用'
+      })
+    })
+
+    expect(message).to.deep.include({
+      localId: '12',
+      sender: 'AGENT',
+      senderName: '吴用',
+      agentId: 'wuyong',
+      content: '已完成',
+      timestamp: 1782000000000,
+      streaming: false,
+      statusText: ''
+    })
+  })
+
+  it('removes control characters from persisted sender names before rendering', () => {
+    const message = normalizeHallMessage({
+      id: '13',
+      senderType: 'agent',
+      senderName: '\u0000\n',
+      content: '已收到',
+      metadata: JSON.stringify({ senderName: '  公孙\u007F胜  ' })
+    })
+
+    expect(message.senderName).to.equal('公孙胜')
+  })
+
+  it('fails closed for numeric and unsafe Long wire IDs without coercion', () => {
+    expect(normalizeHallMessage({ id: 12, senderType: 'agent', content: 'numeric' })).to.equal(null)
+    expect(normalizeHallMessage({ id: 9223372036854775807, senderType: 'agent', content: 'unsafe' })).to.equal(null)
+    expect(normalizeHallMessage({ id: '9223372036854775807', senderType: 'agent', content: 'exact' })?.localId).to.equal('9223372036854775807')
+
+    const externalState = { conversationId: '1001', messages: [], isAwaitingReply: true, isStreaming: true }
+    const numericMessage = appendHallEventMessage(externalState, {
+      type: 'agent_message', conversationId: '1001', messageId: 9223372036854775807, senderType: 'agent', content: 'unsafe'
+    })
+    expect(numericMessage.type).to.equal('invalid_message_id')
+    expect(externalState.messages).to.deep.equal([])
+
+    const streamState = { conversationId: '', messages: [], isAwaitingReply: true, isStreaming: true }
+    expect(appendStreamPayload(streamState, '{"conversationId":9223372036854775807}').type).to.equal('invalid_conversation')
+    expect(appendStreamPayload(streamState, '{"type":"agent_message","messageId":9223372036854775807,"senderType":"agent","content":"unsafe"}').type).to.equal('invalid_message_id')
+    expect(streamState.conversationId).to.equal('')
+    expect(streamState.messages).to.deep.equal([])
+  })
+
+  it('normalizes the same agent name across SSE delta and final events', () => {
+    const state = { conversationId: '1001', messages: [], isAwaitingReply: true, isStreaming: true }
+    appendHallEventMessage(state, {
+      type: 'agent_message_delta', conversationId: '1001', agentId: 'wuyong',
+      senderName: 'å\u0090´ç\u0094¨', content: '先查', timestamp: 10
+    })
+    const final = appendStreamPayload(state, JSON.stringify({
+      type: 'agent_message', conversationId: '1001', messageId: '99', agentId: 'wuyong',
+      senderType: 'agent', senderName: 'å\u0090´ç\u0094¨', content: '先查日志', timestamp: 11
+    }))
+
+    expect(final.type).to.equal('stream_final')
+    expect(state.messages).to.have.length(1)
+    expect(state.messages[0]).to.include({ senderName: '吴用', content: '先查日志', streaming: false })
+  })
+
+  it('merges agent delta and final events without duplicate messages', () => {
+    const state = {
+      conversationId: '1001',
+      messages: [],
+      isAwaitingReply: true,
+      isStreaming: true
+    }
+
+    appendHallEventMessage(state, {
+      type: 'agent_message_delta',
+      conversationId: '1001',
+      agentId: 'wuyong',
+      senderName: '吴用',
+      content: '先查',
+      timestamp: 10
+    })
+    appendHallEventMessage(state, {
+      type: 'agent_message_delta',
+      conversationId: '1001',
+      agentId: 'wuyong',
+      content: '日志',
+      timestamp: 11
+    })
+    const externalFinal = appendHallEventMessage(state, {
+      type: 'agent_message',
+      conversationId: '1001',
+      messageId: '99',
+      agentId: 'wuyong',
+      senderType: 'agent',
+      senderName: '吴用',
+      content: '先查日志',
+      timestamp: 12
+    })
+    appendHallEventMessage(state, {
+      type: 'agent_message',
+      conversationId: '1001',
+      messageId: '99',
+      agentId: 'wuyong',
+      senderType: 'agent',
+      senderName: '吴用',
+      content: '重复事件',
+      timestamp: 13
+    })
+
+    expect(externalFinal.type).to.equal('final')
+    expect(state.messages).to.have.length(1)
+    expect(state.messages[0]).to.deep.include({
+      localId: '99',
+      sender: 'AGENT',
+      senderName: '吴用',
+      agentId: 'wuyong',
+      content: '先查日志',
+      streaming: false,
+      statusText: '回话已毕'
+    })
+    expect(state.isAwaitingReply).to.equal(false)
+    expect(state.isStreaming).to.equal(false)
+  })
+
+  it('reconciles an SSE agent delta when its final reply arrives on the request stream', () => {
+    const state = {
+      conversationId: '1001',
+      messages: [],
+      isAwaitingReply: false,
+      isStreaming: true
+    }
+
+    appendHallEventMessage(state, {
+      type: 'agent_message_delta',
+      conversationId: '1001',
+      agentId: 'wuyong',
+      senderName: '吴用',
+      content: '正在核对',
+      timestamp: 10
+    })
+    const final = appendStreamPayload(state, JSON.stringify({
+      type: 'agent_message',
+      conversationId: '1001',
+      messageId: '100000000000000001',
+      agentId: 'wuyong',
+      senderType: 'agent',
+      senderName: '吴用',
+      content: '正在核对，请稍候。',
+      timestamp: 11
+    }))
+
+    expect(final.type).to.equal('stream_final')
+    expect(state.messages).to.have.length(1)
+    expect(state.messages[0]).to.deep.include({
+      localId: '100000000000000001',
+      sender: 'AGENT',
+      content: '正在核对，请稍候。',
+      streaming: false,
+      statusText: '回话已毕'
+    })
+  })
+
+  it('reduces stream payloads for delivery, conversation id, and assistant text', () => {
+    const state = {
+      conversationId: '',
+      messages: [],
+      isAwaitingReply: true,
+      isStreaming: true
+    }
+
+    const delivery = appendStreamPayload(state, 'data: {"agentDelivery":{"agentId":"linchong","delivered":false},"conversationId":"1002"}')
+    appendStreamPayload(state, '{"v":"收到"}')
+    appendStreamPayload(state, '{"content":"，马上处理"}')
+
+    expect(delivery.type).to.equal('delivery')
+    expect(delivery.conversationId).to.equal('1002')
+    expect(delivery.shouldReconnect).to.equal(true)
+    expect(state.conversationId).to.equal('1002')
+    expect(state.messages[0]).to.deep.include({
+      sender: 'SYSTEM',
+      content: '目标好汉暂未候令，传令未达。',
+      statusText: '未递到'
+    })
+    expect(state.messages[1]).to.deep.include({
+      sender: 'ASSISTANT',
+      content: '收到，马上处理'
+    })
+  })
+})
+
+
+
+describe('useHallConversation authenticated public restore', () => {
+  const createConversation = ({ chatApi, chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', targetAgentIds: [] }) }) => useHallConversation({
+    apiStore: {},
+    chatApi,
+    chatContext,
+    chatMode: ref('public'),
+    globalStore: { getJiacn: 'stale-local-user', user: {} },
+    log: { warn: () => {}, error: () => {} },
+    openPanel: () => {},
+    outgoingMetadata: ref({}),
+    portraitShortName: agent => agent?.name || '',
+    selectedAgent: ref(null),
+    selectedTask: ref(null),
+    showToast: () => {}
+  })
+
+  it('restores exact decimal-string backend IDs using exact public scope and no trusted local jiacn', async () => {
+    const payloads = []
+    const contentIds = []
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, payload) => {
+          payloads.push(payload)
+          const id = payloads.length === 1 ? '1001' : '9223372036854775807'
+          return { items: [scopedConversation(id)], nextCursor: null, hasMore: false }
+        },
+        getById: async (_path, id, options) => {
+          contentIds.push(id)
+          await options.onSuccess(([]))
+        }
+      }
+    })
+
+    await conversation.loadHallMessages()
+
+    expect(payloads[0]).to.deep.include({ pageNum: 1, pageSize: 1, orderBy: 'update_time desc' })
+    expect(payloads[0].search).to.deep.equal({ conversationType: 'juyiting', conversationScopeType: 'public', conversationScopeKey: 'public' })
+    expect(contentIds).to.deep.equal(['1001'])
+    expect(conversation.conversationId.value).to.equal('1001')
+    await conversation.loadHallMessages()
+    expect(payloads).to.have.length(1)
+    await conversation.loadHallMessages({ force: true })
+    expect(payloads).to.have.length(2)
+    expect(contentIds).to.deep.equal(['1001', '9223372036854775807'])
+    conversation.disposeHallConversation()
+  })
+
+  it('fails closed for unsafe numeric and malformed conversation ids', async () => {
+    for (const id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '', ' 1001 ', '01', '1.0', 'abc', '9223372036854775808', '100000000000000000000']) {
+      let contentCalls = 0
+      const conversation = createConversation({
+        chatApi: {
+          list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation(id)], nextCursor: null, hasMore: false })),
+          getById: async () => { contentCalls += 1 }
+        }
+      })
+      await conversation.loadHallMessages()
+      expect(contentCalls, String(id)).to.equal(0)
+      expect(conversation.conversationId.value, String(id)).to.equal('')
+      conversation.disposeHallConversation()
+    }
+  })
+
+  it('rejects non-public, bounty, private, and non-Juyi Hall rows before content fetch', async () => {
+    for (const overrides of [
+      { conversationType: 'other' },
+      { conversationScopeType: 'private', conversationScopeKey: 'agent:wuyong' },
+      { conversationScopeType: 'bounty', conversationScopeKey: 'task:1' },
+      { conversationScopeKey: 'not-public' }
+    ]) {
+      let contentCalls = 0
+      const conversation = createConversation({
+        chatApi: {
+          list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation(1001, overrides)], nextCursor: null, hasMore: false })),
+          getById: async () => { contentCalls += 1 }
+        }
+      })
+      await conversation.loadHallMessages()
+      expect(contentCalls).to.equal(0)
+      conversation.disposeHallConversation()
+    }
+  })
+
+  it('deduplicates repeated restores and fences a deferred public row after a private scope switch', async () => {
+    const gate = deferred()
+    const chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', targetAgentIds: [] })
+    let listCalls = 0
+    let contentCalls = 0
+    const conversation = createConversation({
+      chatContext,
+      chatApi: {
+        list: async (_path, _payload, options) => {
+          listCalls += 1
+          await gate.promise
+          await options.onSuccess(({ items: [scopedConversation('1001')], nextCursor: null, hasMore: false }))
+        },
+        getById: async () => { contentCalls += 1 }
+      }
+    })
+
+    const first = conversation.loadHallMessages()
+    const duplicate = conversation.loadHallMessages()
+    expect(listCalls).to.equal(1)
+    chatContext.value = { conversationScopeType: 'private', conversationScopeKey: 'agent:wuyong', targetAgentIds: ['wuyong'] }
+    gate.resolve()
+    await Promise.all([first, duplicate])
+
+    expect(contentCalls).to.equal(0)
+    expect(conversation.conversationId.value).to.equal('')
+    expect(conversation.messages.value).to.deep.equal([])
+    conversation.disposeHallConversation()
+  })
+
+  it('keeps restore pending through content and retries an earlier empty readiness result', async () => {
+    const contentGate = deferred()
+    let listCalls = 0
+    let contentCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async () => {
+          listCalls += 1
+          return (({ items: listCalls === 1 ? [] : [scopedConversation('1001')], nextCursor: null, hasMore: false }))
+        },
+        getById: async (_path, _id, options) => {
+          contentCalls += 1
+          await contentGate.promise
+          options.onSuccess(([]))
+        }
+      }
+    })
+
+    expect(await conversation.loadHallMessages()).to.equal(false)
+    expect(conversation.conversationId.value).to.equal('')
+    const restoring = conversation.loadHallMessages()
+    await Promise.resolve()
+    const duplicate = conversation.loadHallMessages()
+    expect(listCalls).to.equal(2)
+    expect(contentCalls).to.equal(1)
+    contentGate.resolve()
+    await Promise.all([restoring, duplicate])
+    expect(conversation.conversationId.value).to.equal('1001')
+    conversation.disposeHallConversation()
+  })
+
+  it('fences a deferred authenticated restore when identity is cleared', async () => {
+    const gate = deferred()
+    let contentCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async () => {
+          await gate.promise
+          return (({ items: [scopedConversation('1001')], nextCursor: null, hasMore: false }))
+        },
+        getById: async () => { contentCalls += 1 }
+      }
+    })
+
+    const loading = conversation.loadHallMessages()
+    stopIdentityBoundWork()
+    gate.resolve()
+    await loading
+    expect(contentCalls).to.equal(0)
+    expect(conversation.conversationId.value).to.equal('')
+    conversation.disposeHallConversation()
+  })
+
+  it('keeps explicit new chat empty across reopen restores and fences deferred prior content', async () => {
+    const gate = deferred()
+    let listCalls = 0
+    let contentCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async () => {
+          listCalls += 1
+          return (({ items: [scopedConversation('1001')], nextCursor: null, hasMore: false }))
+        },
+        getById: async (_path, _id, options) => {
+          contentCalls += 1
+          await gate.promise
+          options.onSuccess(([{ id: '9', senderType: 'agent', content: 'stale' }]))
+        }
+      }
+    })
+
+    const loading = conversation.loadHallMessages()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(contentCalls).to.equal(1)
+    conversation.newHallConversation()
+    gate.resolve()
+    await loading
+    await conversation.loadHallMessages()
+    await conversation.loadHallMessages({ force: true })
+
+    expect(listCalls).to.equal(1)
+    expect(conversation.messages.value).to.deep.equal([])
+    expect(conversation.conversationId.value).to.equal('')
+    conversation.disposeHallConversation()
+  })
+})
+
+describe('useHallConversation finalized reply routing', () => {
+  const flushMicrotasks = async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  const runBuiltInFinalScenario = async ({ existingConversationId = '', duplicatePath = null }) => {
+    const originalSetTimeout = window.setTimeout
+    const originalClearTimeout = window.clearTimeout
+    const originalFetch = global.fetch
+    const timers = []
+    let sseController = null; let eventRequestId
+    let contentCalls = 0
+    window.setTimeout = (callback, delay) => {
+      const timer = { callback, delay, cleared: false }
+      timers.push(timer)
+      return timer
+    }
+    window.clearTimeout = timer => { if (timer) timer.cleared = true }
+    if (duplicatePath === 'live_sse') {
+      global.fetch = async (_url, options) => { eventRequestId = new Headers(options.headers).get('X-Request-Id'); return new Response(new ReadableStream({
+        start (controller) { sseController = controller }
+      }), { status: 200, headers: { 'content-type': 'text/event-stream', 'X-Request-Id': eventRequestId } }) }
+    }
+
+    const finalConversationId = existingConversationId || 'conversation-new-9223372036854775807'
+    const finalMessageId = `reply-${duplicatePath || 'stream'}-9223372036854775807`
+    const finalText = `完整回话-${duplicatePath || 'stream'}`
+    const callbacks = []
+    const spokenReplies = []
+    const spokenMessageIds = new Set()
+    let tracker
+    let conversation
+
+    try {
+      conversation = useHallConversation({
+        apiStore: { token: async () => duplicatePath === 'live_sse' ? 'token' : null },
+        chatApi: {
+          list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation(existingConversationId)], nextCursor: null, hasMore: false })),
+          get: getHallCapabilities,
+          create: async (_path, _payload, options) => {
+            const finalEvent = JSON.stringify({
+              type: 'agent_message',
+              conversationId: finalConversationId,
+              messageId: finalMessageId,
+              agentId: 'wuyong',
+              senderType: 'agent',
+              senderName: '吴用',
+              content: finalText,
+              timestamp: 1788000000000
+            })
+            const runPollDuplicate = async () => {
+              const syncTimer = timers.find(timer => timer.delay === 1500 && !timer.cleared)
+              expect(syncTimer, 'new-conversation sync timer').to.exist
+              syncTimer.callback()
+              await flushMicrotasks()
+            }
+
+            if (duplicatePath === 'live_sse') {
+              sseController.enqueue(new TextEncoder().encode(conversationFrame({
+                type: 'agent_message',
+                conversationId: finalConversationId,
+                messageId: finalMessageId,
+                agentId: 'wuyong',
+                senderType: 'agent',
+                senderName: '吴用',
+                content: '实时副本残片',
+                timestamp: 1787999999999, eventSequence: '1', eventVersion: '1'
+              }, '1', eventRequestId)))
+              sseController.close()
+              await flushMicrotasks()
+              expect(callbacks, 'live SSE duplicate must remain pending during the built-in turn').to.have.length(0)
+              options.onStream(finalEvent)
+              options.onStream(JSON.stringify({ conversationId: finalConversationId }))
+            } else if (duplicatePath === 'poll_before_stream_end') {
+              options.onStream(JSON.stringify({ conversationId: finalConversationId }))
+              await runPollDuplicate()
+              expect(callbacks, 'poll duplicate must remain pending during the built-in turn').to.have.length(0)
+              options.onStream(finalEvent)
+            } else {
+              options.onStream(finalEvent)
+              options.onStream(finalEvent)
+              options.onStream(JSON.stringify({ conversationId: finalConversationId }))
+            }
+            expect(callbacks, 'built-in final must remain pending until stream end').to.have.length(0)
+            options.onStreamEnd()
+            options.onStreamEnd()
+            if (duplicatePath === 'poll_after_stream_end') await runPollDuplicate()
+          },
+          getById: async (_path, id, options) => {
+            expect(id).to.equal(finalConversationId)
+            contentCalls += 1
+            const isInitialSseLoad = duplicatePath === 'live_sse' && contentCalls === 1
+            await options.onSuccess((isInitialSseLoad ? [] : [{
+              id: finalMessageId,
+              senderType: 'agent',
+              senderName: '吴用',
+              content: '轮询副本残片',
+              createTime: 1787999999999,
+              metadata: JSON.stringify({ agentId: 'wuyong' })
+            }]))
+          }
+        },
+        chatContext: ref({
+          conversationScopeType: 'public',
+          conversationScopeKey: 'public',
+          mode: 'public',
+          participantAgentIds: [],
+          targetAgentIds: [],
+          targetAgentId: '',
+          selectedTaskId: null,
+          taskId: null
+        }),
+        chatMode: ref('public'),
+        globalStore: { getJiacn: 'hero', user: {} },
+        log: { warn: () => {}, error: () => {} },
+        openPanel: () => {},
+        outgoingMetadata: ref({}),
+        portraitShortName: agent => agent?.name || '',
+        selectedAgent: ref(null),
+        selectedTask: ref(null),
+        showToast: () => {},
+        onFinalReply: payload => {
+          callbacks.push(payload)
+          tracker.observe(payload)
+        }
+      })
+      if (duplicatePath === 'live_sse') {
+        await conversation.loadHallMessages()
+        await flushMicrotasks()
+        expect(sseController, 'existing-conversation live SSE controller').to.exist
+      } else {
+        conversation.conversationId.value = existingConversationId
+      }
+      conversation.messages.value = [{ localId: 'baseline-old-reply', sender: 'AGENT', content: '旧回话', streaming: false }]
+      tracker = createHallVoiceReplyCorrelation({
+        spokenMessageIds,
+        onReply: (message, _turn, payload) => spokenReplies.push({ source: payload.source, text: message.content })
+      })
+      const turnId = `turn-${duplicatePath || 'existing'}`
+      expect(tracker.start({
+        turnId,
+        baselineSequence: conversation.replyEventSequence.value,
+        messages: conversation.messages.value,
+        conversationIdBeforeSend: existingConversationId
+      })).to.equal(turnId)
+
+      conversation.setDraft('请报完整回话')
+      const accepted = await conversation.sendHallMessage({
+        onConversationResolved: id => tracker.resolveConversation(id)
+      })
+      await flushMicrotasks()
+
+      expect(accepted).to.equal(true)
+      expect(conversation.conversationId.value).to.equal(finalConversationId)
+      expect(conversation.replyEventSequence.value).to.equal(1)
+      expect(callbacks).to.have.length(1)
+      expect(callbacks[0]).to.deep.include({
+        conversationId: finalConversationId,
+        messageId: finalMessageId,
+        sequence: 1,
+        source: 'stream_end'
+      })
+      expect(spokenReplies).to.deep.equal([{ source: 'stream_end', text: finalText }])
+      expect(spokenMessageIds.has(finalMessageId)).to.equal(true)
+      expect(spokenMessageIds.has('baseline-old-reply')).to.equal(false)
+    } finally {
+      conversation?.disposeHallConversation()
+      window.setTimeout = originalSetTimeout
+      window.clearTimeout = originalClearTimeout
+      global.fetch = originalFetch
+    }
+  }
+
+  it('defers a built-in final for an existing conversation until stream end and commits once', async () => {
+    await runBuiltInFinalScenario({ existingConversationId: 'conversation-existing-9223372036854775807' })
+  })
+
+  it('makes stream end win over an existing-conversation live SSE duplicate', async () => {
+    await runBuiltInFinalScenario({ existingConversationId: '9223372036854775807', duplicatePath: 'live_sse' })
+  })
+
+  it('makes stream end win over a new-conversation poll duplicate before end', async () => {
+    await runBuiltInFinalScenario({ duplicatePath: 'poll_before_stream_end' })
+  })
+
+  it('deduplicates a new-conversation poll replay after stream end', async () => {
+    await runBuiltInFinalScenario({ duplicatePath: 'poll_after_stream_end' })
+  })
+})
+
+describe('Hall conversation identity lifecycle', () => {
+  it('clears 1.5s and 5s sync timers and prevents their callbacks from loading after disposal', async () => {
+    const timers = []
+    const cleared = []
+    const originalSetTimeout = window.setTimeout
+    const originalClearTimeout = window.clearTimeout
+    window.setTimeout = (callback, delay) => {
+      const timer = { callback, delay }
+      timers.push(timer)
+      return timer
+    }
+    window.clearTimeout = timer => cleared.push(timer)
+    try {
+      const chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', targetAgentIds: [] })
+      let contentCalls = 0
+      const conversation = useHallConversation({
+        apiStore: { token: async () => null },
+        chatApi: {
+          get: getHallCapabilities,
+          create: async (_path, _payload, options) => {
+            options.onStream('{"conversationId":"1001"}')
+            options.onStreamEnd()
+          },
+          getById: async () => { contentCalls += 1 }
+        },
+        chatContext, chatMode: ref('public'), globalStore: { getJiacn: 'hero', user: {} },
+        log: { warn: () => {}, error: () => {} }, openPanel: () => {}, outgoingMetadata: ref({}),
+        portraitShortName: agent => agent?.name || '', selectedAgent: ref(null), selectedTask: ref(null), showToast: () => {}
+      })
+      conversation.setDraft('hello')
+      await conversation.sendHallMessage()
+      expect(timers.map(timer => timer.delay)).to.include.members([1500, 5000])
+      conversation.disposeHallConversation()
+      conversation.disposeHallConversation()
+      expect(cleared).to.include.members(timers)
+      timers.forEach(timer => timer.callback())
+      expect(contentCalls).to.equal(0)
+    } finally {
+      window.setTimeout = originalSetTimeout
+      window.clearTimeout = originalClearTimeout
+    }
+  })
+
+  it('aborts deferred list and content requests on disposal and ignores their late success callbacks', async () => {
+    let listOptions
+    let contentOptions
+    let resolveContent
+    const conversation = useHallConversation({
+      apiStore: { token: async () => 'token' },
+      chatApi: {
+        list: async (_path, _payload, options) => {
+          listOptions = options
+          await options.onSuccess(({ items: [scopedConversation()], nextCursor: null, hasMore: false }))
+        },
+        getById: async (_path, _id, options) => {
+          contentOptions = options
+          await new Promise(resolve => { resolveContent = resolve })
+          options.onSuccess(([{ id: '9', senderType: 'agent', content: 'late reply' }]))
+        }
+      },
+      chatContext: ref({ conversationScopeType: 'public', conversationScopeKey: 'public', targetAgentIds: [] }),
+      chatMode: ref('public'), globalStore: { getJiacn: 'hero', user: {} },
+      log: { warn: () => {}, error: () => {} }, openPanel: () => {}, outgoingMetadata: ref({}),
+      portraitShortName: agent => agent?.name || '', selectedAgent: ref(null), selectedTask: ref(null), showToast: () => {}
+    })
+
+    const loading = conversation.loadHallMessages()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(listOptions.signal.aborted).to.equal(false)
+    expect(contentOptions.signal.aborted).to.equal(false)
+
+    conversation.disposeHallConversation()
+    expect(listOptions.signal.aborted).to.equal(true)
+    expect(contentOptions.signal.aborted).to.equal(true)
+    resolveContent()
+    await loading
+
+    expect(conversation.conversationId.value).to.equal('')
+    expect(conversation.messages.value).to.deep.equal([])
+  })
+
+  it('cancels an opened deferred reply stream on identity clear and filters all late callbacks', async () => {
+    const opened = deferred()
+    let streamOptions
+    let resolveStream
+    let cancelReason
+    let errorWrites = 0
+    const conversation = useHallConversation({
+      apiStore: { token: async () => 'token' },
+      chatApi: {
+        get: getHallCapabilities,
+        create: async (_path, _payload, options) => {
+          streamOptions = options
+          opened.resolve()
+          options.onStreamOpen({ cancel: reason => { cancelReason = reason } })
+          await new Promise(resolve => { resolveStream = resolve })
+        }
+      },
+      chatContext: ref({ conversationScopeType: 'public', conversationScopeKey: 'public', participantAgentIds: [], targetAgentIds: [] }),
+      chatMode: ref('public'), globalStore: { getJiacn: 'hero', user: {} },
+      log: { warn: () => {}, error: () => { errorWrites += 1 } }, openPanel: () => {}, outgoingMetadata: ref({ stale: true }),
+      portraitShortName: agent => agent?.name || '', selectedAgent: ref(null), selectedTask: ref(null), showToast: () => {}
+    })
+
+    conversation.setDraft('hello')
+    const sending = conversation.sendHallMessage()
+    await opened.promise
+    expect(streamOptions.signal.aborted).to.equal(false)
+
+    stopIdentityBoundWork()
+    expect(streamOptions.signal.aborted).to.equal(true)
+    expect(cancelReason?.name).to.equal('AbortError')
+    streamOptions.onStream('{"v":"late"}')
+    streamOptions.onStreamEnd()
+    streamOptions.onError('cancelled', streamOptions.signal.reason)
+    resolveStream()
+    await sending
+
+    expect(conversation.messages.value).to.deep.equal([])
+    expect(conversation.isStreaming.value).to.equal(false)
+    expect(conversation.isAwaitingReply.value).to.equal(false)
+    expect(errorWrites).to.equal(0)
+    conversation.disposeHallConversation()
+  })
+
+  it('resets an active reply when starting a new conversation and allows another send', async () => {
+    const requests = []
+    const opened = deferred()
+    let firstCancelReason
+    const conversation = useHallConversation({
+      apiStore: { token: async () => 'token' },
+      chatApi: {
+        get: getHallCapabilities,
+        create: async (_path, payload, options) => {
+          requests.push({ payload, options })
+          opened.resolve()
+          options.onStreamOpen({
+            cancel: reason => {
+              if (requests.length === 1) firstCancelReason = reason
+            }
+          })
+          if (requests.length === 1) {
+            await new Promise((_resolve, reject) => {
+              options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+            })
+            return
+          }
+          options.onStreamEnd()
+        }
+      },
+      chatContext: ref({ conversationScopeType: 'public', conversationScopeKey: 'public', participantAgentIds: [], targetAgentIds: [] }),
+      chatMode: ref('public'), globalStore: { getJiacn: 'hero', user: {} },
+      log: { warn: () => {}, error: () => {} }, openPanel: () => {}, outgoingMetadata: ref({}),
+      portraitShortName: agent => agent?.name || '', selectedAgent: ref(null), selectedTask: ref(null), showToast: () => {}
+    })
+
+    conversation.setDraft('first')
+    const firstSend = conversation.sendHallMessage()
+    await opened.promise
+    expect(conversation.isSubmitting.value).to.equal(true)
+    expect(conversation.isStreaming.value).to.equal(false)
+
+    const firstSignal = requests[0].options.signal
+    conversation.newHallConversation()
+    expect(firstSignal.aborted).to.equal(true)
+    expect(firstCancelReason?.name).to.equal('AbortError')
+    expect(conversation.isStreaming.value).to.equal(false)
+    expect(conversation.isAwaitingReply.value).to.equal(false)
+    expect(conversation.messages.value).to.deep.equal([])
+
+    conversation.setDraft('second')
+    const secondSend = conversation.sendHallMessage()
+    await Promise.all([firstSend, secondSend])
+
+    expect(requests).to.have.length(2)
+    expect(requests[1].payload.content).to.equal('second')
+    expect(requests[1].options.signal.aborted).to.equal(false)
+    expect(conversation.isStreaming.value).to.equal(false)
+    conversation.disposeHallConversation()
+  })
+
+})
+
+describe('useHallConversation history selection', () => {
+  const createConversation = ({ chatApi, chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', mode: 'public', targetAgentIds: [] }) }) => useHallConversation({
+    apiStore: { token: async () => '' },
+    chatApi,
+    chatContext,
+    chatMode: ref('public'),
+    globalStore: { getJiacn: 'untrusted-local-user', user: {} },
+    log: { warn: () => {}, error: () => {} },
+    openPanel: () => {},
+    outgoingMetadata: ref({}),
+    portraitShortName: agent => agent?.name || agent?.agentId || '',
+    selectedAgent: ref(null),
+    selectedTask: ref(null),
+    showToast: () => {}
+  })
+
+  it('keeps a bounty discussion and draft intact when new/delete is requested', async () => {
+    let deletes = 0
+    const conversation = createConversation({
+      chatContext: ref({ conversationScopeType: 'bounty', conversationScopeKey: 'task:537', mode: 'bounty', targetAgentIds: ['wuyong'] }),
+      chatApi: { delete: async () => { deletes++ } }
+    })
+    conversation.conversationId.value = '1001'
+    conversation.messages.value = [{ localId: 'old-1', content: '保留的讨论' }]
+    conversation.conversationHistory.value = [scopedConversation('1001', { conversationScopeType: 'bounty', conversationScopeKey: 'task:537' })]
+    conversation.setDraft('补充要求，不另开话头')
+    const before = conversation.draft.value
+    try {
+      expect(conversation.newHallConversation()).to.equal(false)
+      expect(await conversation.deleteHallConversation('1001')).to.equal(false)
+      expect(deletes).to.equal(0)
+      expect(conversation.conversationId.value).to.equal('1001')
+      expect(conversation.messages.value[0].content).to.equal('保留的讨论')
+      expect(conversation.draft.value).to.equal(before)
+      expect(conversation.conversationHistory.value).to.have.length(1)
+    } finally { conversation.disposeHallConversation() }
+  })
+
+  it('loads only the current scoped Juyi Hall history through the authenticated list endpoint', async () => {
+    const calls = []
+    const conversation = createConversation({
+      chatApi: {
+        list: async (path, payload, options) => {
+          calls.push({ path, payload })
+          options.onSuccess(({ items: [
+            scopedConversation('1002', { title: '厅前旧议', updateTime: 1782000000000 }),
+            scopedConversation('1003', { conversationScopeType: 'task_thread', conversationScopeKey: 'task:2', title: '保留任务线' }),
+            scopedConversation('1004', { conversationType: 'normal', title: '非聚义厅' })
+          ], nextCursor: null, hasMore: false }))
+        }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+
+    expect(calls).to.have.length(1)
+    expect(calls[0].path).to.equal('/conversation/list')
+    expect(calls[0].payload.search).to.deep.equal({
+      conversationType: 'juyiting',
+      conversationScopeType: 'public',
+      conversationScopeKey: 'public'
+    })
+    expect(calls[0].payload.search).not.to.have.property('jiacn')
+    expect(conversation.conversationHistory.value).to.deep.equal([
+      { id: '1002', title: '厅前旧议', updateTime: 1782000000000 }
+    ])
+    conversation.disposeHallConversation()
+  })
+
+  it('switches an approved history item to persisted content and its own SSE stream', async () => {
+    const contentIds = []
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation('1002', { title: '旧议' })], nextCursor: null, hasMore: false })),
+        getById: async (_path, id, options) => {
+          contentIds.push(id)
+          options.onSuccess(([{ id: '99', senderType: 'user', content: '旧话', createTime: 1 }]))
+        }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    const selected = await conversation.selectHallConversation('1002')
+
+    expect(selected).to.equal(true)
+    expect(contentIds).to.deep.equal(['1002'])
+    expect(conversation.conversationId.value).to.equal('1002')
+    expect(conversation.messages.value.map(message => message.content)).to.deep.equal(['旧话'])
+    conversation.disposeHallConversation()
+  })
+
+  it('does not leak a late history response into a changed scope', async () => {
+    const request = deferred()
+    const chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', mode: 'public', targetAgentIds: [] })
+    const conversation = createConversation({
+      chatContext,
+      chatApi: { list: async () => request.promise }
+    })
+
+    const loading = conversation.loadHallConversationHistory()
+    chatContext.value = { conversationScopeType: 'bounty', conversationScopeKey: 'task:2', mode: 'bounty', targetAgentIds: ['wuyong'] }
+    request.resolve((([scopedConversation('1002', { title: '旧厅议' })])))
+    await loading
+
+    expect(conversation.conversationHistory.value).to.deep.equal([])
+    expect(conversation.conversationHistoryError.value).to.equal('')
+    conversation.disposeHallConversation()
+  })
+
+  it('does not apply late selected content after a scope change', async () => {
+    const request = deferred()
+    const chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', mode: 'public', targetAgentIds: [] })
+    const conversation = createConversation({
+      chatContext,
+      chatApi: {
+        list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation('1002', { title: '旧议' })], nextCursor: null, hasMore: false })),
+        getById: async (_path, _id, options) => {
+          await request.promise
+          options.onSuccess(([{ id: '99', senderType: 'user', content: '过期旧话', createTime: 1 }]))
+        }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    const selecting = conversation.selectHallConversation('1002')
+    chatContext.value = { conversationScopeType: 'private', conversationScopeKey: 'agent:wuyong', mode: 'private', targetAgentIds: ['wuyong'] }
+    request.resolve()
+    expect(await selecting).to.equal(false)
+    expect(conversation.conversationId.value).to.equal('')
+    expect(conversation.messages.value).to.deep.equal([])
+    conversation.disposeHallConversation()
+  })
+
+})
+
+describe('useHallConversation history remediation', () => {
+  const createConversation = ({ chatApi, chatContext = ref({ conversationScopeType: 'public', conversationScopeKey: 'public', mode: 'public', targetAgentIds: [] }) }) => useHallConversation({
+    apiStore: { token: async () => '' },
+    chatApi,
+    chatContext,
+    chatMode: ref('public'),
+    globalStore: { getJiacn: 'untrusted-local-user', user: {} },
+    log: { warn: () => {}, error: () => {} },
+    openPanel: () => {},
+    outgoingMetadata: ref({}),
+    portraitShortName: agent => agent?.name || agent?.agentId || '',
+    selectedAgent: ref(null),
+    selectedTask: ref(null),
+    showToast: () => {}
+  })
+
+  it('blocks a direct second send while the first turn is awaiting an agent reply', async () => {
+    const payloads = []
+    const conversation = createConversation({
+      chatApi: {
+        get: getHallCapabilities,
+        create: async (_path, payload, options) => {
+          payloads.push(payload)
+          options.onStream('{"conversationId":"1002"}')
+          options.onStreamEnd()
+        }
+      }
+    })
+
+    expect(await conversation.sendHallMessage({ content: '先传一令' })).to.equal(true)
+    expect(conversation.isStreaming.value).to.equal(false)
+    expect(conversation.isAwaitingReply.value).to.equal(true)
+    expect(await conversation.sendHallMessage({ content: '不可覆盖前令' })).to.equal(false)
+    expect(payloads).to.have.length(1)
+    conversation.disposeHallConversation()
+  })
+
+  it('loads history pages past the collapsed backend total and deduplicates page boundaries', async () => {
+    const pageCalls = []
+    const row = id => scopedConversation(String(id), { title: `旧议 ${id}`, updateTime: id })
+    const firstPage = Array.from({ length: 100 }, (_item, index) => row(index + 1))
+    const secondPage = [row(100), ...Array.from({ length: 99 }, (_item, index) => row(index + 101))]
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, payload, options) => {
+          pageCalls.push(payload.pageNum)
+          const rows = payload.pageNum === 1 ? firstPage : (payload.pageNum === 2 ? secondPage : [])
+          options.onSuccess({ items: rows, total: '199', pageNum: payload.pageNum, pageSize: payload.pageSize, hasMore: payload.pageNum < 3 })
+        }
+      }
+    })
+
+    await conversation.loadHallConversationHistory({ force: true })
+    await conversation.loadMoreHallConversationHistory()
+    await conversation.loadMoreHallConversationHistory()
+
+    expect(pageCalls).to.deep.equal([1, 2, 3])
+    expect(conversation.conversationHistory.value).to.have.length(199)
+    expect(conversation.conversationHistory.value.filter(item => item.id === '100')).to.have.length(1)
+    expect(conversation.conversationHistoryHasMore.value).to.equal(false)
+    conversation.disposeHallConversation()
+  })
+
+  it('deletes a scoped history item and reloads the first page to keep pagination exact', async () => {
+    const deleteCalls = []
+    let listCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, _payload, options) => {
+          listCalls += 1
+          const rows = listCalls === 1
+            ? [scopedConversation('1002', { title: '待删除旧议' }), scopedConversation('1003', { title: '保留旧议' })]
+            : [scopedConversation('1003', { title: '保留旧议' })]
+          options.onSuccess({ items: rows, nextCursor: null, hasMore: false })
+        },
+        delete: async (path, id, options) => {
+          deleteCalls.push({ path, id, signal: options.signal })
+        }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    expect(await conversation.deleteHallConversation('1002')).to.equal(true)
+
+    expect(deleteCalls).to.have.length(1)
+    expect(deleteCalls[0].path).to.equal('/conversation/delete')
+    expect(deleteCalls[0].id).to.equal('1002')
+    expect(deleteCalls[0].signal.aborted).to.equal(false)
+    expect(listCalls).to.equal(2)
+    expect(conversation.conversationHistory.value.map(item => item.id)).to.deep.equal(['1003'])
+    expect(conversation.conversationHistoryDeletingId.value).to.equal('')
+    conversation.disposeHallConversation()
+  })
+
+  it('locks selection, sending, and pagination while a deletion is in flight', async () => {
+    const deletion = deferred()
+    let listCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, _payload, options) => {
+          listCalls += 1
+          options.onSuccess(({ items: listCalls === 1 ? [scopedConversation('1002', { title: '删除中旧议' })] : [], nextCursor: null, hasMore: false }))
+        },
+        delete: async () => deletion.promise,
+        get: getHallCapabilities,
+        create: async () => { throw new Error('send must be locked while deleting') }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    conversation.setDraft('不可并发发送')
+    const deleting = conversation.deleteHallConversation('1002')
+    await Promise.resolve()
+
+    expect(conversation.conversationHistoryDeletingId.value).to.equal('1002')
+    expect(conversation.isConversationBusy.value).to.equal(true)
+    expect(await conversation.selectHallConversation('1002')).to.equal(false)
+    expect(await conversation.sendHallMessage()).to.equal(false)
+    expect(await conversation.loadMoreHallConversationHistory()).to.deep.equal([])
+    expect(listCalls).to.equal(1)
+
+    deletion.resolve()
+    expect(await deleting).to.equal(true)
+    expect(listCalls).to.equal(2)
+    conversation.disposeHallConversation()
+  })
+
+  it('deleting the active history item clears its content and suppresses automatic restoration', async () => {
+    let listCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, _payload, options) => {
+          listCalls += 1
+          options.onSuccess(({ items: listCalls === 1 ? [scopedConversation('1002', { title: '当前旧议' })] : [], nextCursor: null, hasMore: false }))
+        },
+        getById: async (_path, _id, options) => {
+          options.onSuccess(([{ id: '99', senderType: 'user', content: '即将删除', createTime: 1 }]))
+        },
+        delete: async () => {}
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    expect(await conversation.selectHallConversation('1002')).to.equal(true)
+    expect(await conversation.deleteHallConversation('1002')).to.equal(true)
+
+    expect(conversation.conversationId.value).to.equal('')
+    expect(conversation.selectedHallConversationId.value).to.equal('')
+    expect(conversation.messages.value).to.deep.equal([])
+    expect(conversation.conversationHistory.value).to.deep.equal([])
+    expect(await conversation.loadHallMessages({ force: true })).to.equal(false)
+    expect(listCalls).to.equal(2)
+    conversation.disposeHallConversation()
+  })
+
+  it('keeps the history item visible when deletion fails', async () => {
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation('1002', { title: '不可删旧议' })], nextCursor: null, hasMore: false })),
+        delete: async () => { throw new Error('delete failed') }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    expect(await conversation.deleteHallConversation('1002')).to.equal(false)
+
+    expect(conversation.conversationHistory.value.map(item => item.id)).to.deep.equal(['1002'])
+    expect(conversation.conversationHistoryDeletingId.value).to.equal('')
+    expect(conversation.conversationHistoryError.value).to.equal('')
+    conversation.disposeHallConversation()
+  })
+
+  it('reports selected content failure, blocks send, and retries the same selected id', async () => {
+    let contentAttempts = 0
+    let listCalls = 0
+    const conversation = createConversation({
+      chatApi: {
+        list: async (_path, _payload, options) => {
+          listCalls += 1
+          options.onSuccess(({ items: [scopedConversation('1002', { title: '需重取旧议' })], nextCursor: null, hasMore: false }))
+        },
+        getById: async (_path, id, options) => {
+          contentAttempts += 1
+          if (contentAttempts === 1) {
+            options.onError(new Error('content unavailable'))
+            return
+          }
+          expect(id).to.equal('1002')
+          options.onSuccess(([{ id: '99', senderType: 'user', content: '重取成功', createTime: 1 }]))
+        },
+        get: getHallCapabilities,
+        create: async () => { throw new Error('send must remain blocked after selected content failure') }
+      }
+    })
+
+    await conversation.loadHallConversationHistory()
+    expect(await conversation.selectHallConversation('1002')).to.equal(false)
+    expect(conversation.selectedHallConversationId.value).to.equal('1002')
+    expect(conversation.conversationLoadError.value).to.equal('这段旧话暂不可取，请重试。')
+    expect(await conversation.sendHallMessage({ content: '不应发送' })).to.equal(false)
+    expect(await conversation.retryHallConversation()).to.equal(true)
+    expect(contentAttempts).to.equal(2)
+    expect(listCalls).to.equal(1)
+    expect(conversation.messages.value.map(message => message.content)).to.deep.equal(['重取成功'])
+    conversation.disposeHallConversation()
+  })
+
+  it('isolates text drafts across an existing thread, an unsent new thread, and another saved thread', async () => {
+    const conversation = createConversation({ chatApi: {
+      list: async (_path, _payload, options) => options.onSuccess({ items: [scopedConversation('1001'), scopedConversation('1002')], nextCursor: null, hasMore: false }),
+      getById: async (_path, _id, options) => options.onSuccess([])
+    } })
+    try {
+      await conversation.loadHallConversationHistory()
+      await conversation.selectHallConversation('1001')
+      conversation.setDraft('话头A的未发送文字')
+      conversation.newHallConversation()
+      expect(conversation.draft.value).to.equal('')
+      conversation.setDraft('新话头B的文字')
+      await conversation.loadHallConversationHistory()
+      await conversation.selectHallConversation('1001')
+      expect(conversation.draft.value).to.equal('话头A的未发送文字')
+      await conversation.selectHallConversation('1002')
+      expect(conversation.draft.value).to.equal('')
+      conversation.setDraft('话头C的未发送文字')
+      await conversation.selectHallConversation('1001')
+      expect(conversation.draft.value).to.equal('话头A的未发送文字')
+      await conversation.selectHallConversation('1002')
+      expect(conversation.draft.value).to.equal('话头C的未发送文字')
+      conversation.newHallConversation()
+      expect(conversation.draft.value).to.equal('新话头B的文字')
+    } finally { conversation.disposeHallConversation() }
+  })
+
+  it('clears the history spinner and fences a late history page when starting a new conversation', async () => {
+    const request = deferred()
+    const conversation = createConversation({ chatApi: { list: async () => request.promise } })
+
+    const loading = conversation.loadHallConversationHistory({ force: true })
+    expect(conversation.conversationHistoryLoading.value).to.equal(true)
+    conversation.newHallConversation()
+    expect(conversation.conversationHistoryLoading.value).to.equal(false)
+    request.resolve((([scopedConversation('1002', { title: '过期旧议' })])))
+    await loading
+
+    expect(conversation.conversationHistory.value).to.deep.equal([])
+    expect(conversation.conversationHistoryLoading.value).to.equal(false)
+    conversation.disposeHallConversation()
+  })
+})
+
+describe('useHallConversation event-stream recovery policy', () => {
+  const flush = async () => {
+    for (let index = 0; index < 5; index += 1) await Promise.resolve()
+  }
+
+  const createConversation = ({ apiStore = { token: async () => 'token' } } = {}) => useHallConversation({
+    apiStore,
+    chatApi: {
+      list: async (_path, _payload, options) => options.onSuccess(({ items: [scopedConversation()], nextCursor: null, hasMore: false })),
+      getById: async (_path, _id, options) => options.onSuccess(([]))
+    },
+    chatContext: ref({ conversationScopeType: 'public', conversationScopeKey: 'public', mode: 'public', participantAgentIds: [], targetAgentIds: [] }),
+    chatMode: ref('public'),
+    globalStore: { getJiacn: 'jia-user', user: {} },
+    log: { warn: () => {}, error: () => {} },
+    openPanel: () => {},
+    outgoingMetadata: ref({}),
+    portraitShortName: agent => agent?.name || agent?.agentId || '',
+    selectedAgent: ref(null),
+    selectedTask: ref(null),
+    showToast: () => {}
+  })
+
+  it('does not blindly reconnect the protected event stream after a 403', async () => {
+    const originalFetch = global.fetch
+    const originalSetTimeout = window.setTimeout
+    let fetchCount = 0
+    let timers = 0
+    global.fetch = async () => {
+      fetchCount += 1
+      return new Response('', { status: 403 })
+    }
+    window.setTimeout = () => { timers += 1; return 1 }
+
+    try {
+      const conversation = createConversation()
+      await conversation.loadHallMessages()
+      await flush()
+      window.dispatchEvent(new window.Event('focus'))
+      await flush()
+      expect({ fetchCount, timers, recovering: conversation.eventStreamRecovering.value }).to.deep.equal({ fetchCount: 1, timers: 0, recovering: false })
+      conversation.disposeHallConversation()
+    } finally {
+      global.fetch = originalFetch
+      window.setTimeout = originalSetTimeout
+    }
+  })
+
+  it('uses exponential jittered reconnects after EOF while keeping one event stream per conversation', async () => {
+    const originalFetch = global.fetch
+    const originalSetTimeout = window.setTimeout
+    const originalRandom = Math.random
+    const timers = []
+    let fetchCount = 0
+    global.fetch = async () => {
+      fetchCount += 1
+      return new Response('')
+    }
+    Math.random = () => 0
+    window.setTimeout = (callback, delay) => { const timer = { callback, delay, active: true }; timers.push(timer); return timer }
+    try {
+      const conversation = createConversation()
+      await conversation.loadHallMessages()
+      await flush()
+      expect({ fetchCount, delays: timers.map(timer => timer.delay) }).to.deep.equal({ fetchCount: 1, delays: [1000] })
+
+      window.dispatchEvent(new window.Event('focus'))
+      await flush()
+      expect(fetchCount).to.equal(1)
+      timers[0].callback()
+      await flush()
+      expect({ fetchCount, delays: timers.map(timer => timer.delay) }).to.deep.equal({ fetchCount: 2, delays: [1000, 2000] })
+      conversation.disposeHallConversation()
+    } finally {
+      global.fetch = originalFetch
+      window.setTimeout = originalSetTimeout
+      Math.random = originalRandom
+    }
+  })
+
+  it('pauses the conversation event stream while the page is hidden and resumes on visibility', async () => {
+    const originalFetch = global.fetch
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    let fetchCount = 0
+    global.fetch = async () => {
+      fetchCount += 1
+      return new Response(new ReadableStream({ start () {} }))
+    }
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    try {
+      const conversation = createConversation()
+      await conversation.loadHallMessages()
+      await flush()
+      expect(fetchCount).to.equal(1)
+
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      document.dispatchEvent(new window.Event('visibilitychange'))
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      document.dispatchEvent(new window.Event('visibilitychange'))
+      await flush()
+      expect(fetchCount).to.equal(2)
+      conversation.disposeHallConversation()
+    } finally {
+      global.fetch = originalFetch
+      if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor)
+      else delete document.visibilityState
+    }
+  })
+})
+
+describe('Hall stream transport failure read-only recovery', () => {
+  const options = (chatApi, callbacks = []) => useHallConversation({
+    apiStore: { token: async () => null }, chatApi,
+    chatContext: ref({ conversationScopeType: 'public', conversationScopeKey: 'public', targetAgentIds: [] }),
+    chatMode: ref('public'), globalStore: { getJiacn: 'hero', user: {} },
+    log: { warn: () => {}, error: () => {} }, openPanel: () => {}, outgoingMetadata: ref({}),
+    portraitShortName: agent => agent?.name || '', selectedAgent: ref(null), selectedTask: ref(null),
+    showToast: () => {}, onFinalReply: event => callbacks.push(event)
+  })
+
+  it('does not repeat POST and reads only the same conversation until the authoritative request and persisted final both complete', async () => {
+    const setInterval = window.setInterval
+    const clearInterval = window.clearInterval
+    let poll
+    window.setInterval = callback => { poll = callback; return 12345 }
+    window.clearInterval = () => {}
+    const callbacks = []
+    let readCount = 0
+    let postCount = 0
+    let persistedFinal = false
+    let requestComplete = false
+    let requestGate = null
+    let requestReads = 0
+    let conversation
+    try {
+      conversation = options({
+        list: async (_url, _search, opts) => opts.onSuccess(({ items: [scopedConversation('1001')], nextCursor: null, hasMore: false })),
+        getById: async (_url, id, opts) => {
+          expect(id).to.equal('1001')
+          readCount += 1
+          opts.onSuccess(([{ id: 'reply-old', senderType: 'agent', content: '旧回话' },
+            ...(persistedFinal ? [{ id: '902', senderType: 'agent', content: '吴用本次完整回话' }] : [])]))
+        },
+        get: async path => {
+          if (path === '/capabilities') return getHallCapabilities(path)
+          expect(path).to.equal(`/requests/${conversation.activeRequest.value.requestId}`)
+          requestReads++
+          if (requestGate) await requestGate.promise
+          return ({ requestId: conversation.activeRequest.value.requestId, requestRevision: '1',
+            conversationId: '1001', conversationGeneration: '1', state: requestComplete ? 'COMPLETED' : 'RUNNING', stateVersion: requestComplete ? '2' : '1',
+            turns: [{ turnId: 'recovery-turn', requestId: conversation.activeRequest.value.requestId, requestRevision: '1',
+              conversationId: '1001', conversationGeneration: '1', targetAgentId: 'a', lastDeltaSeq: '0', finalMessageId: requestComplete ? '902' : null,
+              state: requestComplete ? 'PUBLISHED' : 'GENERATING', stateVersion: requestComplete ? '2' : '1' }] })
+        },
+        create: async (_url, _payload, opts) => {
+          postCount += 1
+          opts.onStream(JSON.stringify({ conversationId: '1001' }))
+          throw new Error('net::ERR_HTTP2_PROTOCOL_ERROR')
+        }
+      }, callbacks)
+      await conversation.loadHallMessages()
+      callbacks.length = 0
+      conversation.setDraft('请吴用核对本次任务')
+      expect(await conversation.sendHallMessage()).to.equal(false)
+      expect(postCount).to.equal(1)
+      expect(readCount).to.be.greaterThan(1)
+      expect(conversation.isAwaitingReply.value).to.equal(true)
+      expect(conversation.messages.value.some(message => message.content.includes('尚无可核验'))).to.equal(true)
+      expect(callbacks).to.have.length(0)
+      // A slow authoritative read must not spawn another history/readback cycle.
+      requestGate = deferred()
+      const pendingPoll = poll()
+      await Promise.resolve()
+      const readsDuringFlight = requestReads
+      const historyDuringFlight = readCount
+      await poll()
+      expect(requestReads).to.equal(readsDuringFlight)
+      expect(readCount).to.equal(historyDuringFlight)
+      requestGate.resolve()
+      await pendingPoll
+      requestGate = null
+      persistedFinal = true
+      await poll()
+      expect(callbacks.map(value => value.messageId)).to.deep.equal(['902'])
+      expect(conversation.isAwaitingReply.value).to.equal(true)
+      expect(await conversation.sendHallMessage({ content: '仍有待处理回话，禁止覆盖' })).to.equal(false)
+      requestComplete = true
+      await poll()
+      expect(callbacks.map(value => value.messageId)).to.deep.equal(['902'])
+      expect(conversation.isAwaitingReply.value).to.equal(false)
+      expect(postCount).to.equal(1)
+      const terminalReadCount = readCount
+      await poll() // A callback already queued before clearInterval must be inert.
+      expect(readCount).to.equal(terminalReadCount)
+    } finally {
+      conversation?.disposeHallConversation()
+      window.setInterval = setInterval
+      window.clearInterval = clearInterval
+    }
+  })
+
+  it('without a server conversation ID reports unknown outcome instead of false delivery failure or resend', async () => {
+    let posts = 0
+    const conversation = options({ get: getHallCapabilities, create: async () => { posts += 1; throw new Error('network reset') } })
+    try {
+      conversation.setDraft('first request')
+      expect(await conversation.sendHallMessage()).to.equal(false)
+      expect(posts).to.equal(1)
+      expect(conversation.isAwaitingReply.value).to.equal(false)
+      expect(conversation.messages.value.at(-1).content).to.include('结果未知')
+      expect(conversation.isConversationBusy.value).to.equal(true)
+      expect(await conversation.sendHallMessage({ content: '不得重发未知请求' })).to.equal(false)
+      expect(posts).to.equal(1)
+    } finally {
+      conversation.disposeHallConversation()
+    }
+  })
+})
+
+
+describe('Hall request readback scheduling lifecycle', () => {
+  const setupScheduler = () => {
+    let generation = 0
+    let timerId = 0
+    const timers = new Map()
+    const reads = []
+    const scheduler = createHallRequestReadbackScheduler({
+      read: (id, guard) => { const result = deferred(); reads.push({ id, guard, ...result }); return result.promise },
+      captureGuard: () => generation,
+      isCurrent: guard => guard === generation,
+      isActiveRequest: id => id === 'request',
+      setTimeout: (callback, delay) => { expect(delay).to.equal(250); timers.set(++timerId, callback); return timerId },
+      clearTimeout: id => timers.delete(id),
+      debounceMs: 250
+    })
+    return { scheduler, reads, timers, nextIdentity: () => { generation += 1; scheduler.reset() } }
+  }
+  const flushPromises = async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve() }
+
+  it('coalesces direct reads and performs the final event read arriving during a pending read', async () => {
+    const { scheduler, reads } = setupScheduler()
+    const first = scheduler.readNow('request')
+    expect(scheduler.readNow('request')).to.equal(first)
+    scheduler.schedule('request', { immediate: true })
+    expect(reads).to.have.length(1)
+    reads[0].resolve(true)
+    await flushPromises()
+    expect(reads).to.have.length(2)
+    reads[1].resolve(true)
+    await flushPromises()
+    expect(scheduler.hasInFlight('request')).to.equal(false)
+    scheduler.dispose()
+  })
+
+  it('debounces deltas and schedules one trailing read when more arrive during a read', async () => {
+    const { scheduler, reads, timers } = setupScheduler()
+    scheduler.schedule('request'); scheduler.schedule('request')
+    expect(timers.size).to.equal(1)
+    const callback = [...timers.values()][0]; timers.clear(); callback()
+    scheduler.schedule('request'); scheduler.schedule('request')
+    expect(reads).to.have.length(1)
+    reads[0].resolve(true); await flushPromises()
+    expect(timers.size).to.equal(1)
+    const trailing = [...timers.values()][0]; timers.clear(); trailing()
+    expect(reads).to.have.length(2)
+    reads[1].resolve(true); await flushPromises()
+    scheduler.dispose()
+  })
+
+  it('old completion cannot clear a new identity read and disposal leaves no timer or new read', async () => {
+    const { scheduler, reads, nextIdentity, timers } = setupScheduler()
+    scheduler.readNow('request')
+    nextIdentity()
+    const current = scheduler.readNow('request')
+    reads[0].resolve(true); await flushPromises()
+    expect(scheduler.hasInFlight('request')).to.equal(true)
+    expect(scheduler.readNow('request')).to.equal(current)
+    scheduler.schedule('request')
+    scheduler.dispose()
+    expect(timers.size).to.equal(0)
+    expect(scheduler.schedule('request', { immediate: true })).to.equal(false)
+    expect(await scheduler.readNow('request')).to.equal(false)
+    reads[1].resolve(true); await flushPromises()
+    expect(reads).to.have.length(2)
+  })
+})

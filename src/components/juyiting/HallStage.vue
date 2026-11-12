@@ -1,0 +1,1446 @@
+<template>
+  <section class="hall-stage">
+    <div v-if="!readOnlyPreview && !unifiedShell" class="stage-header">
+      <div class="stage-heading">
+        <div class="eyebrow">梁山泊传令中枢</div>
+        <h1>聚义厅</h1>
+      </div>
+      <div data-tour="landscape-tools" class="stage-tools">
+        <HallAccountEntry
+          v-if="sceneMode !== 'landscape'"
+          class="stage-header-account"
+          compact
+          :avatar="accountAvatar"
+          :display-name="accountDisplayName"
+          :disabled="accountEntryDisabled || stageInputLocked"
+          @open-profile="emitStageAction('open-profile')"
+        />
+        <HallAccountEntry
+          v-else-if="!readOnlyPreview"
+          class="stage-landscape-account"
+          avatar-only
+          :avatar="accountAvatar"
+          :display-name="accountDisplayName"
+          :disabled="accountEntryDisabled || stageInputLocked"
+          @open-profile="emitStageAction('open-profile')"
+        />
+        <button
+          class="tool-action home-mode-action"
+          :disabled="stageInputLocked"
+          :title="homeMode === 'map' ? '查看办事概览' : '返回厅中实景'"
+          :aria-label="homeMode === 'map' ? '办事概览' : '厅中实景'"
+          @click="emit('set-home-mode', homeMode === 'map' ? 'overview' : 'map')"
+        >
+          <var-icon :name="homeMode === 'map' ? 'format-list-checkbox' : 'map-marker-outline'" />
+          <span class="tool-label">{{ homeMode === 'map' ? '办事概览' : '厅中实景' }}</span>
+        </button>
+        <button
+          class="tool-action"
+          :disabled="stageInputLocked"
+          aria-label="查看消息"
+          @click="emit('open-panel', 'messages')"
+        >
+          <var-icon name="bell-outline" />
+          <span class="tool-label">消息</span>
+        </button>
+        <button
+          class="tool-action babao-action"
+          data-tour="landscape-babao-box"
+          :disabled="stageInputLocked"
+          title="打开百宝箱"
+          aria-label="打开百宝箱"
+          @click="emitStageAction('open-workspace')"
+        >
+          <var-icon name="wrench" />
+          <span class="tool-label">百宝箱</span>
+        </button>
+        <button
+          class="tool-action sound-toggle"
+          data-tour="landscape-sound"
+          :disabled="stageInputLocked"
+          :title="soundEnabled ? '歇下声响' : '开起声响'"
+          @click="emitStageAction('toggle-sound')"
+        >
+          <var-icon :name="soundEnabled ? 'bell' : 'bell-outline'" />
+          <span class="tool-label">{{ soundEnabled ? '声响开' : '声响歇' }}</span>
+        </button>
+        <button
+          class="tool-action onboarding-replay"
+          data-tour="landscape-onboarding"
+          :disabled="stageInputLocked"
+          title="重看新手引导"
+          aria-label="重看新手引导"
+          @click="emitOnboarding($event.currentTarget)"
+        >
+          <var-icon name="help-circle-outline" aria-hidden="true" />
+          <span class="tool-label">引导</span>
+        </button>
+        <button
+          v-if="isMobileCoarse"
+          class="tool-action orientation-action"
+          data-tour="landscape-orientation"
+          :disabled="stageInputLocked"
+          :title="orientationRequestPending ? '取消方向请求' : (sceneMode === 'landscape' ? '切换竖屏视图' : '打开全景视图')"
+          aria-label="方向控制"
+          @click="emitOrientationRequest()"
+        >
+          <span
+            class="orientation-glyph"
+            :class="{
+              'is-glyph-portrait': sceneMode === 'landscape',
+              'is-glyph-landscape': sceneMode !== 'landscape'
+            }"
+            aria-hidden="true"
+          ></span>
+          <span class="tool-label">{{ orientationRequestPending ? '取消切换' : (sceneMode === 'landscape' ? '竖屏视图' : '横屏全景') }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div
+      class="hall-board"
+      data-tour="landscape-map"
+      :class="{
+        'is-melon-ready': melonReady,
+        'has-scene-error': Boolean(sceneError),
+        'is-scene-landscape': sceneMode === 'landscape',
+        'is-scene-portrait': sceneMode === 'portrait',
+        'is-virtual-landscape': virtualLandscape
+      }"
+      :tabindex="stageInputLocked ? -1 : 0"
+      :aria-label="readOnlyPreview ? '聚义厅地图只读预览' : '聚义厅 melonJS 场景，可使用加减号缩放，0 复位'"
+      @keydown="handleSceneKeydown"
+      @wheel="scheduleReturnRefresh"
+      @pointerup="scheduleReturnRefresh"
+      @pointercancel="scheduleReturnRefresh"
+    >
+      <div ref="melonContainerRef" class="melon-layer" aria-hidden="true"></div>
+      <div
+        v-if="!readOnlyPreview && isSceneMounting && !sceneError"
+        class="scene-loading"
+        role="status"
+      >
+        <span class="scene-spinner" aria-hidden="true"></span>
+        <span>聚义厅地图加载中…</span>
+      </div>
+      <div v-if="!readOnlyPreview && sceneError" class="scene-error" role="status">
+        <strong>聚义厅场景暂不可用</strong>
+        <span>{{ sceneError }}</span>
+        <button type="button" :disabled="isSceneMounting" @click="retryScene">
+          {{ isSceneMounting ? '重试中' : '重试' }}
+        </button>
+      </div>
+      <button
+        v-if="showReturnButton && !stageInputLocked"
+        class="return-main-hall"
+        :class="{ 'is-raised': Boolean(selectedAgent) }"
+        type="button"
+        aria-label="回主厅"
+        title="回主厅"
+        @click="returnToMainHall"
+      >
+        <span aria-hidden="true">⌂</span>
+      </button>
+      <div v-if="orientationHint" class="orientation-hint" role="status">{{ orientationHint }}</div>
+    </div>
+
+    <slot v-if="!readOnlyPreview"></slot>
+  </section>
+</template>
+
+<script setup>
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { juyitingGame } from '@/game/index.js'
+import { classifyViewportResize } from '@/game/camera/resizePolicy.js'
+import HallAccountEntry from './HallAccountEntry.vue'
+
+const props = defineProps({
+  unifiedShell: { type: Boolean, default: false },
+  accountAvatar: { type: String, default: '' },
+  accountDisplayName: { type: String, default: '' },
+  accountEntryDisabled: { type: Boolean, default: false },
+  agentBubbles: { type: Object, default: () => ({}) },
+  agentKey: { type: Function, required: true },
+  agentStyle: { type: Function, required: true },
+  hiddenAgentCount: { type: Number, default: 0 },
+  homeMode: { type: String, default: 'map' },
+  experienceMode: { type: String, default: 'landscape-map' },
+  interactionLocked: { type: Boolean, default: false },
+  isMobileCoarse: { type: Boolean, default: false },
+  landscapeEntryTarget: { type: Object, default: null },
+  mapResumeSnapshot: { type: Object, default: null },
+  orientationHint: { type: String, default: '' },
+  orientationRequestPending: { type: Boolean, default: false },
+  portraitName: { type: Function, required: true },
+  portraitShortName: { type: Function, required: true },
+  portraitStyle: { type: Function, required: true },
+  readOnlyPreview: { type: Boolean, default: false },
+  previewVisible: { type: Boolean, default: true },
+  roleClass: { type: Function, required: true },
+  simulationEnabled: { type: Boolean, default: true },
+  sceneAgents: { type: Array, default: () => [] },
+  sceneHotspots: { type: Array, default: () => [] },
+  tasks: { type: Array, default: () => [] },
+  selectedAgent: { type: Object, default: null },
+  soundEnabled: { type: Boolean, default: true },
+  statusClass: { type: Function, required: true },
+  statusText: { type: Function, required: true },
+  tasksTotal: { type: Number, default: 0 },
+  visibleAgents: { type: Array, default: () => [] },
+  virtualLandscape: { type: Boolean, default: false }
+})
+
+const emit = defineEmits([
+  'landscape-target-consumed',
+  'map-snapshot',
+  'map-snapshot-clear',
+  'open-profile',
+  'open-workspace',
+  'new-conversation',
+  'open-onboarding',
+  'open-panel',
+  'request-landscape',
+  'request-portrait',
+  'set-home-mode',
+  'scene-bounds-change',
+  'scene-error',
+  'scene-mode-change',
+  'scene-state-change',
+  'select-agent',
+  'simulation-phase-events',
+  'simulation-ready',
+  'simulation-reset',
+  'toggle-sound'
+])
+
+const melonContainerRef = ref(null)
+const melonReady = ref(false)
+const sceneError = ref('')
+const isSceneMounting = ref(false)
+const showReturnButton = ref(false)
+const mapLifecycleState = ref('unmounted')
+let sceneMountAttempt = 0
+let businessReadyGeneration = 0
+let activeMapGeneration = 0
+let resumeRequested = false
+let settledViewportGeneration = 0
+let consumedLandscapeTargetGeneration = 0
+let isUnmounted = false
+let mountTimeout = null
+let previousLayoutViewport = { width: 0, height: 0 }
+let previousVisualHeight = 0
+let keyboardActive = false
+let resizeFrame = null
+let resizeSettlePass = 0
+let pendingOrientationSignal = false
+let lastResizeSignature = ''
+let lastOrientationDimensions = ''
+let stageResizeObserver = null
+let finalViewportWork = null
+let settlingViewportGeneration = 0
+let returnFrame = null
+let resetPollRemaining = 0
+let currentGameDestroyed = false
+let fallbackFrameId = 0
+const fallbackFrames = new Map()
+const LANDSCAPE_TARGET_MAX_ATTEMPTS = 8
+let landscapeTargetWork = null
+let previewTransitionGeneration = 0
+const previewExitPending = ref(false)
+let previewPresentationActive = false
+
+// This is a DOM/handler barrier distinct from the engine lock. A Teleport
+// transition can have a running scene while its final viewport is not ready.
+const stageInputLocked = computed(() => (
+  props.readOnlyPreview || props.interactionLocked || isSceneMounting.value || previewExitPending.value
+))
+
+const requestStageFrame = callback => {
+  if (typeof window.requestAnimationFrame === 'function') return window.requestAnimationFrame(callback)
+  const id = `fallback-${++fallbackFrameId}`
+  fallbackFrames.set(id, callback)
+  Promise.resolve().then(() => {
+    const pending = fallbackFrames.get(id)
+    if (!pending) return
+    fallbackFrames.delete(id)
+    pending(Date.now())
+  })
+  return id
+}
+
+const cancelStageFrame = id => {
+  if (typeof id === 'string') fallbackFrames.delete(id)
+  else window.cancelAnimationFrame?.(id)
+}
+const loadingUnlockedAttempts = new Set()
+
+const presetZooms = { mobilePortrait: 1.25, mobileLandscape: 1.05, tabletLandscape: 0.92, desktop: 0.84 }
+
+const sceneMode = computed(() => props.experienceMode === 'landscape-map' ? 'landscape' : 'portrait')
+
+watch(sceneMode, mode => emit('scene-mode-change', mode), { immediate: true })
+
+const sceneDebugRequested = () => (
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('scene-debug') === '1'
+)
+
+const isCurrentMountAttempt = attemptId => (
+  !isUnmounted && attemptId === sceneMountAttempt && ['mounting', 'resuming', 'running'].includes(mapLifecycleState.value)
+)
+
+const isRunningGeneration = attemptId => (
+  isCurrentMountAttempt(attemptId) && mapLifecycleState.value === 'running'
+)
+
+const handleAgentClick = (agentData) => {
+  const full = (props.sceneAgents || []).find(a =>
+    a.agentId === agentData.agentId || a.personaCode === agentData.personaCode
+  ) || agentData
+  emit('select-agent', full)
+}
+
+const handleHotspotClick = (hotspot) => {
+  emit('open-panel', hotspot.panel)
+}
+
+const unlockLoading = (attemptId) => {
+  if (loadingUnlockedAttempts.has(attemptId)) return
+  loadingUnlockedAttempts.add(attemptId)
+  juyitingGame.setInteractionLocked?.(false, 'loading')
+}
+
+const handleSceneReady = attemptId => {
+  if (!isCurrentMountAttempt(attemptId)) return
+  clearMountTimeout()
+  void finalizeSceneReady(attemptId)
+}
+
+const clearMountTimeout = () => {
+  if (mountTimeout !== null) window.clearTimeout(mountTimeout)
+  mountTimeout = null
+}
+
+const editableFocused = () => {
+  const element = document.activeElement
+  return Boolean(element && (element.matches?.('input, textarea, select, [contenteditable="true"]') || element.isContentEditable))
+}
+
+const viewportNow = () => ({ width: window.innerWidth, height: window.innerHeight })
+
+const stageViewportNow = () => {
+  if (props.virtualLandscape) return { width: window.innerHeight, height: window.innerWidth }
+  const rect = melonContainerRef.value?.getBoundingClientRect?.()
+  if (rect?.width > 0 && rect?.height > 0) {
+    return { width: Math.round(rect.width), height: Math.round(rect.height) }
+  }
+  return viewportNow()
+}
+
+const isExactTargetId = value => typeof value === 'string' && value.length > 0
+
+const cancelFinalViewportWork = () => {
+  finalViewportWork?.finish?.(null)
+}
+
+const settleFinalViewport = attemptId => new Promise(resolve => {
+  const container = melonContainerRef.value
+  const ResizeObserverImpl = window.ResizeObserver || globalThis.ResizeObserver
+  const work = {
+    attemptId,
+    frame: null,
+    observer: null,
+    finished: false,
+    finish: null
+  }
+  finalViewportWork = work
+  let observerReported = !ResizeObserverImpl
+  let previousSignature = ''
+  let stableFrames = 0
+  const finish = viewport => {
+    if (work.finished) return
+    work.finished = true
+    if (work.frame !== null) cancelStageFrame(work.frame)
+    work.frame = null
+    work.observer?.disconnect?.()
+    work.observer = null
+    if (finalViewportWork === work) finalViewportWork = null
+    resolve(viewport)
+  }
+  work.finish = finish
+  const scheduleInspect = () => {
+    work.frame = requestStageFrame(() => {
+      work.frame = null
+      inspect()
+    })
+  }
+  const inspect = () => {
+    if (work.finished || !isCurrentMountAttempt(attemptId)) return finish(null)
+    const rect = container?.getBoundingClientRect?.()
+    const viewport = props.virtualLandscape
+      ? stageViewportNow()
+      : (rect?.width > 0 && rect?.height > 0
+        ? { width: Math.round(rect.width), height: Math.round(rect.height) }
+        : null)
+    if (!observerReported || !viewport) {
+      scheduleInspect()
+      return
+    }
+    const signature = `${viewport.width}:${viewport.height}`
+    stableFrames = signature === previousSignature ? stableFrames + 1 : 1
+    previousSignature = signature
+    if (stableFrames < 2) {
+      scheduleInspect()
+      return
+    }
+    finish(viewport)
+  }
+  if (ResizeObserverImpl && container) {
+    work.observer = new ResizeObserverImpl(() => { observerReported = true })
+    work.observer.observe(container)
+  }
+  scheduleInspect()
+})
+
+const cancelLandscapeTargetWork = () => {
+  const work = landscapeTargetWork
+  if (!work) return
+  if (work.frame !== null) cancelStageFrame(work.frame)
+  work.frame = null
+  work.state = 'cancelled'
+  if (landscapeTargetWork === work) landscapeTargetWork = null
+}
+
+const currentLandscapeTarget = work => (
+  isRunningGeneration(work.attemptId) &&
+  // A target is meaningful only after the current preview presentation has
+  // committed its landscape viewport. This fences same-batch prop watchers
+  // and any queued retry frame independently of watcher registration order.
+  !previewPresentationActive &&
+  props.landscapeEntryTarget === work.entry &&
+  props.landscapeEntryTarget?.generation === work.targetGeneration &&
+  work.targetGeneration > consumedLandscapeTargetGeneration
+)
+
+const targetEligible = target => {
+  if (target?.kind === 'agent') {
+    return isExactTargetId(target.agentId) && (props.sceneAgents || []).some(agent => agent?.agentId === target.agentId)
+  }
+  if (target?.kind === 'task') {
+    if (!isExactTargetId(target.taskId) || !isExactTargetId(target.agentId)) return false
+    const task = (props.tasks || []).find(item => item?.id === target.taskId)
+    const assignedIds = Array.isArray(task?.assignedAgentIds) ? task.assignedAgentIds : []
+    const assigneeIds = Array.isArray(task?.assignees) ? task.assignees.map(item => item?.agentId) : []
+    return Boolean(task && (assignedIds.includes(target.agentId) || assigneeIds.includes(target.agentId)) && (props.sceneAgents || []).some(agent => agent?.agentId === target.agentId))
+  }
+  return target?.kind === 'hotspot' && isExactTargetId(target.hotspotId) && (props.sceneHotspots || []).some(hotspot => hotspot?.id === target.hotspotId)
+}
+
+const acknowledgeLandscapeTarget = work => {
+  if (!currentLandscapeTarget(work) || work.state === 'acknowledged') return false
+  work.state = 'acknowledged'
+  if (work.frame !== null) cancelStageFrame(work.frame)
+  work.frame = null
+  consumedLandscapeTargetGeneration = work.targetGeneration
+  emit('landscape-target-consumed', work.targetGeneration)
+  return true
+}
+
+const attemptAgentLandscapeTarget = work => {
+  if (!currentLandscapeTarget(work) || !targetEligible(work.target) || work.state === 'exhausted') return false
+  work.frame = null
+  work.state = work.attempts === 0 ? 'armed' : 'retrying'
+  work.attempts += 1
+  let focused = false
+  try { focused = juyitingGame.syncAgentsAndFocusAgent?.(props.sceneAgents, work.target.agentId) === true } catch { focused = false }
+  if (focused && acknowledgeLandscapeTarget(work)) return true
+  if (!currentLandscapeTarget(work) || work.attempts >= LANDSCAPE_TARGET_MAX_ATTEMPTS) {
+    work.state = 'exhausted'
+    return false
+  }
+  work.frame = requestStageFrame(() => {
+    if (!currentLandscapeTarget(work) || landscapeTargetWork !== work) return
+    attemptAgentLandscapeTarget(work)
+  })
+  return false
+}
+
+const rearmExhaustedLandscapeAgentTarget = (attemptId, payload) => {
+  if (!isRunningGeneration(attemptId)) return false
+  const work = landscapeTargetWork
+  if (!work || work.state !== 'exhausted' || !currentLandscapeTarget(work)) return false
+  if (!['agent', 'task'].includes(work.target?.kind)) return false
+  const targetAgent = (props.sceneAgents || []).find(agent => agent?.agentId === work.target.agentId)
+  const personaCode = String(targetAgent?.personaCode || '').toLowerCase()
+  const newlyAvailable = Array.isArray(payload?.personaCodes)
+    ? payload.personaCodes.map(value => String(value || '').toLowerCase())
+    : []
+  if (!personaCode || !newlyAvailable.includes(personaCode)) return false
+  work.attempts = 0
+  work.state = 'idle'
+  return attemptAgentLandscapeTarget(work)
+}
+
+const attemptHotspotLandscapeTarget = work => {
+  if (!currentLandscapeTarget(work) || !targetEligible(work.target)) return false
+  work.frame = null
+  work.state = 'armed'
+  let focused = false
+  try { focused = juyitingGame.focusHotspot?.(work.target.hotspotId) === true } catch { focused = false }
+  if (focused) return acknowledgeLandscapeTarget(work)
+  return false
+}
+
+const consumeLandscapeEntryTarget = (attemptId, { retryHotspot = false } = {}) => {
+  // Preview exit owns the target until its stable viewport commit releases the
+  // presentation barrier. Do not let a landscape-target watcher consume early.
+  if (!isRunningGeneration(attemptId) || props.readOnlyPreview || previewExitPending.value || previewPresentationActive) return false
+  const entry = props.landscapeEntryTarget
+  if (!entry || !Number.isInteger(entry.generation) || entry.generation <= consumedLandscapeTargetGeneration) {
+    cancelLandscapeTargetWork()
+    return false
+  }
+  const target = entry.target
+  const existing = landscapeTargetWork
+  if (existing && (existing.attemptId !== attemptId || existing.targetGeneration !== entry.generation || existing.entry !== entry)) cancelLandscapeTargetWork()
+  if (!targetEligible(target)) return false
+  if (landscapeTargetWork && !retryHotspot) return false
+  if (!landscapeTargetWork) landscapeTargetWork = { attemptId, targetGeneration: entry.generation, entry, target, attempts: 0, frame: null, state: 'idle' }
+  const work = landscapeTargetWork
+  return target.kind === 'hotspot' ? attemptHotspotLandscapeTarget(work) : attemptAgentLandscapeTarget(work)
+}
+
+const failSceneMount = (attemptId, error) => {
+  if (!isCurrentMountAttempt(attemptId)) return false
+  clearMountTimeout()
+  // Fence every ready/resize/restore continuation before synchronous teardown.
+  sceneMountAttempt += 1
+  cancelStageWork()
+  melonReady.value = false
+  isSceneMounting.value = false
+  sceneError.value = error?.message || '聚义厅场景暂不可用，请重试'
+  emit('scene-state-change', 'error')
+  emit('scene-error', error)
+  mapLifecycleState.value = 'destroying'
+  unlockLoading(attemptId)
+  emit('simulation-reset')
+  if (!currentGameDestroyed) juyitingGame.destroy()
+  currentGameDestroyed = true
+  mapLifecycleState.value = 'unmounted'
+  return true
+}
+
+const finalizeSceneReady = async attemptId => {
+  if (!isCurrentMountAttempt(attemptId) || settledViewportGeneration === attemptId || settlingViewportGeneration === attemptId) return
+  settlingViewportGeneration = attemptId
+  try {
+    const viewport = await settleFinalViewport(attemptId)
+    if (!viewport || !isCurrentMountAttempt(attemptId) || settledViewportGeneration === attemptId) return
+    settledViewportGeneration = attemptId
+    const snapshot = props.mapResumeSnapshot
+    const committed = snapshot?.cameraSnapshot
+      ? await juyitingGame.restoreResumeSnapshot?.(snapshot, viewport)
+      : await (juyitingGame.commitViewport?.({ width: viewport.width, height: viewport.height, kind: 'orientation', orientationChanged: true })
+        ?? juyitingGame.resizeViewport?.({ width: viewport.width, height: viewport.height, kind: 'orientation', orientationChanged: true }))
+    if (!isCurrentMountAttempt(attemptId)) return
+    if (snapshot?.cameraSnapshot && !committed) {
+      failSceneMount(attemptId, new Error('地图视角恢复失败，请重试'))
+      return
+    }
+    if (snapshot?.cameraSnapshot) emit('map-snapshot-clear', snapshot.mapGeneration)
+    juyitingGame.syncAgents(props.sceneAgents)
+    juyitingGame.syncHotspots?.(props.sceneHotspots)
+    // Selection is current page business state, never read from a map snapshot.
+    juyitingGame.setSelectedAgent(props.selectedAgent?.agentId || null)
+    lastResizeSignature = ''
+    mapLifecycleState.value = 'running'
+    melonReady.value = true
+    isSceneMounting.value = false
+    sceneError.value = ''
+    setupStageResizeObserver()
+    unlockLoading(attemptId)
+    if (props.readOnlyPreview) {
+      juyitingGame.setInteractionLocked?.(true, 'preview')
+      juyitingGame.applyPreviewContain?.(juyitingGame.getSceneBounds?.())
+      juyitingGame.setPreviewDrawPolicy?.({ enabled: true, visible: props.previewVisible })
+    } else if (previewExitPending.value) {
+      // A portrait→landscape switch may arrive while the first scene mount is
+      // still loading; complete its fenced exit only after this ready point.
+      void completePreviewExit(attemptId, previewTransitionGeneration)
+    } else {
+      juyitingGame.setPreviewDrawPolicy?.({ enabled: false, visible: props.previewVisible })
+      consumeLandscapeEntryTarget(attemptId)
+      publishSimulationReady(attemptId)
+    }
+    emit('scene-state-change', 'ready')
+    emit('scene-bounds-change', juyitingGame.getSceneBounds?.() || null)
+    scheduleReturnRefresh()
+  } catch (error) {
+    failSceneMount(attemptId, error)
+  } finally {
+    if (settlingViewportGeneration === attemptId) settlingViewportGeneration = 0
+  }
+}
+
+const evaluateViewportResize = () => {
+  resizeFrame = null
+  if (!isRunningGeneration(sceneMountAttempt)) return
+  const nextLayoutViewport = viewportNow()
+  const nextStageViewport = stageViewportNow()
+  if (props.virtualLandscape) juyitingGame.setVirtualViewport?.(nextStageViewport)
+  const nextVisualHeight = window.visualViewport?.height || nextLayoutViewport.height
+  const widthStable = Math.abs(nextLayoutViewport.width - previousLayoutViewport.width) <= 2
+  const layoutHeightChanged = Math.abs(nextLayoutViewport.height - previousLayoutViewport.height) >= 120
+  const visualHeightSettled = Math.abs(nextVisualHeight - previousVisualHeight) >= 120
+  const layoutKeyboardRace = widthStable && layoutHeightChanged && !visualHeightSettled && (editableFocused() || keyboardActive)
+  if (
+    resizeSettlePass < 2 &&
+    layoutKeyboardRace
+  ) {
+    resizeSettlePass += 1
+    resizeFrame = requestStageFrame(evaluateViewportResize)
+    return
+  }
+  resizeSettlePass = 0
+  const classifiedKind = classifyViewportResize({
+    previous: previousLayoutViewport,
+    next: nextLayoutViewport,
+    previousVisualHeight,
+    nextVisualHeight,
+    editableFocused: editableFocused() || keyboardActive,
+    orientationChanged: pendingOrientationSignal
+  })
+  const keyboardTransition = keyboardActive && widthStable && visualHeightSettled
+  const kind = pendingOrientationSignal
+    ? 'orientation'
+    : ((keyboardTransition || layoutKeyboardRace) ? 'keyboard' : classifiedKind)
+  const resizeHeight = kind === 'keyboard'
+    ? Math.min(nextStageViewport.height, nextVisualHeight)
+    : nextStageViewport.height
+  const change = {
+    width: nextStageViewport.width,
+    height: resizeHeight,
+    kind,
+    orientationChanged: pendingOrientationSignal
+  }
+  const signature = `${change.width}:${change.height}:${change.kind}:${change.orientationChanged}`
+  const dimensions = `${change.width}:${change.height}`
+  const duplicateOrientationLayout = kind === 'layout' && dimensions === lastOrientationDimensions
+  if (signature !== lastResizeSignature && !duplicateOrientationLayout) {
+    lastResizeSignature = signature
+    juyitingGame.resizeViewport?.(change)
+  }
+  if (kind === 'orientation') lastOrientationDimensions = dimensions
+  else if (dimensions !== lastOrientationDimensions) lastOrientationDimensions = ''
+  if (kind !== 'keyboard') {
+    previousLayoutViewport = nextLayoutViewport
+    keyboardActive = false
+  } else {
+    keyboardActive = Math.abs(previousLayoutViewport.height - nextVisualHeight) >= 120
+  }
+  previousVisualHeight = nextVisualHeight
+  pendingOrientationSignal = false
+  scheduleReturnRefresh()
+}
+
+const scheduleViewportResize = ({ orientationChanged = false } = {}) => {
+  if (!isRunningGeneration(sceneMountAttempt)) return
+  pendingOrientationSignal = pendingOrientationSignal || orientationChanged
+  if (resizeFrame !== null) return
+  resizeFrame = requestStageFrame(evaluateViewportResize)
+}
+
+const handleWindowResize = () => { if (isRunningGeneration(sceneMountAttempt)) scheduleViewportResize() }
+const handleVisualResize = () => { if (isRunningGeneration(sceneMountAttempt)) scheduleViewportResize() }
+
+const setupStageResizeObserver = () => {
+  teardownStageResizeObserver()
+  const ResizeObserverImpl = window.ResizeObserver || globalThis.ResizeObserver
+  if (!ResizeObserverImpl || !melonContainerRef.value) return
+  const generation = sceneMountAttempt
+  stageResizeObserver = new ResizeObserverImpl(() => { if (isRunningGeneration(generation)) scheduleViewportResize() })
+  stageResizeObserver.observe(melonContainerRef.value)
+}
+
+const teardownStageResizeObserver = () => {
+  stageResizeObserver?.disconnect?.()
+  stageResizeObserver = null
+}
+
+
+const mountScene = async () => {
+  if (isUnmounted || isSceneMounting.value) return
+  const container = melonContainerRef.value
+  if (!container) return
+
+  const attemptId = ++sceneMountAttempt
+  currentGameDestroyed = false
+  activeMapGeneration = juyitingGame.beginMapGeneration?.() ?? activeMapGeneration + 1
+  juyitingGame.setVirtualViewport?.(props.virtualLandscape ? stageViewportNow() : null)
+  mapLifecycleState.value = props.mapResumeSnapshot?.cameraSnapshot ? 'resuming' : 'mounting'
+  resumeRequested = false
+  settledViewportGeneration = 0
+  isSceneMounting.value = true
+  sceneError.value = ''
+  emit('scene-state-change', 'loading')
+  juyitingGame.setInteractionLocked?.(true, 'loading')
+  clearMountTimeout()
+  mountTimeout = window.setTimeout(() => {
+    failSceneMount(attemptId, new Error('地图加载超时，请重试'))
+  }, 15000)
+  try {
+    await juyitingGame.mount(container, {
+      simulationEnabled: props.simulationEnabled,
+      onAgentClick: (agentData) => {
+        if (isRunningGeneration(attemptId)) handleAgentClick(agentData)
+      },
+      onHotspotClick: (hotspot) => {
+        if (isRunningGeneration(attemptId)) handleHotspotClick(hotspot)
+      },
+      onReady: () => {
+        if (isCurrentMountAttempt(attemptId)) handleSceneReady(attemptId)
+      },
+      onSimulationPhaseEvents: events => {
+        if (isRunningGeneration(attemptId) && businessReadyGeneration === attemptId) emit('simulation-phase-events', events)
+      },
+      onPersonaAvailabilityChanged: payload => {
+        if (isRunningGeneration(attemptId)) {
+          rearmExhaustedLandscapeAgentTarget(attemptId, payload)
+        }
+      }
+    })
+    if (!isCurrentMountAttempt(attemptId)) return
+    if (!melonReady.value) juyitingGame.setInteractionLocked?.(true, 'loading')
+    juyitingGame.start()
+  } catch (err) {
+    if (failSceneMount(attemptId, err)) console.warn('[HallStage] melonJS:', err?.message || err)
+  }
+}
+
+const publishSimulationReady = attemptId => {
+  if (props.readOnlyPreview || businessReadyGeneration === attemptId || !isRunningGeneration(attemptId)) return
+  businessReadyGeneration = attemptId
+  emit('simulation-ready', {
+    movementRuntime: juyitingGame.getMovementRuntime?.(),
+    simulation: {
+      enqueue: command => juyitingGame.enqueueMovementCommands?.([command])?.[0],
+      cancel: (agentId, stateVersion) => juyitingGame.cancelMovement?.(agentId, stateVersion)
+    }
+  })
+}
+
+const retryScene = async () => {
+  if (isSceneMounting.value) return false
+  // A paused/running preview only needs its owned presentation policy restored.
+  // A failed/unmounted scene takes the explicit reload path below.
+  if (mapLifecycleState.value === 'running' && !sceneError.value) {
+    if (props.readOnlyPreview) {
+      juyitingGame.setInteractionLocked?.(true, 'preview')
+      juyitingGame.applyPreviewContain?.(juyitingGame.getSceneBounds?.())
+    }
+    juyitingGame.setPreviewDrawPolicy?.({ enabled: props.readOnlyPreview, visible: props.previewVisible })
+    emit('scene-state-change', 'ready')
+    return true
+  }
+  emit('simulation-reset')
+  sceneMountAttempt += 1
+  clearMountTimeout()
+  melonReady.value = false
+  if (!currentGameDestroyed) juyitingGame.destroy()
+  currentGameDestroyed = false
+  await mountScene()
+  return true
+}
+
+const handleSceneKeydown = (event) => {
+  if (event.defaultPrevented || stageInputLocked.value || !isRunningGeneration(sceneMountAttempt)) return
+  if (event.key === '+' || event.key === '=') {
+    juyitingGame.zoomBy?.(0.12)
+    event.preventDefault()
+    scheduleReturnRefresh()
+    return
+  }
+  if (event.key === '-' || event.key === '_') {
+    juyitingGame.zoomBy?.(-0.12)
+    event.preventDefault()
+    scheduleReturnRefresh()
+    return
+  }
+  if (event.key === '0') {
+    returnToMainHall()
+    event.preventDefault()
+  }
+}
+
+const worldCenterFromSnapshot = (viewport, transform) => {
+  const screenX = viewport.width / 2
+  const screenY = viewport.height / 2
+  return {
+    x: ((screenX - viewport.width / 2 - transform.offsetX) / transform.zoom) + viewport.width / 2,
+    y: ((screenY - viewport.height / 2 - transform.offsetY) / transform.zoom) + viewport.height / 2
+  }
+}
+
+const refreshReturnButton = () => {
+  if (isUnmounted || !isRunningGeneration(sceneMountAttempt)) return null
+  const snapshot = juyitingGame.getCameraSnapshot?.()
+  if (!snapshot?.transform) {
+    showReturnButton.value = false
+    return null
+  }
+  const viewport = previousLayoutViewport.width ? previousLayoutViewport : viewportNow()
+  const { zoom } = snapshot.transform
+  const centerWorld = worldCenterFromSnapshot(viewport, snapshot.transform)
+  const focusDistance = Math.hypot(centerWorld.x - 832, centerWorld.y - 390)
+  showReturnButton.value = focusDistance > 48 || Math.abs(zoom - (presetZooms[snapshot.presetKey] ?? zoom)) > 0.08
+  return snapshot
+}
+
+const runReturnRefresh = () => {
+  returnFrame = null
+  const snapshot = refreshReturnButton()
+  if (resetPollRemaining > 0 && snapshot?.animation) {
+    resetPollRemaining -= 1
+    returnFrame = requestStageFrame(runReturnRefresh)
+  } else {
+    resetPollRemaining = 0
+  }
+}
+
+const emitStageAction = event => {
+  if (stageInputLocked.value) return false
+  emit(event)
+  return true
+}
+
+const emitOnboarding = target => {
+  if (stageInputLocked.value) return false
+  emit('open-onboarding', target)
+  return true
+}
+
+const emitOrientationRequest = () => {
+  if (stageInputLocked.value) return false
+  // A pending request must retain an explicit user exit. The parent releases
+  // only Hall-owned fullscreen/orientation resources and fences late callbacks.
+  if (props.orientationRequestPending) {
+    emit('request-portrait')
+    return true
+  }
+  emit(sceneMode.value === 'landscape' ? 'request-portrait' : 'request-landscape')
+  return true
+}
+
+const scheduleReturnRefresh = () => {
+  if (stageInputLocked.value) { showReturnButton.value = false; return }
+  if (isUnmounted || !isRunningGeneration(sceneMountAttempt) || returnFrame !== null) return
+  returnFrame = requestStageFrame(runReturnRefresh)
+}
+
+const returnToMainHall = () => {
+  if (stageInputLocked.value) return false
+  juyitingGame.resetToMainHall?.()
+  resetPollRemaining = 30
+  scheduleReturnRefresh()
+}
+
+const cancelStageWork = () => {
+  cancelLandscapeTargetWork()
+  cancelFinalViewportWork()
+  teardownStageResizeObserver()
+  clearMountTimeout()
+  if (resizeFrame !== null) cancelStageFrame(resizeFrame)
+  resizeFrame = null
+  if (returnFrame !== null) cancelStageFrame(returnFrame)
+  returnFrame = null
+  resetPollRemaining = 0
+  fallbackFrames.clear()
+}
+
+const captureMapSnapshot = () => {
+  const snapshot = juyitingGame.captureResumeSnapshot?.()
+  if (snapshot?.cameraSnapshot) emit('map-snapshot', snapshot)
+}
+
+const suspendScene = () => {
+  if (isUnmounted || ['suspending', 'suspended', 'destroying', 'unmounted'].includes(mapLifecycleState.value)) return
+  mapLifecycleState.value = 'suspending'
+  juyitingGame.setInteractionLocked?.(true, 'suspend')
+  captureMapSnapshot()
+  // Invalidate loader/ready/observer/RAF/input callbacks before teardown.
+  sceneMountAttempt += 1
+  cancelStageWork()
+  emit('simulation-reset')
+  if (!currentGameDestroyed) juyitingGame.destroy()
+  currentGameDestroyed = true
+  melonReady.value = false
+  isSceneMounting.value = false
+  mapLifecycleState.value = 'suspended'
+  if (resumeRequested && !isUnmounted) {
+    resumeRequested = false
+    void mountScene()
+  }
+}
+
+onMounted(() => {
+  if (sceneDebugRequested()) window.__JYTING_GAME__ = juyitingGame
+  previousLayoutViewport = viewportNow()
+  previousVisualHeight = window.visualViewport?.height || previousLayoutViewport.height
+  window.addEventListener?.('resize', handleWindowResize)
+  window.visualViewport?.addEventListener?.('resize', handleVisualResize)
+  void mountScene()
+})
+
+onBeforeUnmount(() => {
+  // Page teardown is terminal: no suspended/resuming transition may escape it.
+  mapLifecycleState.value = 'destroying'
+  juyitingGame.setInteractionLocked?.(true, 'destroy')
+  captureMapSnapshot()
+  isUnmounted = true
+  sceneMountAttempt += 1
+  cancelStageWork()
+  if (window.__JYTING_GAME__ === juyitingGame) delete window.__JYTING_GAME__
+  window.removeEventListener?.('resize', handleWindowResize)
+  window.visualViewport?.removeEventListener?.('resize', handleVisualResize)
+  emit('simulation-reset')
+  if (!currentGameDestroyed) juyitingGame.destroy()
+  currentGameDestroyed = true
+  mapLifecycleState.value = 'unmounted'
+})
+
+watch(() => props.landscapeEntryTarget, () => {
+  if (isRunningGeneration(sceneMountAttempt)) consumeLandscapeEntryTarget(sceneMountAttempt)
+  else if (!props.landscapeEntryTarget) cancelLandscapeTargetWork()
+}, { deep: true })
+
+const completePreviewExit = async (attemptId, transitionGeneration) => {
+  await nextTick()
+  if (!isRunningGeneration(attemptId) || props.readOnlyPreview || transitionGeneration !== previewTransitionGeneration) return
+  const viewport = await settleFinalViewport(attemptId)
+  if (!viewport || !isRunningGeneration(attemptId) || props.readOnlyPreview || transitionGeneration !== previewTransitionGeneration) return
+  let committed
+  try {
+    committed = await (juyitingGame.commitViewport?.({ width: viewport.width, height: viewport.height, kind: 'orientation', orientationChanged: true })
+      ?? juyitingGame.resizeViewport?.({ width: viewport.width, height: viewport.height, kind: 'orientation', orientationChanged: true }))
+  } catch (error) {
+    // A late rejection belongs to a superseded preview transition and must not
+    // tear down a newer re-entered preview instance.
+    if (!isRunningGeneration(attemptId) || props.readOnlyPreview || transitionGeneration !== previewTransitionGeneration) return
+    failSceneMount(attemptId, error instanceof Error ? error : new Error('地图视口提交失败，请重试'))
+    return
+  }
+  // Cancellation and stale-mount outcomes use undefined. Fence them before
+  // outcome inspection; a current undefined/false receipt never admits input.
+  if (!isRunningGeneration(attemptId) || props.readOnlyPreview || transitionGeneration !== previewTransitionGeneration) return
+  if (committed === undefined || committed === false) {
+    failSceneMount(attemptId, new Error('地图视口提交失败，请重试'))
+    return
+  }
+  juyitingGame.clearPreviewContain?.()
+  // Keep the owned wrapper across modes: landscape remains unthrottled, while
+  // hidden or fully-covered presentations still suppress draw without pausing update.
+  juyitingGame.setPreviewDrawPolicy?.({ enabled: false, visible: props.previewVisible })
+  previewExitPending.value = false
+  previewPresentationActive = false
+  consumeLandscapeEntryTarget(attemptId)
+  publishSimulationReady(attemptId)
+  juyitingGame.setInteractionLocked?.(false, 'preview')
+  juyitingGame.setInteractionLocked?.(false, 'preview-transition')
+}
+
+watch(() => props.readOnlyPreview, preview => {
+  const transitionGeneration = ++previewTransitionGeneration
+  if (preview) {
+    // Stop an armed landscape retry before re-entering the read-only preview.
+    // A later return will create fresh work after its committed viewport fence.
+    cancelLandscapeTargetWork()
+    previewPresentationActive = true
+    previewExitPending.value = false
+    juyitingGame.setInteractionLocked?.(true, 'preview-transition')
+    juyitingGame.setInteractionLocked?.(true, 'preview')
+    juyitingGame.applyPreviewContain?.(juyitingGame.getSceneBounds?.())
+    juyitingGame.setPreviewDrawPolicy?.({ enabled: true, visible: props.previewVisible })
+    juyitingGame.setInteractionLocked?.(false, 'preview-transition')
+    return
+  }
+  // An initial landscape mount has no preview state to unwind.
+  if (!previewPresentationActive) {
+    previewExitPending.value = false
+    return
+  }
+  // Teleport and its target geometry settle before this Stage restores its camera
+  // or consumes the pending explicit landscape target.
+  previewExitPending.value = true
+  juyitingGame.setInteractionLocked?.(true, 'preview-transition')
+  void completePreviewExit(sceneMountAttempt, transitionGeneration)
+}, { immediate: true })
+
+watch(() => props.previewVisible, visible => {
+  juyitingGame.setPreviewDrawPolicy?.({ enabled: props.readOnlyPreview, visible })
+})
+
+watch(() => props.experienceMode, mode => {
+  if (mode === 'landscape-map') {
+    if (mapLifecycleState.value === 'suspending') resumeRequested = true
+    return
+  }
+  if (!props.readOnlyPreview) suspendScene()
+})
+
+watch(() => props.virtualLandscape, virtual => {
+  juyitingGame.setVirtualViewport?.(virtual ? stageViewportNow() : null)
+  if (isRunningGeneration(sceneMountAttempt)) scheduleViewportResize({ orientationChanged: true })
+})
+
+watch(() => props.interactionLocked, value => {
+  juyitingGame.setInteractionLocked?.(Boolean(value), 'panel')
+  if (value) showReturnButton.value = false
+  else scheduleReturnRefresh()
+}, { immediate: true })
+
+watch(() => props.sceneAgents, (agents) => {
+  if (melonReady.value && isRunningGeneration(sceneMountAttempt)) {
+    juyitingGame.syncAgents(agents || [])
+    consumeLandscapeEntryTarget(sceneMountAttempt)
+  }
+}, { deep: true })
+
+watch(() => props.sceneHotspots, (hotspots) => {
+  if (melonReady.value && isRunningGeneration(sceneMountAttempt)) {
+    juyitingGame.syncHotspots?.(hotspots || [])
+    consumeLandscapeEntryTarget(sceneMountAttempt, { retryHotspot: true })
+  }
+}, { deep: true })
+
+watch(() => props.tasks, () => {
+  if (melonReady.value && isRunningGeneration(sceneMountAttempt)) consumeLandscapeEntryTarget(sceneMountAttempt)
+}, { deep: true })
+
+watch(() => props.selectedAgent, (agent) => {
+  if (melonReady.value && isRunningGeneration(sceneMountAttempt)) juyitingGame.setSelectedAgent(agent?.agentId || null)
+  scheduleReturnRefresh()
+})
+
+// Page-owned preview controls delegate to this exact persistent Stage instance.
+const zoom = amount => {
+  if (props.interactionLocked || !melonReady.value) return false
+  juyitingGame.zoomBy?.(amount)
+  scheduleReturnRefresh()
+  return true
+}
+const resetCamera = () => {
+  if (props.interactionLocked || !melonReady.value) return false
+  juyitingGame.resetToMainHall?.()
+  scheduleReturnRefresh()
+  return true
+}
+defineExpose({ retryScene, zoom, resetCamera })
+</script>
+
+<style scoped>
+.hall-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #211812;
+}
+
+.stage-header {
+  position: absolute;
+  top: 10px;
+  left: 18px;
+  right: auto;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: fit-content;
+  max-width: min(420px, calc(100% - 36px));
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 240, 202, 0.12);
+  border-radius: 8px;
+  background: rgba(35, 24, 16, 0.38);
+  color: #fff4d4;
+  backdrop-filter: blur(8px);
+}
+
+.stage-heading {
+  min-width: 0;
+}
+
+.eyebrow {
+  display: none;
+  font-size: 12px;
+  color: #d7b875;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.stage-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tool-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: rgba(255, 244, 212, 0.16);
+  color: #fff4d4;
+  white-space: nowrap;
+}
+
+.sound-toggle {
+  background: rgba(215, 184, 117, 0.24);
+  color: #fff8de;
+}
+
+.orientation-action {
+  background: rgba(104, 161, 139, 0.3);
+  color: #effff6;
+}
+
+.orientation-glyph {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.orientation-glyph::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 13px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+  transform: translate(-50%, -50%);
+}
+
+.orientation-glyph::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateX(-50%);
+}
+
+.orientation-glyph.is-glyph-landscape::before {
+  width: 18px;
+  height: 13px;
+}
+
+.orientation-glyph.is-glyph-landscape::after {
+  left: auto;
+  right: 2px;
+  bottom: 50%;
+  transform: translateY(50%);
+}
+
+.babao-action {
+  background: rgba(132, 102, 50, 0.42);
+  color: #fff0bd;
+}
+
+.tool-action:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.tool-action :deep(.var-icon) {
+  font-size: 18px;
+}
+
+.tool-action span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+
+.hall-stage:has(.hall-board.is-scene-landscape) .stage-header {
+  top: 4px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  gap: 6px;
+  padding: 6px 7px;
+  background: rgba(35, 24, 16, 0.32);
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .stage-heading .eyebrow {
+  display: none;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) h1 {
+  font-size: 16px;
+  min-height: 0;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .stage-tools {
+  gap: 5px;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .tool-action {
+  min-height: 30px;
+  padding: 0 7px;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .tool-action .tool-label {
+  display: none;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .tool-action :deep(.var-icon) {
+  font-size: 16px;
+}
+
+.hall-board {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100% !important;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 0;
+  touch-action: none;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(239, 197, 118, 0.2), transparent 34%),
+    linear-gradient(135deg, #14100c, #23170f 54%, #0d0b09);
+}
+
+.stage-header-account,
+.stage-landscape-account {
+  flex: 0 0 auto;
+}
+
+.stage-landscape-account {
+  display: none;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .stage-landscape-account {
+  display: inline-flex;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .stage-landscape-account {
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.hall-stage:has(.hall-board.is-scene-landscape) .stage-landscape-account :deep(.hall-account-avatar) {
+  width: 28px;
+  height: 28px;
+}
+
+.hall-board::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.58);
+}
+
+.melon-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none;
+}
+
+.melon-layer :deep(canvas) {
+  display: block;
+  width: var(--juyiting-canvas-display-width) !important;
+  height: var(--juyiting-canvas-display-height) !important;
+}
+
+.scene-error {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(320px, calc(100% - 32px));
+  padding: 18px;
+  border: 1px solid rgba(255, 215, 145, 0.32);
+  border-radius: 8px;
+  background: rgba(31, 22, 16, 0.88);
+  color: #fff4d4;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(8px);
+}
+
+.scene-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(20, 14, 10, 0.54);
+  color: #fff4d4;
+}
+
+.scene-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 244, 212, 0.3);
+  border-top-color: #fff4d4;
+  border-radius: 50%;
+  animation: refreshSpin 0.8s linear infinite;
+}
+
+.return-main-hall {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 244, 212, 0.94);
+  color: #3b2516;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.return-main-hall.is-raised {
+  bottom: 132px;
+}
+
+.orientation-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(31, 22, 16, 0.88);
+  color: #fff4d4;
+  transform: translateX(-50%);
+}
+
+.scene-error strong {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.scene-error span {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d7b875;
+}
+
+.scene-error button {
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: #d7b875;
+  color: #24170f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+@keyframes refreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .stage-header {
+    top: 4px;
+    left: 8px;
+    right: auto;
+    width: fit-content;
+    max-width: calc(100% - 16px);
+    align-items: center;
+    gap: 8px;
+    padding: 6px 7px;
+    border-color: rgba(255, 240, 202, 0.1);
+    background: rgba(35, 24, 16, 0.32);
+  }
+
+  .stage-heading .eyebrow {
+    display: none;
+  }
+
+  h1 {
+    font-size: 16px;
+    min-height: 0;
+  }
+
+  .stage-tools {
+    gap: 6px;
+  }
+
+  .tool-action {
+    min-height: 30px;
+    padding: 0 7px;
+  }
+
+  .tool-action .tool-label {
+    display: none;
+  }
+
+  .tool-action :deep(.var-icon) {
+    font-size: 17px;
+  }
+}
+
+@media (max-width: 420px) {
+  .stage-header {
+    top: 2px;
+  }
+
+  .stage-tools {
+    align-self: flex-end;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+  }
+
+  h1 {
+    font-size: 16px;
+    min-height: 0;
+  }
+}
+</style>

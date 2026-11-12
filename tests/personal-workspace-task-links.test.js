@@ -1,0 +1,194 @@
+const reply = (options, data, headers) => { options.onSuccess?.(data, { headers }); return data }
+import { strict as assert } from 'node:assert'
+import { describe, it } from 'mocha'
+import { ref } from 'vue'
+import { usePersonalWorkspaceTaskLinks } from '../src/composables/usePersonalWorkspaceTaskLinks.js'
+
+const link = (overrides = {}) => ({
+  relationId: 'rel_a', taskId: 'task_a', fileId: 'file_a', version: '2',
+  role: 'INPUT', state: 'ACTIVE', relationRevision: '1', createdAt: 1, ...overrides
+})
+const deferred = () => { let resolve; const promise = new Promise(res => { resolve = res }); return { promise, resolve } }
+
+const etag = value => `"${value.relationId}:${value.relationRevision}"`
+
+describe('personal workspace task link adapter', () => {
+  it('lists exact task links, writes explicit pinned versions, and sends a conditional idempotent detach', async () => {
+    const calls = []
+    const initial = link()
+    const detached = link({ state: 'DETACHED', relationRevision: '2' })
+    const api = { execute: async options => {
+      calls.push(options)
+      if (options.method === 'GET') return ({ items: [initial], nextCursor: null, hasMore: false })
+      if (options.method === 'POST') return reply(options, link({ relationId: 'rel_b', fileId: 'file_b', version: '3', role: 'REFERENCE' }), { etag: '"rel_b:1"' })
+      return reply(options, { link: detached, executionSnapshotsPreserved: true }, { etag: etag(detached) })
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+
+    assert.equal(await adapter.load(), true)
+    const attached = await adapter.attach({ fileId: 'file_b', version: '3', role: 'REFERENCE' })
+    const result = await adapter.detach(initial)
+
+    assert.equal(calls[0].url, '/tasks/task_a/file-links')
+    assert.equal(calls[0].method, 'GET')
+    assert.deepEqual(calls[1].data, { fileId: 'file_b', version: '3', role: 'REFERENCE' })
+    assert.ok(calls[1].headers['Idempotency-Key'])
+    assert.equal(attached.relationId, 'rel_b')
+    assert.equal(calls[2].url, '/tasks/task_a/file-links/rel_a')
+    assert.equal(calls[2].headers['If-Match'], '"rel_a:1"')
+    assert.ok(calls[2].headers['Idempotency-Key'])
+    assert.equal(result.executionSnapshotsPreserved, true)
+    assert.equal(adapter.links.value.find(item => item.relationId === 'rel_a').state, 'DETACHED')
+    adapter.dispose()
+  })
+
+  it('accepts an exact business acknowledgement without requiring an exposed transport ETag', async () => {
+    const calls = []
+    const saved = link({ relationId: 'rel_saved', taskId: 'task_a', fileId: 'file_b', version: '1' })
+    const api = { execute: async options => {
+      calls.push(options.method)
+      return options.method === 'POST'
+        ? reply(options, saved, {})
+        : ({ items: [saved], nextCursor: null, hasMore: false })
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+    assert.equal((await adapter.attach({ fileId: 'file_b', version: '1', role: 'INPUT' })).relationId, 'rel_saved')
+    assert.deepEqual(calls, ['POST'])
+    assert.equal(adapter.links.value[0].state, 'ACTIVE')
+    adapter.dispose()
+  })
+
+  it('accepts an exact detach acknowledgement without a transport ETag', async () => {
+    const calls = []
+    const detached = link({ state: 'DETACHED', relationRevision: '2' })
+    const api = { execute: async options => {
+      calls.push(options.method)
+      return options.method === 'DELETE'
+        ? reply(options, { link: detached, executionSnapshotsPreserved: true }, {})
+        : ({ items: [detached], nextCursor: null, hasMore: false })
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+    assert.equal((await adapter.detach(link())).link.state, 'DETACHED')
+    assert.deepEqual(calls, ['DELETE'])
+    adapter.dispose()
+  })
+
+  it('rejects a write acknowledgement for a different version even without an ETag', async () => {
+    const calls = []
+    const api = { execute: async options => {
+      calls.push(options.method)
+      return options.method === 'POST'
+        ? reply(options, link({ fileId: 'file_b', version: '2' }), {})
+        : ({ items: [link({ fileId: 'file_b', version: '2' })], nextCursor: null, hasMore: false })
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+    assert.equal(await adapter.attach({ fileId: 'file_b', version: '1', role: 'INPUT' }), null)
+    assert.deepEqual(calls, ['POST'])
+    assert.match(adapter.error.value, /查询结果/)
+    adapter.dispose()
+  })
+
+  it('rejects malformed server data instead of displaying an incomplete association directory', async () => {
+    const api = { execute: async () => (({ items: [link({ ownerJiacn: 'forged-owner' })], nextCursor: null, hasMore: false })) }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+
+    assert.equal(await adapter.load(), false)
+    assert.equal(adapter.listState.value, 'error')
+    assert.match(adapter.error.value, /返回格式无效/)
+    assert.deepEqual(adapter.links.value, [])
+    adapter.dispose()
+  })
+
+  it('cancels and drops a late task directory response when the JWT identity changes', async () => {
+    const epoch = ref('owner-a')
+    const wait = deferred()
+    let signal
+    const api = { execute: options => { signal = options.signal; return wait.promise } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: epoch })
+    const pending = adapter.load()
+    epoch.value = 'owner-b'
+    wait.resolve(({ items: [link()], nextCursor: null, hasMore: false }))
+
+    assert.equal(await pending, false)
+    assert.equal(signal.aborted, true)
+    assert.deepEqual(adapter.links.value, [])
+    assert.equal(adapter.listState.value, 'idle')
+    adapter.dispose()
+  })
+
+  it('loads every page as one readonly directory snapshot without hiding cross-page relations', async () => {
+    const calls = []
+    const api = { execute: async options => {
+      calls.push(options)
+      return options.params?.cursor === 'next-1'
+        ? ({ items: [link({ relationId: 'rel_b', fileId: 'file_b', role: 'REFERENCE' })], nextCursor: null, hasMore: false })
+        : ({ items: [link()], nextCursor: 'next-1', hasMore: true })
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+
+    const result = await adapter.loadAll()
+
+    assert.deepEqual(result.map(item => item.relationId), ['rel_a', 'rel_b'])
+    assert.deepEqual(calls.map(call => call.params || null), [null, { cursor: 'next-1' }])
+    assert.deepEqual(adapter.links.value.map(item => item.relationId), ['rel_a', 'rel_b'])
+    assert.equal(adapter.nextCursor.value, null)
+    adapter.dispose()
+  })
+
+  for (const [name, secondPage] of [
+    ['repeated cursor', { items: [link({ relationId: 'rel_b' })], nextCursor: 'next-1', hasMore: true }],
+    ['cross-page relation', { items: [link()], nextCursor: null, hasMore: false }]
+  ]) it(`rejects a ${name} instead of publishing a partial complete directory`, async () => {
+    const api = { execute: async options => options.params?.cursor
+      ? (secondPage)
+      : ({ items: [link()], nextCursor: 'next-1', hasMore: true }) }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+
+    assert.equal(await adapter.loadAll(), null)
+    assert.deepEqual(adapter.links.value, [])
+    assert.equal(adapter.listState.value, 'error')
+    assert.match(adapter.error.value, /重复/)
+    adapter.dispose()
+  })
+
+  it('aborts a complete-directory read when identity changes between pages', async () => {
+    const epoch = ref('owner-a')
+    const wait = deferred()
+    let calls = 0
+    const api = { execute: options => {
+      calls++
+      if (calls === 1) return Promise.resolve(({ items: [link()], nextCursor: 'next-1', hasMore: true }))
+      options.signal.addEventListener('abort', () => wait.resolve(({ items: [], nextCursor: null, hasMore: false })), { once: true })
+      return wait.promise
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: epoch })
+    const pending = adapter.loadAll()
+    await Promise.resolve(); await Promise.resolve()
+    epoch.value = 'owner-b'
+
+    assert.equal(await pending, null)
+    assert.deepEqual(adapter.links.value, [])
+    assert.equal(adapter.listState.value, 'idle')
+    adapter.dispose()
+  })
+
+  it('maps conditional and idempotency failures without retrying or accepting an invalid local request', async () => {
+    const calls = []
+    const api = { execute: async options => {
+      calls.push(options)
+      if (options.method === 'POST') throw Object.assign(new Error('conflict'), { status: 409, code: 'IDEMPOTENCY_CONFLICT' })
+      throw Object.assign(new Error('missing precondition'), { status: 428, code: 'PRECONDITION_REQUIRED' })
+    } }
+    const adapter = usePersonalWorkspaceTaskLinks({ api, taskId: ref('task_a'), identityEpoch: ref('owner-a') })
+
+    assert.equal(await adapter.attach({ fileId: 'file_a', version: '2', role: 'OUTPUT' }), null)
+    assert.equal(calls.length, 0)
+    assert.match(adapter.error.value, /输入资料或参考资料/)
+    assert.equal(await adapter.attach({ fileId: 'file_a', version: '2', role: 'INPUT' }), null)
+    assert.match(adapter.error.value, /已有操作不一致/)
+    assert.equal(await adapter.detach(link()), null)
+    assert.match(adapter.error.value, /版本前提缺失/)
+    assert.equal(calls.length, 2)
+    adapter.dispose()
+  })
+})

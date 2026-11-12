@@ -1,0 +1,2469 @@
+{
+  "$schema": "juyiting-occlusion-e13-live-index-v1",
+  "schemaVersion": 1,
+  "taskId": "E13",
+  "status": "MERGED",
+  "generatedAt": "2026-09-08T13:02:44.367Z",
+  "worldModelSha256": "f3773af6a65a35428f86a47b1beab0532b8d9d2e01107c65126721717ce67c0b",
+  "shotPlanSha256": "0ddebb69accdad706ee2bd7273a119122d470860e0b4b975bb9a7d4c633723bf",
+  "shotCount": 19,
+  "cameraShots": 10,
+  "interactionShots": 7,
+  "movementShots": 2,
+  "sourceBatches": [
+    "cyf-e13-live-final-safe-fce21"
+  ],
+  "batchIndexHashes": [
+    {
+      "batch": "cyf-e13-live-final-safe-fce21",
+      "indexSha256": "195ba64a7c3f3681a2fe5cec238e6ca10632f2439a42d54ff864b334d56bbd48"
+    }
+  ],
+  "shots": [
+    {
+      "id": "E13-271",
+      "kind": "camera",
+      "file": "shots/E13-271.png",
+      "sha256": "6751ed5c9c7cb3c7a75109a8635430f69d1ddb98c146f6460cb236c03e19cd1d",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": -91.593,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "desktop-default",
+      "cameraLabel": "desktop default request 0.84 → effective full-map minimum 1.0",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 0.84
+      },
+      "cameraExpectations": {
+        "expectedZoom": 1,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-272",
+      "kind": "camera",
+      "file": "shots/E13-272.png",
+      "sha256": "2a352845710a26ca3b3af956d6824ed820db14374ae5dc2c8f4a90f0bbdec817",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.5,
+            "offsetX": -507.593,
+            "offsetY": 76.5
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "此事须从长计议。",
+            "bubbleTimer": 1533.3333333333333,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "先听各位安排。",
+            "bubbleTimer": 1533.3333333333333,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 1533.3333333333333,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "desktop-zoom-in",
+      "cameraLabel": "desktop zoom-in 1.5",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 1.5
+      },
+      "cameraExpectations": {
+        "expectedZoom": 1.5,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-273",
+      "kind": "camera",
+      "file": "shots/E13-273.png",
+      "sha256": "2a579e42cd12942ded8771d8af7ef4410cbe18b058a6e4e5b773a28958fcb4d5",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": -91.593,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 2616.666666666664,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "先听各位安排。",
+            "bubbleTimer": 2616.666666666664,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 2616.666666666664,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "desktop-zoom-out",
+      "cameraLabel": "desktop below-min request 0.6 → clamped 1.0",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 0.6
+      },
+      "cameraExpectations": {
+        "expectedZoom": 1,
+        "expectedClamp": "full-map-cover-minimum",
+        "expectedPan": null,
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-274",
+      "kind": "camera",
+      "file": "shots/E13-274.png",
+      "sha256": "39f5ded6aba9ed6567095c8b48bcc1247e35ef6375af403e3546def4c89efad4",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.5,
+            "offsetX": 120,
+            "offsetY": 0
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 4016.666666666651,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "先听各位安排。",
+            "bubbleTimer": 4016.666666666651,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 4016.666666666651,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 4016.666666666651,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "desktop-pan-east",
+      "cameraLabel": "desktop pan east +120px from centered zoom 1.5",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "camera": {
+        "center": {
+          "x": 832,
+          "y": 464
+        },
+        "zoom": 1.5,
+        "panDx": 120
+      },
+      "cameraExpectations": {
+        "expectedZoom": null,
+        "expectedClamp": null,
+        "expectedPan": "positive-x",
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-275",
+      "kind": "camera",
+      "file": "shots/E13-275.png",
+      "sha256": "5f05bee23d492c5a6812e306a67df1562f896fc724d2c25b060e989470f775be",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.5,
+            "offsetX": -120,
+            "offsetY": 0
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 466.66666666666544,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "先听各位安排。",
+            "bubbleTimer": 466.66666666666544,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 466.66666666666544,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 466.66666666666544,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "desktop-pan-west",
+      "cameraLabel": "desktop pan west -120px from centered zoom 1.5",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "camera": {
+        "center": {
+          "x": 832,
+          "y": 464
+        },
+        "zoom": 1.5,
+        "panDx": -120
+      },
+      "cameraExpectations": {
+        "expectedZoom": null,
+        "expectedClamp": null,
+        "expectedPan": "negative-x",
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-276",
+      "kind": "camera",
+      "file": "shots/E13-276.png",
+      "sha256": "1f167ac50d27a8bdd1c8d035aa17ce22aa3f22f4d7322cdf25a19e77a596441d",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1024,
+          "height": 768
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": -215.329,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -176.546875,
+          "y": 0,
+          "width": 1377.09375,
+          "height": 768
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 1950.0000000000018,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "先听各位安排。",
+            "bubbleTimer": 1950.0000000000018,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 1950.0000000000018,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 1950.0000000000018,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "tablet-landscape",
+      "cameraLabel": "tablet landscape 1024×768 request 0.92 → effective 1.0",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 0.92
+      },
+      "cameraExpectations": {
+        "expectedZoom": 1,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-277",
+      "kind": "camera",
+      "file": "shots/E13-277.png",
+      "sha256": "8ea33953e7efd8f8463d9c6b14f1d33668f0f9b4244236b1c256edf3023a34cc",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 390,
+          "height": 844
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.25,
+            "offsetX": -767.5,
+            "offsetY": 63.75
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -561.6875,
+          "y": 0,
+          "width": 1513.375,
+          "height": 844
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 4733.3333333333285,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 4733.3333333333285,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 4733.3333333333285,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 4733.3333333333285,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "mobile-portrait",
+      "cameraLabel": "mobile portrait 390×844",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 1.25
+      },
+      "cameraExpectations": {
+        "expectedZoom": 1.25,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-278",
+      "kind": "camera",
+      "file": "shots/E13-278.png",
+      "sha256": "10628afffcb3a03cd0eb88a8277e9b7786446340fb680b597e63e7b29bbdeb4c",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 844,
+          "height": 390
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.05,
+            "offsetX": -43.6,
+            "offsetY": 53.55
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": 0,
+          "y": -40.34375,
+          "width": 844,
+          "height": 470.6875
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 2533.333333333331,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 2533.333333333331,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 2533.333333333331,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 2533.333333333331,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "mobile-landscape",
+      "cameraLabel": "mobile landscape 844×390",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 1.05
+      },
+      "cameraExpectations": {
+        "expectedZoom": 1.05,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": null
+      }
+    },
+    {
+      "id": "E13-279",
+      "kind": "camera",
+      "file": "shots/E13-279.png",
+      "sha256": "966ef4877fdf7fb50266313eb4879362ff784e06bc92c3b3fbf422ce19f0d9d6",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 390,
+          "height": 844
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 3.3,
+            "offsetX": -2533.192,
+            "offsetY": 90.242
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -561.6875,
+          "y": 0,
+          "width": 1513.375,
+          "height": 844
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 266.6666666666652,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 266.6666666666652,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 266.6666666666652,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 266.6666666666652,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "mobile-pinch-in",
+      "cameraLabel": "mobile pinch zoom-in from 1.25",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 1.25,
+        "pinch": {
+          "start": 60,
+          "end": 220
+        }
+      },
+      "cameraExpectations": {
+        "expectedZoom": null,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": "increase"
+      }
+    },
+    {
+      "id": "E13-280",
+      "kind": "camera",
+      "file": "shots/E13-280.png",
+      "sha256": "9de313e769b7ae5a5566d665829517196f0dfd4986a30b39d9aadc736898c228",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 390,
+          "height": 844
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": 299.34,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -561.6875,
+          "y": 0,
+          "width": 1513.375,
+          "height": 844
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 3016.66666666666,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 3016.66666666666,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 3016.66666666666,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 3016.66666666666,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "哥哥吩咐便是！",
+            "bubbleTimer": 3016.66666666666,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "camera"
+      },
+      "cameraCase": "mobile-pinch-out",
+      "cameraLabel": "mobile pinch zoom-out from 1.25",
+      "persona": "lujunyi",
+      "personaName": "卢俊义",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "camera": {
+        "center": {
+          "x": 1446,
+          "y": 413
+        },
+        "zoom": 1.25,
+        "pinch": {
+          "start": 220,
+          "end": 60
+        }
+      },
+      "cameraExpectations": {
+        "expectedZoom": null,
+        "expectedClamp": null,
+        "expectedPan": null,
+        "expectedZoomDirection": "decrease"
+      }
+    },
+    {
+      "id": "E13-281",
+      "kind": "interaction",
+      "file": "shots/E13-281.png",
+      "sha256": "9444513991e3535426a7d9e2f21c0c2cdb488202432849cc2dc915b2d28b9d20",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.3,
+            "offsetX": -52,
+            "offsetY": 141.2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [
+          "songjiang"
+        ],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": true,
+            "x": 872,
+            "y": 302
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 1634,
+            "y": 60
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "agent-pointer",
+      "interactionLabel": "agent pointer: 点击宋江 → 选中高亮+名牌"
+    },
+    {
+      "id": "E13-282",
+      "kind": "interaction",
+      "file": "shots/E13-282.png",
+      "sha256": "9e5f994393eaca3a83dd3ef05e024fc1d34cc2420da154f349ee1220ca37a4ea",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.3,
+            "offsetX": -341.193,
+            "offsetY": 141.2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [
+          "songjiang"
+        ],
+        "openPanelClass": "floating-panel panel-tasks layout-center-modal",
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 449.99999999999875,
+            "selected": true,
+            "x": 872,
+            "y": 302
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 449.99999999999875,
+            "selected": false,
+            "x": 1634,
+            "y": 60
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 449.99999999999875,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 449.99999999999875,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 449.99999999999875,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": true
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "hotspot-bounty-board",
+      "interactionLabel": "hotspot pointer: 点击右上悬赏桌 → 面板"
+    },
+    {
+      "id": "E13-283",
+      "kind": "interaction",
+      "file": "shots/E13-283.png",
+      "sha256": "3e1b881adda00a45a0e0a7ce8c4ef4de5f463c18633e7bbc046583d2ae6f485d",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.3,
+            "offsetX": -341.193,
+            "offsetY": -141.2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [
+          "songjiang"
+        ],
+        "openPanelClass": "floating-panel panel-library layout-center-modal",
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "",
+            "bubbleTimer": -1.4139800441625994e-12,
+            "selected": true,
+            "x": 872,
+            "y": 302
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "",
+            "bubbleTimer": -1.4139800441625994e-12,
+            "selected": false,
+            "x": 1634,
+            "y": 60
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "",
+            "bubbleTimer": -1.4139800441625994e-12,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "",
+            "bubbleTimer": -1.4139800441625994e-12,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "",
+            "bubbleTimer": -1.4139800441625994e-12,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": true
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "hotspot-library-shelf",
+      "interactionLabel": "hotspot pointer: 点击书架 → 面板"
+    },
+    {
+      "id": "E13-284",
+      "kind": "interaction",
+      "file": "shots/E13-284.png",
+      "sha256": "8dbb1542401f4be08f5f6e66d7dc906b91f25c923955f7c85d352ee2783f64fd",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.3,
+            "offsetX": -52,
+            "offsetY": 141.2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": "floating-panel panel-chat layout-center-modal",
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "诸位兄弟，先稳住阵脚。",
+            "bubbleTimer": 3266.666666666658,
+            "selected": false,
+            "x": 872,
+            "y": 302
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 3266.666666666658,
+            "selected": false,
+            "x": 1634,
+            "y": 60
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 3266.666666666658,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 3266.666666666658,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 3266.666666666658,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": true
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "hotspot-main-seat",
+      "interactionLabel": "hotspot pointer: 点击主位 → 面板"
+    },
+    {
+      "id": "E13-285",
+      "kind": "interaction",
+      "file": "shots/E13-285.png",
+      "sha256": "813b43f30902627497cded5d2b04c077c509e23375b9a1c28a0cfcc28ea9b76a",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": -91.593,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "此事须从长计议。",
+            "bubbleTimer": 2916.666666666661,
+            "selected": false,
+            "x": 872,
+            "y": 302
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 2916.666666666661,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 2916.666666666661,
+            "selected": false,
+            "x": 880,
+            "y": 500
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 2916.666666666661,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 2916.666666666661,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "labels-bubbles",
+      "interactionLabel": "labels/bubbles: 名牌+气泡 (world-ui)"
+    },
+    {
+      "id": "E13-286",
+      "kind": "interaction",
+      "file": "shots/E13-286.png",
+      "sha256": "a81165cb810c5fac03d8fa9eeab3c30c6163e09e0557b1c4280c5234768e5ffb",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": 0,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "此事须从长计议。",
+            "bubbleTimer": 4149.9999999999845,
+            "selected": false,
+            "x": 872,
+            "y": 302
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 4149.9999999999845,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 4149.9999999999845,
+            "selected": false,
+            "x": 880,
+            "y": 500
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 4149.9999999999845,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 4149.9999999999845,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "lighting-fullmap",
+      "interactionLabel": "lighting: 全图 lighting-overlay"
+    },
+    {
+      "id": "E13-287",
+      "kind": "interaction",
+      "file": "shots/E13-287.png",
+      "sha256": "3b87a59bfadcb3be31255af26d96cc03ba424c1f8597f439d3c2b2f759e5a0ef",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1.5,
+            "offsetX": -507.593,
+            "offsetY": 127.5
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": null,
+        "movementProbe": null,
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "此事须从长计议。",
+            "bubbleTimer": 666.6666666666652,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 666.6666666666652,
+            "selected": false,
+            "x": 1446,
+            "y": 413
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "先看形势，再定人手。",
+            "bubbleTimer": 666.6666666666652,
+            "selected": false,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 666.6666666666652,
+            "selected": false,
+            "x": 832,
+            "y": 920
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 30,
+            "y": 908
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 666.6666666666652,
+            "selected": false,
+            "x": 1634,
+            "y": 908
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "interaction"
+      },
+      "interactionCase": "lighting-closeup",
+      "interactionLabel": "lighting: 东北近景 lighting-overlay"
+    },
+    {
+      "id": "E13-288",
+      "kind": "movement",
+      "file": "shots/E13-288.png",
+      "sha256": "f29ae0aec9c29a36d116c866bef0f2cf8921d4d820dbbd26ed59fb3ba25a6401",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": 0,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": {
+          "agentId": "lujunyi",
+          "personaCode": "lujunyi",
+          "x": 1408,
+          "y": 416,
+          "facing": "right",
+          "animation": "idle",
+          "behavior": "moving_to_region",
+          "phase": "arrived",
+          "regionId": "bounty-board",
+          "stateVersion": 2
+        },
+        "movementProbe": {
+          "actor": "lujunyi",
+          "startRegionId": "council-table",
+          "targetRegionId": "bounty-board",
+          "before": {
+            "agentId": "lujunyi",
+            "personaCode": "lujunyi",
+            "x": 840,
+            "y": 528,
+            "facing": "down",
+            "animation": "idle",
+            "behavior": "moving_to_region",
+            "phase": "arrived",
+            "regionId": "council-table",
+            "stateVersion": 1
+          },
+          "mid": {
+            "agentId": "lujunyi",
+            "personaCode": "lujunyi",
+            "x": 928.3719123261396,
+            "y": 502.41865695822275,
+            "facing": "right",
+            "animation": "walk",
+            "behavior": "moving_to_region",
+            "phase": "moving",
+            "regionId": "council-table",
+            "stateVersion": 2,
+            "targetRegionId": "bounty-board"
+          },
+          "after": {
+            "agentId": "lujunyi",
+            "personaCode": "lujunyi",
+            "x": 1408,
+            "y": 416,
+            "facing": "right",
+            "animation": "idle",
+            "behavior": "moving_to_region",
+            "phase": "arrived",
+            "regionId": "bounty-board",
+            "stateVersion": 2
+          },
+          "arrivalSteps": 6,
+          "visuals": {
+            "before": {
+              "x": 840,
+              "y": 528
+            },
+            "mid": {
+              "x": 928.3719123261396,
+              "y": 502.41865695822275
+            },
+            "after": {
+              "x": 1408,
+              "y": 416
+            }
+          }
+        },
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "此事须从长计议。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 920,
+            "y": 320
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 1408,
+            "y": 416
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "待我筹划一二。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 456,
+            "y": 392
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 1476,
+            "y": 664
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 1360,
+            "y": 416
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 3866.6666666666524,
+            "selected": false,
+            "x": 1040,
+            "y": 648
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "movement"
+      },
+      "movementSequence": [
+        {
+          "stage": "before",
+          "file": "movement-sequences/E13-288-before.png",
+          "sha256": "1050ed6a03f5df9f632079c5b21307f366a38e1251c8d8264ed1167347855f7d"
+        },
+        {
+          "stage": "mid",
+          "file": "movement-sequences/E13-288-mid.png",
+          "sha256": "f29ae0aec9c29a36d116c866bef0f2cf8921d4d820dbbd26ed59fb3ba25a6401"
+        },
+        {
+          "stage": "after",
+          "file": "movement-sequences/E13-288-after.png",
+          "sha256": "73b9a67e3ea2903520c42bc1be0b602b1254777691345a9fe2beecd38a972b02"
+        }
+      ],
+      "movementCase": "movement-bounty-board",
+      "movementLabel": "movement: 卢俊义沿路网走向右上悬赏桌"
+    },
+    {
+      "id": "E13-289",
+      "kind": "movement",
+      "file": "shots/E13-289.png",
+      "sha256": "83a594756ddd9427438db28219ca731d4c42b3e91a9392f8f52e33816aecf9cd",
+      "runtimeFacts": {
+        "rendererMode": "v2",
+        "browserViewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "sceneViewport": {
+          "width": 1664,
+          "height": 928
+        },
+        "camera": {
+          "transform": {
+            "zoom": 1,
+            "offsetX": 0,
+            "offsetY": 2
+          },
+          "viewport": {
+            "width": 1664,
+            "height": 928
+          },
+          "preset": "desktop"
+        },
+        "canvasRect": {
+          "x": -77.234375,
+          "y": 0,
+          "width": 1434.46875,
+          "height": 800
+        },
+        "selectedAgents": [],
+        "openPanelClass": null,
+        "movementSnapshot": {
+          "agentId": "likui",
+          "personaCode": "likui",
+          "x": 856,
+          "y": 760,
+          "facing": "downLeft",
+          "animation": "idle",
+          "behavior": "moving_to_region",
+          "phase": "arrived",
+          "regionId": "gate",
+          "stateVersion": 2
+        },
+        "movementProbe": {
+          "actor": "likui",
+          "startRegionId": "right-guard",
+          "targetRegionId": "gate",
+          "before": {
+            "agentId": "likui",
+            "personaCode": "likui",
+            "x": 1040,
+            "y": 648,
+            "facing": "right",
+            "animation": "idle",
+            "behavior": "moving_to_region",
+            "phase": "arrived",
+            "regionId": "right-guard",
+            "stateVersion": 1
+          },
+          "mid": {
+            "agentId": "likui",
+            "personaCode": "likui",
+            "x": 959.7053357722427,
+            "y": 696.8750130082001,
+            "facing": "downLeft",
+            "animation": "walk",
+            "behavior": "moving_to_region",
+            "phase": "moving",
+            "regionId": "right-guard",
+            "stateVersion": 2,
+            "targetRegionId": "gate"
+          },
+          "after": {
+            "agentId": "likui",
+            "personaCode": "likui",
+            "x": 856,
+            "y": 760,
+            "facing": "downLeft",
+            "animation": "idle",
+            "behavior": "moving_to_region",
+            "phase": "arrived",
+            "regionId": "gate",
+            "stateVersion": 2
+          },
+          "arrivalSteps": 2,
+          "visuals": {
+            "before": {
+              "x": 1040,
+              "y": 648
+            },
+            "mid": {
+              "x": 959.7053357722427,
+              "y": 696.8750130082001
+            },
+            "after": {
+              "x": 856,
+              "y": 760
+            }
+          }
+        },
+        "agentVisuals": [
+          {
+            "id": "songjiang",
+            "name": "宋江",
+            "bubbleText": "此事须从长计议。",
+            "bubbleTimer": 5000,
+            "selected": false,
+            "x": 920,
+            "y": 320
+          },
+          {
+            "id": "wuyong",
+            "name": "吴用",
+            "bubbleText": "待我筹划一二。",
+            "bubbleTimer": 5000,
+            "selected": false,
+            "x": 456,
+            "y": 392
+          },
+          {
+            "id": "linchong",
+            "name": "林冲",
+            "bubbleText": "此处交给我守住。",
+            "bubbleTimer": 5000,
+            "selected": false,
+            "x": 1476,
+            "y": 664
+          },
+          {
+            "id": "husanniang",
+            "name": "扈三娘",
+            "bubbleText": "",
+            "bubbleTimer": 0,
+            "selected": false,
+            "x": 1360,
+            "y": 416
+          },
+          {
+            "id": "likui",
+            "name": "李逵",
+            "bubbleText": "这活儿交给俺！",
+            "bubbleTimer": 5000,
+            "selected": false,
+            "x": 856,
+            "y": 760
+          },
+          {
+            "id": "lujunyi",
+            "name": "卢俊义",
+            "bubbleText": "有榜文尽管传来。",
+            "bubbleTimer": 5000,
+            "selected": false,
+            "x": 840,
+            "y": 528
+          }
+        ],
+        "lighting": {
+          "present": true,
+          "attached": true,
+          "depth": 300,
+          "opacity": null,
+          "blendMode": "screen"
+        },
+        "input": {
+          "activeGesture": "none",
+          "interactionLocked": false
+        },
+        "shotKind": "movement"
+      },
+      "movementSequence": [
+        {
+          "stage": "before",
+          "file": "movement-sequences/E13-289-before.png",
+          "sha256": "54fa372aba3b9366dd12dcbf919406f25b1f63fea4c697a697e3d49ae9a8f1b3"
+        },
+        {
+          "stage": "mid",
+          "file": "movement-sequences/E13-289-mid.png",
+          "sha256": "83a594756ddd9427438db28219ca731d4c42b3e91a9392f8f52e33816aecf9cd"
+        },
+        {
+          "stage": "after",
+          "file": "movement-sequences/E13-289-after.png",
+          "sha256": "5d15599762d40d8daa65c67a16c1f5961ed2cdd1b30b6f70c330e07b956085c3"
+        }
+      ],
+      "movementCase": "movement-front-door",
+      "movementLabel": "movement: 李逵沿路网走向前门"
+    }
+  ]
+}

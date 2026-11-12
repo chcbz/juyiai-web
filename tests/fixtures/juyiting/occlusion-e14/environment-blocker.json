@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "gate": "E14 formal Chromium performance gate",
+  "status": "resolved_with_restricted_host_chromium_transport",
+  "date": "2026-08-13",
+  "originalBlocker": {
+    "localhostListen": "EPERM",
+    "chromiumShutdownSyscall": "EPERM",
+    "normalMultiprocessRuntime": "Runtime.enable unavailable under managed Seccomp"
+  },
+  "resolution": {
+    "runner": "scripts/juyiting/e14/run-benchmark-restricted.mjs",
+    "transport": "file-url+cdp-pipe",
+    "processModel": "single-process+no-zygote",
+    "compatibilityShim": "tracked AF_UNIX socketpair shutdown(2) EPERM-only fallback",
+    "realChromium": true,
+    "chromiumVersion": "133.0.6943.141"
+  },
+  "acceptedReport": {
+    "path": "tests/fixtures/juyiting/occlusion-e14/benchmark-report.json",
+    "p95Ms": 1.7999992370605469,
+    "p99Ms": 2.0999984741210938,
+    "pass": true
+  },
+  "review": {
+    "model": "deepseek-v4-pro",
+    "result": "ACCEPT_WITH_FINDING",
+    "blockingFindings": 0,
+    "finding": "single-process process model differs from a normal host; supplementary multiprocess baseline is nonblocking"
+  },
+  "integrity": {
+    "formalGateClaimed": true,
+    "nodeFallbackClaimedAsChromium": false,
+    "warmupOrSampleShortened": false,
+    "thresholdsChanged": false,
+    "sourceProvenanceVerified": true,
+    "realCdpNetworkEvidence": true,
+    "pushedOrDeployed": false
+  }
+}

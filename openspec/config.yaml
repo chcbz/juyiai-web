@@ -1,0 +1,22 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  Tech stack: Vue 3, TypeScript, Pinia, Vue Router, Vue I18n, Varlet UI
+  Build tool: Vite 6
+  Features: Chat (streaming), Task calendar, Phrase, Vote, Gift, ShortLink
+  Auth: OAuth2 PKCE flow
+  Mobile-first: WeChat mini-program integration
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a "Non-goals" section
+    - Reference existing source, tests, and package scripts for current behavior
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Check relevant source and tests before implementing

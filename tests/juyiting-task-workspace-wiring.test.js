@@ -1,0 +1,325 @@
+import { assignedTaskTarget } from '../src/composables/juyiting/hallAssigneeCandidates.js'
+import { projectHallTask } from '../src/composables/juyiting/hallTaskPresentation.js'
+import { expect } from 'chai'
+import { readFileSync } from 'fs'
+import { customRef, nextTick, ref } from 'vue'
+import { useTaskWorkspaceBinding } from '../src/composables/juyiting/useTaskWorkspaceBinding.js'
+
+const hallSource = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const hallDataSource = readFileSync(new URL('../src/composables/juyiting/useHallData.js', import.meta.url), 'utf8')
+const hallTaskActionsSource = readFileSync(new URL('../src/composables/juyiting/useHallTaskActions.js', import.meta.url), 'utf8')
+
+function workspaceDouble () {
+  const calls = []
+  return {
+    calls,
+    close: () => calls.push({ type: 'close' }),
+    dispose: () => calls.push({ type: 'dispose' }),
+    open: ({ taskId, actorAgentId }) => {
+      calls.push({ type: 'open', taskId, actorAgentId })
+      return Promise.resolve()
+    }
+  }
+}
+
+function substitutedRef (substitute) {
+  let value = null
+  return customRef((track, trigger) => ({
+    get () {
+      track()
+      return value
+    },
+    set (next) {
+      value = substitute(next)
+      trigger()
+    }
+  }))
+}
+
+function bindingHarness ({ selectedAgent = ref(null) } = {}) {
+  const selectedTask = ref(null)
+  const taskWorkspace = workspaceDouble()
+  const binding = useTaskWorkspaceBinding({ selectedTask, selectedAgent, taskWorkspace })
+  return { binding, selectedAgent, selectedTask, taskWorkspace }
+}
+
+const openCalls = workspace => workspace.calls.filter(call => call.type === 'open')
+
+// This models useHallChatContext's non-mentionable private-chat path without changing it:
+// it clears selectedAgent and then installs its roster-first fallback in the same tick.
+const fallBackToRoster = (selectedAgent, fallback) => {
+  selectedAgent.value = null
+  selectedAgent.value = fallback
+}
+
+describe('C07A task workspace wiring', () => {
+  it('uses the C06 workspace as the sole stable FE2 entrypoint with explicit actor provenance', () => {
+    expect(hallSource).to.include("import { useTaskWorkspace } from '@/composables/juyiting/useTaskWorkspace'")
+    expect(hallSource).to.include("import { useTaskWorkspaceBinding } from '@/composables/juyiting/useTaskWorkspaceBinding'")
+    expect(hallSource).to.include('const taskWorkspace = taskWorkspaceEnabled ? useTaskWorkspace() : null')
+    expect(hallSource).to.include('? useTaskWorkspaceBinding({ selectedTask, selectedAgent, taskWorkspace })')
+    expect(hallSource).to.include('taskWorkspace.workspace, connectionState, error, subject, retry, and reload')
+    expect(hallSource).to.include("import TaskWorkspacePanel from '@/components/juyiting/TaskWorkspacePanel.vue'")
+  })
+
+  it('opens only for an atomically selected map actor and ignores same-id object replacement', async () => {
+    const { binding, selectedAgent, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      const agent = { agentId: 'map-agent-a', name: 'A' }
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a', title: 'A' }
+      binding.selectExplicitActor(agent)
+      await nextTick()
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a', title: 'replacement' }
+      selectedAgent.value = { agentId: 'map-agent-a', name: 'replacement' }
+      await nextTick()
+      expect(openCalls(taskWorkspace)).to.deep.equal([{ type: 'open', taskId: 'task-a', actorAgentId: 'map-agent-a' }])
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('cannot arm a mismatched selection, even if an implicit later return has the requested id', async () => {
+    const selectedAgent = substitutedRef(agent => agent?.agentId === 'requested-agent'
+      ? { agentId: 'roster-fallback' }
+      : agent)
+    const { binding, selectedTask, taskWorkspace } = bindingHarness({ selectedAgent })
+    try {
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      binding.selectExplicitActor({ agentId: 'requested-agent' })
+      await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      selectedAgent.value = { agentId: 'requested-agent' }
+      await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      expect(openCalls(taskWorkspace)).to.deep.equal([])
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('clears provenance synchronously so null-to-roster fallback cannot reopen a workspace', async () => {
+    const { binding, selectedAgent, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      const explicit = { agentId: 'agent-a' }
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      binding.selectExplicitActor(explicit)
+      await nextTick()
+      fallBackToRoster(selectedAgent, { agentId: 'agent-a', name: 'roster fallback' })
+      await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      expect(openCalls(taskWorkspace)).to.have.length(1)
+      expect(taskWorkspace.calls.at(-1)).to.deep.equal({ type: 'close' })
+
+      selectedAgent.value = { agentId: 'agent-b', name: 'different roster fallback' }
+      await nextTick()
+      expect(openCalls(taskWorkspace)).to.have.length(1)
+      expect(taskWorkspace.calls.at(-1)).to.deep.equal({ type: 'close' })
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('clears a valid conversation provenance when its chat flow falls back from a non-mentionable actor', async () => {
+    const { binding, selectedAgent, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      binding.selectExplicitActor({ agentId: 'non-mentionable' })
+      fallBackToRoster(selectedAgent, { agentId: 'roster-agent' })
+      await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      expect(openCalls(taskWorkspace)).to.deep.equal([])
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('clears before a failed assignment and never re-arms from a late assignment completion', async () => {
+    const { binding, selectedAgent, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      binding.selectExplicitActor({ agentId: 'old-actor' })
+      await nextTick()
+
+      // Assignment starts: even a swallowed failure leaves no authorization token behind.
+      binding.clearExplicitActor()
+      await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      expect(openCalls(taskWorkspace)).to.have.length(1)
+
+      // The user makes a fresh explicit U/C selection before an older assignment resolves.
+      selectedTask.value = { assignedAgentIds: ['user-c'], id: 'task-u' }
+      binding.selectExplicitActor({ agentId: 'user-c' })
+      await nextTick()
+      fallBackToRoster(selectedAgent, { agentId: 'assignment-c' })
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      await nextTick()
+
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      expect(openCalls(taskWorkspace)).to.deep.equal([
+        { type: 'open', taskId: 'task-a', actorAgentId: 'old-actor' },
+        { type: 'open', taskId: 'task-u', actorAgentId: 'user-c' }
+      ])
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('cannot reuse a cleared token when a multi-assignment later selects its same first agent id', async () => {
+    const { binding, selectedAgent, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      binding.selectExplicitActor({ agentId: 'first-agent' })
+      await nextTick()
+      binding.clearExplicitActor()
+      selectedAgent.value = { agentId: 'first-agent', name: 'assignment first target' }
+      await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      expect(openCalls(taskWorkspace)).to.deep.equal([{ type: 'open', taskId: 'task-a', actorAgentId: 'first-agent' }])
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('supports direct selection and a valid conversation selection as the only ways to open', async () => {
+    const { binding, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      selectedTask.value = { assignedAgentIds: ['map-agent-a', 'requested-agent', 'agent-a', 'non-mentionable', 'old-actor', 'first-agent', 'direct-agent'], id: 'task-a' }
+      binding.selectExplicitActor({ agentId: 'direct-agent' })
+      await nextTick()
+      selectedTask.value = { assignedAgentIds: ['conversation-agent'], id: 'task-b' }
+      binding.selectExplicitActor({ agentId: 'conversation-agent' })
+      await nextTick()
+      expect(openCalls(taskWorkspace)).to.deep.equal([
+        { type: 'open', taskId: 'task-a', actorAgentId: 'direct-agent' },
+        { type: 'open', taskId: 'task-b', actorAgentId: 'conversation-agent' }
+      ])
+    } finally {
+      binding.dispose()
+    }
+  })
+
+  it('does not query an unassigned task or inherit an actor across tasks', async () => {
+    const { binding, selectedTask, taskWorkspace } = bindingHarness()
+    try {
+      selectedTask.value = { id: 'one', assignedAgentIds: ['a'] }
+      binding.selectExplicitActor({ agentId: 'a' }); await nextTick()
+      selectedTask.value = { id: 'two', assignedAgentIds: ['b'] }; await nextTick()
+      expect(binding.explicitActorAgentId.value).to.equal(null)
+      binding.selectExplicitActor({ agentId: 'a' }); await nextTick()
+      selectedTask.value = { id: 'unassigned', assignedAgentIds: [] }
+      binding.selectExplicitActor({ agentId: 'a' }); await nextTick()
+      expect(openCalls(taskWorkspace)).to.deep.equal([{ type: 'open', taskId: 'one', actorAgentId: 'a' }])
+      selectedTask.value = { id: 'unassigned', assignedAgentIds: ['a'] }; await nextTick()
+      expect(openCalls(taskWorkspace).at(-1)).to.deep.equal({ type: 'open', taskId: 'unassigned', actorAgentId: 'a' })
+    } finally { binding.dispose() }
+  })
+
+  it('uses atomic explicit JuyiHall action inputs, never brief/default or assignment completion, and disposes the real binding on unmount', () => {
+    const selectAgentStart = hallSource.indexOf('const selectAgent = (agent) => {')
+    const selectAgentSource = hallSource.slice(selectAgentStart, hallSource.indexOf('const exactHostedAgentId', selectAgentStart))
+    const briefSource = hallSource.slice(hallSource.indexOf('const briefSelectedTask'), hallSource.indexOf('const discussTask'))
+    const assignTaskStart = hallSource.indexOf('const assignTask = async (task, agent) => {')
+    const assignTaskSource = hallSource.slice(assignTaskStart, hallSource.indexOf('\n\nwatch(', assignTaskStart))
+    const autoAssignTaskSource = hallSource.slice(hallSource.indexOf('const autoAssignTask'), hallSource.indexOf('const archiveTask'))
+    const conversationSource = hallSource.slice(hallSource.indexOf('const handleStartAgentConversation'), hallSource.indexOf('const canStartAgentConversation'))
+    expect(conversationSource).not.to.include('setDraft(')
+    expect(conversationSource).not.to.include('insertAgentMention(')
+    expect(selectAgentSource).to.include('taskWorkspaceBinding.selectExplicitActor(agent)')
+    expect(selectAgentSource).not.to.include('selectedAgent.value = agent')
+    expect(briefSource).not.to.include('taskWorkspaceBinding.')
+    const identityGuardIndex = assignTaskSource.indexOf('if (!targetAgents.length || targetAgents.some(item => !hasExplicitAgentId(item))) return false')
+    const retirementGuardIndex = assignTaskSource.indexOf("if (task.funding?.mode === 'FUNDED_SINGLE_AGENT')")
+    const eligibilityGuardIndex = assignTaskSource.indexOf('if (targetAgents.some(item => !canAssign(task, item))) return false')
+    const runAssignmentIndex = assignTaskSource.indexOf('const started = await startPointAndStart({ task, agent: targetAgents[0] })')
+    expect(retirementGuardIndex).to.be.greaterThan(-1)
+    expect(identityGuardIndex).to.be.greaterThan(retirementGuardIndex)
+    expect(eligibilityGuardIndex).to.be.greaterThan(identityGuardIndex)
+    expect(runAssignmentIndex).to.be.greaterThan(eligibilityGuardIndex)
+    // Assignment completion belongs to the admitted server projection, not an optimistic shell mutation.
+    expect(assignTaskSource).not.to.include('markTaskAssigned')
+    expect(assignTaskSource).not.to.include('runAssignTask')
+    expect(assignTaskSource).to.include('return started')
+    expect(assignTaskSource).not.to.include("task?.status === 'assigned'")
+    expect(assignTaskSource).not.to.include('selectExplicitActor')
+    expect(assignTaskSource).not.to.include('markExplicitActor')
+    expect(autoAssignTaskSource).not.to.include('ExplicitActor')
+    expect(conversationSource.indexOf('taskWorkspaceBinding.selectExplicitActor(agent)')).to.be.lessThan(conversationSource.indexOf('enterPrivateConversation(agent)'))
+    expect(conversationSource).not.to.include('markExplicitActor')
+    const unmountStart = hallSource.lastIndexOf('onUnmounted(() => {')
+    expect(unmountStart).to.be.greaterThan(-1)
+    const unmountSource = hallSource.slice(unmountStart, hallSource.indexOf('\n})', unmountStart))
+    expect(unmountSource).to.include('taskWorkspaceBinding.dispose()')
+
+    const { binding, taskWorkspace } = bindingHarness()
+    binding.dispose()
+    expect(taskWorkspace.calls.at(-1)).to.deep.equal({ type: 'dispose' })
+  })
+
+  it('preserves map/roster separation, no active route, and explicit assignment target handling', () => {
+    expect(hallDataSource).to.include("agentApi.get('/map'")
+    expect(hallDataSource).to.include("agentApi.search('/roster'")
+    expect(hallDataSource).not.to.include("'/active'")
+    expect(hallSource).to.include(':map-agents="mapAgents"')
+    expect(hallSource).to.include('const started = await startPointAndStart({ task, agent: targetAgents[0] })')
+    expect(hallTaskActionsSource).not.to.include('const assignTask')
+
+    const canAssignStart = hallDataSource.indexOf('const canAssign =')
+    const canAssignEnd = hallDataSource.indexOf('const taskStatusCount =', canAssignStart)
+    expect(canAssignStart).to.be.greaterThan(-1)
+    expect(canAssignEnd).to.be.greaterThan(canAssignStart)
+    const canAssignSource = hallDataSource.slice(canAssignStart, canAssignEnd)
+    const taskActionAssignSource = hallSource.slice(hallSource.indexOf('const assignTask = async'), hallSource.indexOf('\n\nwatch(', hallSource.indexOf('const assignTask = async')))
+    expect(canAssignSource).to.include("typeof agent?.agentId !== 'string'")
+    expect(canAssignSource).not.to.match(/agent\s*=\s*selectedAgent\.value/)
+    expect(taskActionAssignSource).to.include("const hasExplicitAgentId = item => typeof item?.agentId === 'string' && Boolean(item.agentId.trim())")
+    expect(taskActionAssignSource).to.include('targetAgents.some(item => !hasExplicitAgentId(item))')
+    expect(taskActionAssignSource).not.to.match(/agent\s*=\s*selectedAgent\.value/)
+  })
+})
+
+describe('discussion entry drafts', () => {
+  const agent = { agentId: 'agent-draft', displayName: '吴用', providerDisplayName: null, isMine: false, availability: 'online' }
+  const task = { id: 'task-draft', title: '议事测试', status: 'assigned', assignedAgentIds: [agent.agentId], assignedTarget: agent }
+  const entries = [
+    ['briefSelectedTask', 'const discussTask', [task]],
+    ['briefSelectedTask', 'const discussTask', [task, agent]],
+    ['discussTask', 'const toggleHallSound', [task, agent]],
+    ['handleStartAgentConversation', 'const canStartAgentConversation', [agent]]
+  ]
+
+  for (const [name, end, args] of entries) {
+    for (const initial of ['', '   ', '  保留我写的 @宋江 内容  ']) {
+      it(`${name} (${args.length} args) preserves ${JSON.stringify(initial)}`, () => {
+        const draft = ref(initial)
+        const panels = []
+        const contexts = []
+        const bindings = []
+        const mocks = {
+          projectHallTask, assignedTaskTarget, draft, setDraft: value => { draft.value = value },
+          selectedTask: ref(null), selectedAgent: ref(null),
+          isTerminalMatter: () => false,
+          canStartAgentConversation: () => true,
+          resolvePermittedConversationAgent: () => agent,
+          operableRosterAgents: ref([agent]),
+          openPanel: panel => { panels.push(panel); return true },
+          enterPrivateConversation: (...values) => contexts.push(['private', ...values]),
+          enterBountyDiscussion: value => contexts.push(['bounty', value]),
+          taskWorkspaceBinding: { selectExplicitActor: value => bindings.push(value) },
+          chatContext: ref({ participantAgentIds: [agent.agentId] }),
+          markDiscussionStarted: () => {}, markAgentSpeaking: () => {},
+          playAgentSelect: () => {}, showToast: () => {},
+          portraitShortName: value => value.name, taskStatusText: () => '待办'
+        }
+        const start = hallSource.indexOf(`const ${name} =`)
+        const source = hallSource.slice(start, hallSource.indexOf(end, start))
+        const action = new Function(...Object.keys(mocks), `${source}\nreturn ${name}`)(...Object.values(mocks))
+        action(...args)
+        expect(draft.value).to.equal(initial)
+        expect(panels).to.deep.equal(['chat'])
+        expect(contexts).to.have.length(1)
+        expect(contexts[0][0]).to.equal(name === 'handleStartAgentConversation' || args.length === 2 && name === 'briefSelectedTask' ? 'private' : 'bounty')
+        if (name !== 'briefSelectedTask') expect(bindings).to.deep.equal([agent])
+      })
+    }
+  }
+})

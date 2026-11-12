@@ -1,0 +1,187 @@
+import { displayFixtures } from './fixtures/juyiting/interface-display-fixture.mjs'
+import { expect } from 'chai'
+import { readFileSync } from 'node:fs'
+import { completedTextItem, completedExecutionDelivery, currentOutputDelivery, currentDeliveryProjection } from '../src/composables/juyiting/bountyOutputCatalog.js'
+import { typedOutcomeProjection } from '../src/composables/juyiting/hallTypedDeliberation.js'
+
+const groups = displayFixtures(JSON.parse(readFileSync(new URL('./fixtures/juyiting/execution-batch-delivery-v3.json', import.meta.url), 'utf8')))
+const clone = value => JSON.parse(JSON.stringify(value))
+const request = raw => ({ requestId: raw.requestId, requestRevision: raw.requestRevision, conversationId: raw.conversationId,
+  conversationGeneration: raw.conversationGeneration, state: 'COMPLETED', steps: [] })
+const turn = raw => ({ ...request(raw), turnId: raw.turnId, targetAgentId: 'agent', route: 'CHAT', state: 'FINAL_PERSISTED',
+  finalMessageId: raw.outcome.assistantMessageId, contextSnapshotId: raw.requestId === 'request' ? raw.outcome.messageSource.snapshotId : `${raw.requestId}-snapshot` })
+const child = raw => ({ requestId: raw.actionProgress.childRequestId, requestRevision: '1', conversationId: raw.conversationId,
+  conversationGeneration: raw.conversationGeneration, state: 'OUTPUT_COMMITTED', stateVersion: raw.actionProgress.childStateVersion,
+  steps: [{ kind: 'EXECUTE', stepId: 'fixture-step', executionId: 'fixture-execution', state: 'OUTPUT_COMMITTED', executionState: 'OUTPUT_COMMITTED',
+    taskId: 'task', targetAgentId: 'agent', assignmentRevision: raw.outcome.assignmentRevision }] })
+const batch = raw => ['one', 'two'].map((outputId, i) => ({ requestId: raw.actionProgress.childRequestId, stepId: 'fixture-step',
+  outputId, sha256: (i ? 'b' : 'a').repeat(64), contentMimeType: 'image/png', replaces: null }))
+const node = raw => completedExecutionDelivery(raw, request(raw), turn(raw), [child(raw)], 'task')
+const text = raw => completedTextItem(raw, request(raw), turn(raw), 'task')
+
+describe('explicit text to execution batch delivery', () => {
+  for (const group of groups) it(`replays API ${group.mode} metadata without delivering action prose or manufacturing a text step`, async () => {
+    const initial = await text(group.initial); const action = node(group.completed); const outputs = batch(group.completed)
+    expect(await text(group.completed)).to.equal(null)
+    expect(action.finalSha256).to.equal(group.queued.outcome.finalSha256)
+    expect(currentOutputDelivery([initial, ...outputs], [action])).to.deep.equal(group.mode === 'APPEND' ? [initial, ...outputs] : outputs)
+    const restored = clone({ items: [initial, ...outputs], actions: [action] })
+    expect(currentOutputDelivery(restored.items, restored.actions)).to.deep.equal(group.mode === 'APPEND' ? restored.items : restored.items.slice(1))
+    expect(Object.hasOwn(initial, 'stepId')).to.equal(false)
+    expect(Object.isFrozen(action.deliveryRelation)).to.equal(true)
+  })
+  it('waits for the exact output-committed child, never delivers queued/failed/cancelled action prose', async () => {
+    const group = groups[0]; const initial = await text(group.initial)
+    for (const state of ['QUEUED']) {
+      const raw = clone(group.queued); raw.actionProgress.state = state
+      const pending = completedExecutionDelivery(raw, request(raw), turn(raw), [], 'task')
+      expect(() => currentOutputDelivery([initial], [pending])).to.throw('尚未完成')
+    }
+    for (const state of ['RUNNING', 'FAILED', 'CANCELLED']) {
+      const raw = clone(group.completed); raw.actionProgress.state = state
+      const pending = completedExecutionDelivery(raw, request(raw), turn(raw), [child(raw)], 'task')
+      expect(() => currentOutputDelivery([initial, ...batch(raw)], [pending])).to.throw('尚未完成')
+    }
+    const raw = group.completed
+    expect(() => currentOutputDelivery([initial], [node(raw)])).to.throw('尚未明确')
+    expect(() => currentOutputDelivery([initial], [completedExecutionDelivery(raw, request(raw), turn(raw), [], 'task')])).to.throw('尚未完成')
+  })
+  it('keeps the committed basis after a verified failed action without a child, without retrying it', async () => {
+    const group = groups[0]; const initial = await text(group.initial)
+    const raw = clone(group.queued); raw.actionProgress.state = 'FAILED'
+    expect(completedExecutionDelivery(raw, request(raw), turn(raw), [], 'task')).to.equal(null)
+    expect(currentOutputDelivery([initial], [])).to.deep.equal([initial])
+    expect(() => completedExecutionDelivery(raw, request(raw), { ...turn(raw), finalMessageId: 'foreign' }, [], 'task')).to.throw()
+    for (const patch of [{ childRequestId: 'unknown' }, { childRoute: 'EXECUTE' }, { childStateVersion: '0' }]) {
+      const bad = clone(raw); Object.assign(bad.actionProgress, patch)
+      expect(() => completedExecutionDelivery(bad, request(bad), turn(bad), [], 'task')).to.throw()
+    }
+  })
+  it('rejects foreign scope, wrong child step/run readiness and source tampering', () => {
+    const raw = groups[0].completed
+    for (const patch of [{ conversationId: 'foreign' }, { conversationGeneration: '2' }, { requestRevision: '2' },
+      { state: 'COMPLETED' }, { stateVersion: '999' }]) {
+      expect(() => completedExecutionDelivery(raw, request(raw), turn(raw), [{ ...child(raw), ...patch }], 'task')).to.throw()
+    }
+    for (const patch of [{ taskId: 'foreign' }, { assignmentRevision: '4' }, { targetAgentId: 'other' },
+      { kind: 'CHAT' }, { state: 'RUNNING' }, { executionState: 'RUNNING' }, { executionId: null }]) {
+      const snapshot = child(raw); Object.assign(snapshot.steps[0], patch)
+      expect(() => completedExecutionDelivery(raw, request(raw), turn(raw), [snapshot], 'task')).to.throw()
+    }
+    expect(() => completedExecutionDelivery(raw, request(raw), { ...turn(raw), finalMessageId: '999' }, [child(raw)], 'task')).to.throw()
+    expect(() => completedExecutionDelivery(raw, request(raw), turn(raw), [child(raw)], 'foreign')).to.throw()
+    const inspection = clone(raw); inspection.actionProgress.childRoute = 'INSPECT'
+    expect(() => completedExecutionDelivery(inspection, request(inspection), turn(inspection), [child(inspection)], 'task')).to.throw('查阅动作')
+  })
+  it('does not union unlinked batches or infer intent from sources, arrival order, or MIME', async () => {
+    const group = groups[0]; const initial = await text(group.initial); const action = node(group.completed); const outputs = batch(group.completed)
+    expect(() => currentOutputDelivery([initial, ...outputs])).to.throw('尚不明确')
+    expect(() => currentOutputDelivery([initial, ...outputs, { ...outputs[0], requestId: 'independent' }], [action])).to.throw('未关联')
+    expect(() => currentOutputDelivery([initial, ...outputs], [action, action])).to.throw()
+    expect(() => currentOutputDelivery([initial, ...outputs, outputs[0]], [action])).to.throw('重复')
+    expect(() => currentOutputDelivery([initial, ...outputs], [{ ...action, deliveryRelation: { ...action.deliveryRelation, parentFinalSha256: `${'f'.repeat(64)}` } }])).to.throw('歧义')
+    expect(() => currentOutputDelivery([initial, ...outputs], [{ ...action, outcomeId: 'branch', deliveryRelation: action.deliveryRelation }, action])).to.throw()
+    const edited = { ...outputs[0], replaces: { requestId: 'old', stepId: 's', outputId: 'o', sha256: 'a'.repeat(64) } }
+    expect(() => currentOutputDelivery([initial, edited, outputs[1]], [action])).to.throw('尚未明确')
+  })
+  it('rejects untargeted media replacement, APPEND target fields and deliverable action prose', () => {
+    const raw = groups[0].completed
+    for (const change of [value => { value.outcome.deliverable = true }, value => { value.outcome.deliveryRelation.mode = 'REPLACE' },
+      value => { value.outcome.deliveryRelation.targetOutcomeId = 'earlier'; value.outcome.deliveryRelation.targetFinalSha256 = `${'a'.repeat(64)}` }]) {
+      const value = clone(raw); change(value); expect(typedOutcomeProjection(value)).to.equal(null)
+    }
+  })
+})
+
+const mixed = displayFixtures(JSON.parse(readFileSync(new URL('./fixtures/juyiting/media-basis-delivery-v3.json', import.meta.url), 'utf8')))
+const mixedChildren = mixed.manifests.map(manifest => ({ requestId: manifest.requestId, requestRevision: '1', conversationId: '42',
+  conversationGeneration: '1', state: 'OUTPUT_COMMITTED', stateVersion: '2', turns: [], steps: [{ kind: 'EXECUTE', stepId: manifest.stepId,
+    executionId: manifest.executionId, state: 'OUTPUT_COMMITTED', executionState: 'OUTPUT_COMMITTED', taskId: 'task', targetAgentId: 'agent', assignmentRevision: '3' }] }))
+const mixedOutputs = mixed.manifests.flatMap(manifest => manifest.outputs.map(output => ({ ...output,
+  requestId: manifest.requestId, stepId: manifest.stepId, replaces: null })))
+const mixedActions = [mixed.mediaOne, mixed.mediaTwo].map(raw => completedExecutionDelivery(raw, request(raw), turn(raw), mixedChildren, 'task'))
+
+describe('actual API completed media causal basis and retained mixed delivery', () => {
+  it('retains both precise manifests while replacing only the earlier text, independently of arrival order', async () => {
+    const original = await text(mixed.initial); const updated = await text(mixed.updated); const appended = await text(mixed.appended)
+    const before = currentDeliveryProjection([original, ...mixedOutputs], mixedActions)
+    expect(before.items).to.deep.equal([original, ...mixedOutputs])
+    expect(before.basis).to.deep.equal({ outcomeId: mixed.mediaTwo.outcome.outcomeId, finalSha256: mixed.mediaTwo.outcome.finalSha256 })
+    for (const items of [[original, ...mixedOutputs, updated], [updated, ...mixedOutputs.slice().reverse(), original]]) {
+      const current = currentDeliveryProjection(items, mixedActions.slice().reverse())
+      expect(current.items[0]).to.deep.equal(updated)
+      expect(current.items.slice(1).map(item => [item.requestId, item.stepId, item.outputId, item.sha256]).sort()).to.deep.equal(
+        mixed.targetsAfterEdit.filter(target => target.outputSource).map(target => Object.values({ requestId: target.outputSource.requestId,
+          stepId: target.outputSource.stepId, outputId: target.outputSource.outputId, sha256: target.outputSource.sha256 })).sort())
+      expect(current.basis).to.deep.equal({ outcomeId: mixed.updated.outcome.outcomeId, finalSha256: mixed.updated.outcome.finalSha256 })
+    }
+    expect(currentDeliveryProjection([original, ...mixedOutputs, appended, updated], mixedActions).items).to.deep.equal([updated, ...mixedOutputs, appended])
+  })
+  it('replaces the exact earlier media batch while retaining text and independent media', async () => {
+    const original = await text(mixed.initial)
+    const old = mixedActions[0]; const parent = mixedActions[1]
+    const green = { ...mixedOutputs[0], requestId: 'green-request', stepId: 'green-step', outputId: 'green', sha256: 'e'.repeat(64) }
+    const action = { ...old, outcomeId: 'green-outcome', finalSha256: 'f'.repeat(64), requestId: green.requestId, stepId: green.stepId,
+      deliveryRelation: { mode: 'REPLACE', parentOutcomeId: parent.outcomeId, parentFinalSha256: parent.finalSha256,
+        targetOutcomeId: old.outcomeId, targetFinalSha256: old.finalSha256 } }
+    const projected = currentDeliveryProjection([original, ...mixedOutputs, green], [...mixedActions, action])
+    expect(projected.items).to.deep.equal([original, green, ...mixedOutputs.filter(item => item.requestId !== old.requestId)])
+    expect(() => currentDeliveryProjection([original, ...mixedOutputs, green], [...mixedActions,
+      { ...action, deliveryRelation: { ...action.deliveryRelation, targetFinalSha256: '0'.repeat(64) } }])).to.throw()
+  })
+  it('never substitutes media as a text target or accepts missing, independent or stale causal sources', async () => {
+    const original = await text(mixed.initial); const updated = await text(mixed.updated)
+    const bad = { ...updated, deliveryRelation: { ...updated.deliveryRelation, targetOutcomeId: mixed.mediaOne.outcome.outcomeId,
+      targetFinalSha256: mixed.mediaOne.outcome.finalSha256 } }
+    expect(() => currentDeliveryProjection([original, ...mixedOutputs, bad], mixedActions)).to.throw()
+    expect(() => currentDeliveryProjection([original, ...mixedOutputs], mixedActions.slice(1))).to.throw()
+    expect(() => currentDeliveryProjection([original, ...mixedOutputs.slice(2)], mixedActions)).to.throw()
+    expect(() => currentDeliveryProjection([original, ...mixedOutputs, { ...mixedOutputs[0], requestId: 'unlinked' }], mixedActions)).to.throw()
+  })
+  it('recognizes an original completed action media root but not a second independent root or inspection prose', () => {
+    const root = clone(mixed.mediaOne); root.outcome.deliveryRelation = null
+    const action = completedExecutionDelivery(root, request(root), turn(root), mixedChildren, 'task')
+    const projection = currentDeliveryProjection(mixedOutputs.slice(0, 2), [action])
+    expect(projection.items).to.deep.equal(mixedOutputs.slice(0, 2))
+    expect(projection.basis).to.deep.equal({ outcomeId: root.outcome.outcomeId, finalSha256: root.outcome.finalSha256 })
+    const second = { ...mixedActions[1], deliveryRelation: null }
+    expect(() => currentDeliveryProjection(mixedOutputs, [action, second])).to.throw()
+    root.actionProgress.childRoute = 'INSPECT'
+    expect(completedExecutionDelivery(root, request(root), turn(root), mixedChildren, 'task')).to.equal(null)
+  })
+})
+
+const edits = displayFixtures(JSON.parse(readFileSync(new URL('./fixtures/juyiting/mixed-media-edit-v3.json', import.meta.url), 'utf8')))
+const editChildren = edits.manifests.map(manifest => ({ requestId: manifest.requestId, requestRevision: '1', conversationId: '42',
+  conversationGeneration: '1', state: 'OUTPUT_COMMITTED', stateVersion: '2', turns: [], steps: [{ kind: 'EXECUTE', stepId: manifest.stepId,
+    executionId: manifest.executionId, state: 'OUTPUT_COMMITTED', executionState: 'OUTPUT_COMMITTED', taskId: 'task', targetAgentId: 'agent', assignmentRevision: '3' }] }))
+const editOutputs = edits.manifests.flatMap(manifest => manifest.outputs.map(output => ({ ...output, requestId: manifest.requestId, stepId: manifest.stepId })))
+const editActions = [edits.mediaOne, edits.mediaTwo, edits.editOne, edits.editTwo].map(raw => completedExecutionDelivery(raw, request(raw), turn(raw), editChildren, 'task'))
+const refs = items => items.filter(item => !item.messageSource).map(item => [item.requestId, item.stepId, item.outputId, item.sha256])
+const advertisedRefs = targets => targets.filter(target => target.outputSource).map(target => [target.outputSource.requestId, target.outputSource.stepId,
+  target.outputSource.outputId, target.outputSource.sha256])
+describe('actual API mixed individual media replacement lineage', () => {
+  it('replaces one exact media output, retains all sibling batches and text, then supports earlier text edit and a second media edit', async () => {
+    const original = await text(edits.initial); const updated = await text(edits.textEdit)
+    const beforeText = currentDeliveryProjection([original, ...editOutputs.slice(0, 5)], editActions.slice(0, 3))
+    expect(beforeText.items[0]).to.deep.equal(original)
+    expect(refs(beforeText.items)).to.deep.equal(advertisedRefs(edits.targetsAfterEdit))
+    const projection = currentDeliveryProjection([updated, ...editOutputs.slice().reverse(), original], editActions.slice().reverse())
+    expect(projection.items[0]).to.deep.equal(updated)
+    expect(refs(projection.items).sort()).to.deep.equal(advertisedRefs(edits.targetsFinal).sort())
+    expect(projection.basis).to.deep.equal({ outcomeId: edits.editTwo.outcome.outcomeId, finalSha256: edits.editTwo.outcome.finalSha256 })
+    expect(projection.items).to.have.length(6)
+    expect(projection.items.some(item => item.requestId === edits.editOne.actionProgress.childRequestId)).to.equal(false)
+  })
+  it('rejects stale, unknown, same-batch, discarded and duplicate replacement targets without switching to history', async () => {
+    const original = await text(edits.initial); const changedIndex = editOutputs.findIndex(output => output.outputId === 'blue')
+    for (const patch of [{ sha256: 'e'.repeat(64) }, { requestId: 'foreign' }, { requestId: editOutputs[changedIndex].requestId }]) {
+      const outputs = clone(editOutputs.slice(0, 5)); Object.assign(outputs[changedIndex].replaces, patch)
+      expect(() => currentDeliveryProjection([original, ...outputs], editActions.slice(0, 3))).to.throw()
+    }
+    const duplicate = { ...editOutputs[changedIndex], outputId: 'duplicate' }
+    expect(() => currentDeliveryProjection([original, ...editOutputs.slice(0, 5), duplicate], editActions.slice(0, 3))).to.throw()
+    const reset = clone(editActions.slice(0, 3)); reset[1].deliveryRelation.mode = 'RESET'
+    expect(() => currentDeliveryProjection([original, ...editOutputs.slice(0, 5)], reset)).to.throw()
+  })
+})

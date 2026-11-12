@@ -1,0 +1,154 @@
+import { decodeMessage } from '../../utils/messageEnvelope.js'
+import { canonicalWireString } from './hallConversationMessages.js'
+
+const nextLine = buffer => {
+  for (let index = 0; index < buffer.length; index += 1) {
+    const char = buffer[index]
+    if (char === '\n') return { line: buffer.slice(0, index), rest: buffer.slice(index + 1) }
+    if (char === '\r') {
+      if (index + 1 === buffer.length) return null
+      return { line: buffer.slice(0, index), rest: buffer.slice(index + (buffer[index + 1] === '\n' ? 2 : 1)) }
+    }
+  }
+  return null
+}
+
+const emptyFrame = () => ({ hasId: false, id: '', event: '', hasEvent: false, data: [] })
+const canonicalField = (event, key, options) => {
+  if (!Object.hasOwn(event, key)) return { present: false, value: '' }
+  return { present: true, value: canonicalWireString(event[key], options) }
+}
+
+export const createHallSseParser = ({ conversationId, requestId, onEvent, onPreview, onPreviewInvalid, onCursor, onCommitted, onInvalid }) => {
+  let buffer = ''
+  let failed = false
+  let frame = emptyFrame()
+  const invalid = reason => {
+    if (failed) return false
+    failed = true
+    onInvalid?.(reason)
+    frame = emptyFrame()
+    return false
+  }
+  const dispatch = () => {
+    if (!frame.data.length) {
+      frame = emptyFrame()
+      return true
+    }
+    let message
+    try { message = decodeMessage(frame.data.join('\n')) } catch { return invalid('invalid_json') }
+    // A preview is transient presentation, not a journal entry. It must never
+    // change Last-Event-ID, commit a replay cursor or enter the business reducer.
+    if (message.messageType === 'conversation.preview') {
+      const discardPreview = reason => {
+        // A rejected preview must not abort durable final delivery or cause a
+        // journal resync. Consumers may only clear their local preview here.
+        frame = emptyFrame()
+        onPreviewInvalid?.(reason)
+        return true
+      }
+      const preview = message.data
+      if (Object.hasOwn(message, 'correlationId') || frame.hasId || !frame.hasEvent ||
+          frame.event !== message.messageType || requestId !== undefined && message.requestId !== requestId) return discardPreview('invalid_preview_envelope')
+      if (!preview || Array.isArray(preview) || typeof preview !== 'object' ||
+          preview.conversationId !== conversationId || preview.type !== 'agent_message_delta' ||
+          typeof preview.turnId !== 'string' || !preview.turnId || typeof preview.streamId !== 'string' || !preview.streamId ||
+          typeof preview.requestId !== 'string' || !preview.requestId || typeof preview.agentId !== 'string' || !preview.agentId ||
+          !['ANSWER', 'CLARIFY'].includes(preview.streamOutcomeKind) ||
+          !canonicalWireString(preview.conversationGeneration) || !canonicalWireString(preview.deltaSeq) ||
+          typeof preview.content !== 'string' || !preview.content ||
+          !Number.isSafeInteger(preview.occurredAt) || !Number.isFinite(new Date(preview.occurredAt).getTime()) ||
+          message.messageId !== `preview:${preview.streamId}:${preview.deltaSeq}`) return discardPreview('invalid_preview')
+      if (['eventSequence', 'eventVersion', 'stateVersion', 'state', 'lastDeltaSeq', 'cursor', 'nextCursor'].some(key => Object.hasOwn(preview, key))) return discardPreview('preview_has_durable_state')
+      onPreview?.(preview)
+      frame = emptyFrame()
+      return true
+    }
+    if (Object.hasOwn(message, 'correlationId') || !frame.hasId || !frame.hasEvent || frame.id !== message.messageId ||
+        frame.event !== message.messageType || requestId !== undefined && message.requestId !== requestId) return invalid('invalid_envelope')
+    let event = message.data
+    if (!event || Array.isArray(event) || typeof event !== 'object') return invalid('invalid_event')
+    if (event.conversationId !== conversationId) return invalid('conversation_conflict')
+    const ready = message.messageType === 'conversation.stream.ready'
+    let id = ''
+    if (ready) {
+      if (event.type !== 'stream_ready' || !message.messageId.startsWith(`conversation:${conversationId}:ready:`)) return invalid('invalid_ready')
+    } else {
+      if (message.messageType !== 'conversation.event' || event.type === 'stream_ready' ||
+          !message.messageId.startsWith(`conversation:${conversationId}:`)) return invalid('invalid_event_id')
+      id = canonicalWireString(message.messageId.slice(`conversation:${conversationId}:`.length))
+      if (!id || !Number.isSafeInteger(event.occurredAt) || !Number.isFinite(new Date(event.occurredAt).getTime())) return invalid('invalid_event_id')
+      // The existing UI reducer uses a decimal timestamp; only the public wire is epoch-number.
+      event = { ...event, occurredAt: String(event.occurredAt) }
+    }
+
+    const sequence = canonicalField(event, 'eventSequence')
+    if (sequence.present && !sequence.value) return invalid('invalid_event_sequence')
+    if (id && sequence.value && id !== sequence.value) return invalid('event_sequence_conflict')
+    for (const [key, allowZero] of [
+      ['eventVersion', false], ['requestRevision', false], ['stateVersion', true], ['deltaSeq', false],
+      ['lastDeltaSeq', true], ['messageId', false], ['occurredAt', false], ['finalSeq', true],
+      ['expectedDeltaSeq', false], ['receivedDeltaSeq', false]
+    ]) {
+      const field = canonicalField(event, key, { allowZero })
+      if (field.present && !field.value) return invalid(`invalid_${key}`)
+    }
+
+    const cursor = canonicalField(event, 'cursor', { allowZero: true })
+    const nextCursor = canonicalField(event, 'nextCursor', { allowZero: true })
+    if (cursor.present && !cursor.value) return invalid('invalid_cursor')
+    if (nextCursor.present && !nextCursor.value) return invalid('invalid_cursor')
+    if (cursor.value && nextCursor.value && cursor.value !== nextCursor.value) return invalid('cursor_conflict')
+    const readyCursor = nextCursor.value || cursor.value
+    if (readyCursor && ((id && id !== readyCursor) || (sequence.value && sequence.value !== readyCursor))) {
+      return invalid('cursor_conflict')
+    }
+    const candidate = sequence.value || id || readyCursor
+    if (onEvent?.(event, candidate) === false) return invalid('event_rejected')
+    if (candidate) onCursor?.(candidate)
+    onCommitted?.(event, candidate)
+    frame = emptyFrame()
+    return true
+  }
+  const consume = line => {
+    if (line === '') return dispatch()
+    if (line.startsWith(':')) return true
+    if (line.startsWith('event:')) {
+      if (frame.hasEvent) return invalid('duplicate_event')
+      frame.hasEvent = true; frame.event = line.slice(6).replace(/^ /, ''); return true
+    }
+    if (line.startsWith('id:')) {
+      if (frame.hasId) return invalid('duplicate_id')
+      frame.hasId = true
+      frame.id = line.slice(3).replace(/^ /, '')
+      return true
+    }
+    if (line.startsWith('data:')) {
+      frame.data.push(line.slice(5).replace(/^ /, ''))
+      return true
+    }
+    return true
+  }
+  return {
+    push (chunk) {
+      if (failed) return
+      buffer += String(chunk || '')
+      let parsed
+      while ((parsed = nextLine(buffer))) {
+        buffer = parsed.rest
+        if (consume(parsed.line) === false) break
+      }
+    },
+    finish () {
+      if (failed) return
+      if (buffer.endsWith('\r')) {
+        consume(buffer.slice(0, -1))
+        buffer = ''
+      } else if (buffer) {
+        consume(buffer)
+        buffer = ''
+      }
+      if (frame.data.length) dispatch()
+    }
+  }
+}

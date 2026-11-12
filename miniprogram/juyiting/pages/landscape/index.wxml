@@ -1,0 +1,2 @@
+<web-view wx:if="{{url}}" class="framework-webview" src="{{url}}" bindmessage="onWebMessage"></web-view>
+<view wx:else class="framework-error">{{message}}</view>
