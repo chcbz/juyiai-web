@@ -2,29 +2,87 @@
   <div class="media-asset">
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="previewUrl && mediaKind === 'image'">
-      <button type="button" class="image-button" aria-label="放大查看图片" @click="expanded = true"><img :src="previewUrl" :alt="part.filename || '会话图片'" /></button>
+      <button
+        type="button"
+        class="image-button"
+        aria-label="放大查看图片"
+        @click="expanded = true"
+      ><img :src="previewUrl" :alt="part.filename || '会话图片'" /></button>
 
     </template>
     <template v-else-if="mediaKind === 'image'"><span>{{ loading ? '正在读取图片…' : '图片暂不可预览，请打开预览后重试。' }}</span></template>
     <template v-if="mediaKind === 'audio'">
-      <audio v-if="previewUrl" :src="previewUrl" controls controlslist="nodownload" preload="none" aria-label="会话音频" />
-      <button v-else type="button" :disabled="loading" @click="loadPreview">{{ loading ? '正在读取音频…' : '播放音频' }}</button>
+      <audio
+        v-if="previewUrl"
+        :src="previewUrl"
+        controls
+        controlslist="nodownload"
+        preload="none"
+        aria-label="会话音频"
+      ></audio>
+      <button
+        v-else
+        type="button"
+        :disabled="loading"
+        @click="loadPreview"
+      >{{ loading ? '正在读取音频…' : '播放音频' }}</button>
     </template>
     <div class="media-actions" role="group" aria-label="成果操作">
       <button type="button" :disabled="loading" @click="expanded = true">预览</button>
       <slot name="actions"></slot>
     </div>
     <Teleport to="body">
-      <dialog v-if="expanded" ref="previewDialog" class="image-overlay" aria-label="会话资料预览" @cancel.prevent="expanded = false" @click="closeOnBackdrop">
-        <header><strong>{{ part.filename || '资料预览' }}</strong><button type="button" class="media-preview-close" aria-label="关闭预览" title="关闭预览" @click="expanded = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
+      <dialog
+        v-if="expanded"
+        ref="previewDialog"
+        class="image-overlay"
+        aria-label="会话资料预览"
+        @cancel.prevent="expanded = false"
+        @click="closeOnBackdrop"
+      >
+        <header><strong>{{ part.filename || '资料预览' }}</strong><button
+          type="button"
+          class="media-preview-close"
+          aria-label="关闭预览"
+          title="关闭预览"
+          @click="expanded = false"
+        ><svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        ><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
         <img v-if="previewUrl && mediaKind === 'image'" :src="previewUrl" :alt="part.filename || '会话图片'" />
-        <audio v-else-if="previewUrl && mediaKind === 'audio'" :src="previewUrl" controls controlslist="nodownload" preload="none" aria-label="音频预览" />
-        <RichDocumentPreview v-else-if="previewBlob && documentKind" :text="previewText" :kind="documentKind" :title="part.filename" />
+        <audio
+          v-else-if="previewUrl && mediaKind === 'audio'"
+          :src="previewUrl"
+          controls
+          controlslist="nodownload"
+          preload="none"
+          aria-label="音频预览"
+        ></audio>
+        <RichDocumentPreview
+          v-else-if="previewBlob && documentKind"
+          :text="previewText"
+          :kind="documentKind"
+          :title="part.filename"
+        />
         <pre v-else-if="previewBlob && mediaKind === 'text'" class="asset-text-preview" v-text="previewText"></pre>
         <PdfDocumentPreview v-else-if="previewBlob && mediaKind === 'pdf'" :blob="previewBlob" />
         <p v-else>{{ loading ? '正在读取…' : '此格式暂不支持在线预览，可下载原文件查看。' }}</p>
         <p v-if="error" role="alert">{{ error }}</p>
-        <footer><button v-if="!previewBlob && (mediaKind !== 'file' || documentKind)" type="button" :disabled="loading" @click="loadPreview">重试预览</button><button v-if="part.assetId" type="button" :disabled="downloading" @click="downloadFile">{{ downloading ? '正在下载…' : '下载文件' }}</button></footer>
+        <footer><button
+          v-if="!previewBlob && (mediaKind !== 'file' || documentKind)"
+          type="button"
+          :disabled="loading"
+          @click="loadPreview"
+        >重试预览</button><button
+          v-if="part.assetId"
+          type="button"
+          :disabled="downloading"
+          @click="downloadFile"
+        >{{ downloading ? '正在下载…' : '下载文件' }}</button></footer>
       </dialog>
     </Teleport>
   </div>
