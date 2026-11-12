@@ -1,0 +1,2 @@
+#guest-demo-preview-note{position:fixed;right:16px;bottom:82px;z-index:9999;max-width:min(370px,calc(100vw - 32px));padding:10px 14px;border:1px solid #dac4b7;border-radius:10px;background:#fffefa;color:#714235;box-shadow:0 3px 14px #242e2b16;font:12px/1.6 system-ui;pointer-events:none}
+@media(min-width:901px){#guest-demo-preview-note{bottom:16px}}

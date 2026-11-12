@@ -2,15 +2,15 @@
   <main class="landing-page">
     <section class="landing-hero">
       <nav class="landing-nav" aria-label="首页导航">
-        <RouterLink class="brand" :to="homeTarget">聚义厅 <small>AI 协作工作台</small></RouterLink>
+        <RouterLink class="brand" :to="homeTarget">聚义 <small>AI 协作工作台</small></RouterLink>
         <RouterLink class="nav-login" :to="hallTarget">进入工作台 →</RouterLink>
       </nav>
 
       <div class="hero-layout">
         <div class="hero-copy">
-          <p class="eyebrow">一个目标，多个 AI 分工协作</p>
-          <h1><span>你说要做什么，</span><span>让 AI 小队一起办。</span></h1>
-          <p class="hero-description">聚义厅是一个 AI 协作工作台。你可以发布任务、选择 AI 帮手、跟进进度，在同一个地方查看任务和对话。</p>
+          <p class="eyebrow">从一个目标，到一份可验收的成果</p>
+          <h1><span>你说要做什么，</span><span>让好汉帮你办成。</span></h1>
+          <p class="hero-description">聚义是一个 AI 协作工作台。你可以发布任务、选择 AI 帮手、跟进进度，在同一个地方查看任务和对话。</p>
           <div class="hero-actions">
             <RouterLink class="primary-action" :to="demoTarget">免登录看示例 →</RouterLink>
             <RouterLink class="secondary-action" :to="hallTarget">进入工作台</RouterLink>
@@ -21,9 +21,9 @@
           <p class="example-badge">示例预览 · 非真实执行</p>
           <h2>“帮我准备一套新品发布文案”</h2>
           <ol>
-            <li><span>01</span><div><strong>策划</strong><p>明确受众，列出内容大纲</p></div></li>
-            <li><span>02</span><div><strong>写作</strong><p>起草长文和三条短帖</p></div></li>
-            <li><span>03</span><div><strong>校对</strong><p>检查信息，整理发布清单</p></div></li>
+            <li><span>01</span><div><strong>提出需求</strong><p>说清目标，约定交付内容</p></div></li>
+            <li><span>02</span><div><strong>确认承办</strong><p>选择好汉，核对报价后开始</p></div></li>
+            <li><span>03</span><div><strong>议事与验收</strong><p>补充要求，检查成果并验收</p></div></li>
           </ol>
           <p class="example-result">示例产出：长文初稿、渠道短帖、检查表</p>
           <RouterLink class="example-link" :to="demoTarget">选择一个协作示例 →</RouterLink>

@@ -1,6 +1,6 @@
 import { expect } from 'chai'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { createMiniRuntimeLoader } from './helpers/miniProgramRuntime.js'
@@ -114,29 +114,39 @@ const miniProject = process.env.MINIPROGRAM_PROJECT
 
 // Execute the actual Vue SFCs, not a duplicate demo state machine.
 describe('public entry rendered interactions', () => {
-  let mount, nextTick, Demo, Home
+  let mount, nextTick, Demo, Home, originalSuiteScroll
   before(async () => {
+    originalSuiteScroll = window.HTMLElement.prototype.scrollIntoView
+    window.HTMLElement.prototype.scrollIntoView = () => {}
     global.Element = window.Element
     global.SVGElement = window.SVGElement
     global.Node = window.Node
     ;({ mount } = await import('@vue/test-utils'))
     ;({ nextTick } = await import('vue'))
     const { parse, compileScript } = await import('@vue/compiler-sfc')
-    const compile = async file => {
+    const compileUrl = async file => {
       const { descriptor } = parse(source(file), { filename: file })
       const result = compileScript(descriptor, { id: file, inlineTemplate: true })
-      const imports = {
-        vue: pathToFileURL(createRequire(import.meta.url).resolve('vue')).href,
-        'vue-router': pathToFileURL(createRequire(import.meta.url).resolve('vue-router')).href,
-        '@/constants/publicBetaDemo': new URL('../src/constants/publicBetaDemo.js', import.meta.url).href,
-        '@/utils/publicEntryNavigation': new URL('../src/utils/publicEntryNavigation.js', import.meta.url).href
+      let code = result.content
+      for (const match of [...code.matchAll(/from (['"])([^'"]+)\1/g)]) {
+        const name = match[2]
+        let target
+        if (name.endsWith('.vue')) target = await compileUrl(join(dirname(file), name))
+        else if (name.startsWith('@/')) target = pathToFileURL(resolve('src', name.slice(2) + (name.endsWith('.js') ? '' : '.js'))).href
+        else if (name.startsWith('.')) target = pathToFileURL(resolve(dirname(file), name)).href
+        else target = pathToFileURL(createRequire(import.meta.url).resolve(name)).href
+        code = code.replace(match[0], `from '${target}'`)
       }
-      const code = result.content.replace(/from (['"])([^'"]+)\1/g,
-        (original, quote, name) => imports[name] ? `from '${imports[name]}'` : original)
-      return (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)).default
+      return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
     }
+    const compile = async file => (await import(await compileUrl(file))).default
     Demo = await compile('src/components/public/GuestDemo.vue')
     Home = await compile('src/components/public/PublicLanding.vue')
+  })
+
+  after(() => {
+    if (originalSuiteScroll) window.HTMLElement.prototype.scrollIntoView = originalSuiteScroll
+    else delete window.HTMLElement.prototype.scrollIntoView
   })
 
   const routerAt = async path => {
@@ -148,11 +158,74 @@ describe('public entry rendered interactions', () => {
 
   it('renders unambiguous home links that retain the native host marker', async () => {
     const router = await routerAt('/?nativeOrientation=portrait&entry=direct')
-    const wrapper = mount(Home, { global: { plugins: [router] } })
+    const wrapper = mount(Home, { global: { plugins: [router], stubs: { 'var-icon': true } } })
     try {
       expect(wrapper.get('.primary-action').attributes('href')).to.equal('/demo?nativeOrientation=portrait&entry=direct')
       expect(wrapper.get('.secondary-action').attributes('href')).to.equal('/juyiting?nativeOrientation=portrait&entry=direct')
       expect(wrapper.text()).to.include('非真实执行')
+    } finally { wrapper.unmount() }
+  })
+
+  it('matches actual workbench navigation and guards empty demand', async () => {
+    const { hallWorkbenchTabs } = await import('../src/constants/hallWorkbenchNavigation.js')
+    expect(hallWorkbenchTabs.map(tab => tab.label)).to.deep.equal(['办事', '事项', '资料', '我的'])
+    expect(source('src/components/world/JuyiHall.vue')).to.include('const workbenchPrimaryTabs = hallWorkbenchTabs')
+    const router = await routerAt('/demo')
+    const wrapper = mount(Demo, { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    try {
+      await wrapper.get('textarea').setValue('   ')
+      expect(wrapper.get('button.next-action').attributes('disabled')).to.not.equal(undefined)
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.find('.recommendation-stage').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
+  for (const outcome of ['accept', 'cancel']) {
+    it(`keeps reservation local and releases it on ${outcome}, then resets on restart`, async () => {
+      const router = await routerAt('/demo?access_token=do-not-forward')
+      const wrapper = mount(Demo, { global: { plugins: [router], stubs: { 'var-icon': true } } })
+      try {
+        await wrapper.get('.template-stage form').trigger('submit')
+        await wrapper.findAll('.agent-choice')[1].trigger('click')
+        await wrapper.get('button.next-action').trigger('click')
+        expect(wrapper.get('.matter-aside').text()).to.include('预占18 文')
+        await wrapper.get('.reply-form textarea').setValue('<script>example</script>')
+        await wrapper.get('.reply-form').trigger('submit')
+        expect(wrapper.find('.discussion-messages script').exists()).to.equal(false)
+        expect(wrapper.get('.discussion-messages').text()).to.include('<script>example</script>')
+        expect(wrapper.get('.reply-form textarea').element.value).to.equal('')
+        await wrapper.get('button.next-action').trigger('click')
+        expect(wrapper.find('.accept-action').exists()).to.equal(true)
+        expect(wrapper.get('.matter-aside').text()).to.include('预占18 文')
+        await wrapper.findAll('.demo-sidebar nav button')[2].trigger('click')
+        expect(wrapper.get('.resources-stage').text()).to.include('v1')
+        await wrapper.findAll('.demo-sidebar nav button')[1].trigger('click')
+        if (outcome === 'accept') await wrapper.get('.accept-action').trigger('click')
+        else await wrapper.get('.cancel-action').trigger('click')
+        expect(wrapper.get('.matter-aside').text()).to.include('预占0 文')
+        expect(wrapper.get('.matter-aside').text()).to.include(`已结算${outcome === 'accept' ? 18 : 0} 文`)
+        expect(wrapper.find('.accept-action').exists()).to.equal(false)
+        expect(wrapper.find('.cancel-action').exists()).to.equal(false)
+        expect(wrapper.get('.link-action').attributes('href')).not.to.include('access_token')
+        await wrapper.get('.result-stage .quiet-action').trigger('click')
+        expect(wrapper.get('.matter-aside').text()).to.include('可用100 文')
+        expect(wrapper.find('.template-stage').exists()).to.equal(true)
+      } finally { wrapper.unmount() }
+    })
+  }
+
+  it('cancels before assignment without inventing an assignee or settlement', async () => {
+    const router = await routerAt('/demo')
+    const wrapper = mount(Demo, { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    try {
+      await wrapper.get('.template-stage form').trigger('submit')
+      await wrapper.get('.cancel-action').trigger('click')
+      expect(wrapper.get('.matter-aside').text()).to.include('承办人待确认')
+      expect(wrapper.get('.matter-aside').text()).to.include('可用100 文')
+      expect(wrapper.find('.result-card').exists()).to.equal(false)
+      await wrapper.findAll('.demo-sidebar nav button')[3].trigger('click')
+      await wrapper.findAll('.mine-grid button')[0].trigger('click')
+      expect(wrapper.get('.feature-note').text()).to.include('未读取账号')
     } finally { wrapper.unmount() }
   })
 
@@ -162,12 +235,13 @@ describe('public entry rendered interactions', () => {
       const originalScroll = window.HTMLElement.prototype.scrollIntoView
       let scrolls = 0
       window.HTMLElement.prototype.scrollIntoView = function () { scrolls++ }
-      const wrapper = mount(Demo, { attachTo: document.body, global: { plugins: [router] } })
+      const wrapper = mount(Demo, { attachTo: document.body, global: { plugins: [router], stubs: { 'var-icon': true } } })
       try {
         await wrapper.findAll('.template-card')[index].trigger('click')
         expect(wrapper.findAll('.template-card')[index].attributes('aria-pressed')).to.equal('true')
         for (let step = 2; step <= 4; step++) {
-          await wrapper.get('button.next-action').trigger('click')
+          if (step === 2) await wrapper.get('.template-stage form').trigger('submit')
+          else await wrapper.get('button.next-action').trigger('click')
           await nextTick()
           expect(wrapper.findAll('.stepper li')[step - 1].attributes('aria-current')).to.equal('step')
           expect(document.activeElement).to.equal(wrapper.get('.demo-workspace h2').element)

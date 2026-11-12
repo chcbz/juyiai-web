@@ -916,6 +916,7 @@
 </template>
 
 <script setup>
+import { hallWorkbenchTabs } from '@/constants/hallWorkbenchNavigation'
 import { Dialog } from '@varlet/ui'
 import HallMessageWindow from '../juyiting/HallMessageWindow.vue'
 import { useHallTerminalTextHistory } from '@/composables/juyiting/useHallTerminalTextHistory'
@@ -1165,12 +1166,7 @@ const voiceReplyCorrelation = createHallVoiceReplyCorrelation({
   onReply: message => hallVoice?.completeReply(message)
 })
 const { homeMode, isOverviewHome, setHomeMode } = useHallHomeMode()
-const workbenchPrimaryTabs = Object.freeze([
-  { panel: 'overview', label: '办事', icon: 'home-outline' },
-  { panel: 'tasks', label: '事项', icon: 'format-list-checkbox' },
-  { panel: 'treasure', label: '资料', icon: 'file-document-outline' },
-  { panel: 'mine', label: '我的', icon: 'account-circle-outline' }
-])
+const workbenchPrimaryTabs = hallWorkbenchTabs
 const workbenchMobileTabs = workbenchPrimaryTabs
 const workbenchPrimaryPanelSet = new Set(workbenchPrimaryTabs.map(tab => tab.panel))
 const workbenchMenuOpen = ref(false)
