@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { isCanonicalDecimalString as decimal, isWenMoney } from '../../utils/wenAmount.js'
+import { isWenMoney } from '../../utils/wenAmount.js'
 import { registerIdentityCleanup } from '../../utils/identityLifecycle.js'
 import { definitiveHostingFailure, hostingPayload, hostingRequest, lookupNotOlder, matchingHostingReceipt,
   text, validLookup, validOperation, validQuote, validSetup } from './hostingRentContract.js'

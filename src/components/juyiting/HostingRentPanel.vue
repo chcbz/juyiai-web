@@ -14,13 +14,18 @@
       <template v-if="!rent.state.value.setup">
         <h4>先登记接入目标（不付款）</h4>
         <p>粘贴接入端生成的公开登记材料；不要粘贴原令牌。平台托管材料由运维提供，自行部署材料在自己的机器生成。</p>
-        <label>登记材料 JSON<textarea v-model="setupInput" rows="4" aria-label="接入登记材料" /></label>
+        <label>登记材料 JSON<textarea v-model="setupInput" rows="4" aria-label="接入登记材料"></textarea></label>
         <button type="button" :disabled="!rent.canInitial.value" @click="registerSetup">登记目标</button>
       </template>
       <template v-else>
         <h4>目标已登记，等待Runtime接入</h4>
         <p>将以下公开授权元数据导入接入端一次。后续控制权限自动领取，不需要固定IP或手动建立隧道。</p>
-        <textarea :value="JSON.stringify(rent.state.value.setup.authorization, null, 2)" rows="6" readonly aria-label="接入授权元数据" />
+        <textarea
+          :value="JSON.stringify(rent.state.value.setup.authorization, null, 2)"
+          rows="6"
+          readonly
+          aria-label="接入授权元数据"
+        ></textarea>
         <p>Runtime仅准备隔离目录并实测技能清单；确认报价前不预留租金、不启动付费Agent。</p>
       </template>
     </section>
@@ -76,11 +81,21 @@
     </section>
 
     <div class="hosting-actions">
-      <button v-if="!rent.ready.value" type="button" :disabled="rent.busy.value" @click="openPersona">重新核对租金预览</button>
+      <button
+        v-if="!rent.ready.value"
+        type="button"
+        :disabled="rent.busy.value"
+        @click="openPersona"
+      >重新核对租金预览</button>
       <button v-if="rent.canInitial.value && !quote && (!rent.setupEnabled.value || rent.state.value.setup)" type="button" @click="rent.previewInitial">查看安顿报价（未确认不付款）</button>
       <button v-if="rent.canRenew.value && !quote" type="button" @click="rent.previewRenewal">手动续租 · 先看报价</button>
       <button v-if="rent.canReprovision.value && !quote" type="button" @click="acceptedAction(rent.reprovision)">免费重整接应（不续租，不延长到期日）</button>
-      <button v-if="rent.ready.value" type="button" :disabled="rent.busy.value" @click="rent.refresh">重查租约与余额（不付款）</button>
+      <button
+        v-if="rent.ready.value"
+        type="button"
+        :disabled="rent.busy.value"
+        @click="rent.refresh"
+      >重查租约与余额（不付款）</button>
     </div>
   </section>
 </template>
