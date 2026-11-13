@@ -63,6 +63,19 @@
               <div>
                 <strong ref="detailTitleRef" tabindex="-1">{{ selectedAgent.name || selectedAgent.personaName || selectedAgent.agentId }}</strong>
                 <small>{{ portraitName(selectedAgent) }}</small>
+                <small
+                  class="profile-model"
+                  aria-label="使用模型"
+                  role="status"
+                  title="最近上报的默认执行模型；不代表某次调用或工具模型，离线时仍保留最近记录。"
+                >
+                  <span>模型：</span>
+                  <span v-if="!canReadProfile">仅拥有者可查看模型</span>
+                  <span v-else-if="profileCapabilitiesLoading">正在读取模型…</span>
+                  <span v-else-if="profileCapabilitiesError" class="profile-error">模型读取失败，可刷新重试</span>
+                  <span v-else-if="profile">{{ profile.executionModel || '暂未上报' }}</span>
+                  <span v-else>模型资料尚未读取</span>
+                </small>
               </div>
             </div>
             <div v-if="canManagePolicy" class="external-policy" aria-label="接外单设置">
@@ -99,15 +112,6 @@
                 @click="$emit('refresh-external-policy')"
               >重查设置</button>
             </div>
-            <section class="profile-section" aria-label="使用模型">
-              <div class="profile-heading"><h3>使用模型</h3></div>
-              <p v-if="!canReadProfile" role="status">仅拥有者可查看模型</p>
-              <p v-else-if="profileCapabilitiesLoading" role="status">正在读取模型…</p>
-              <p v-else-if="profileCapabilitiesError" class="profile-error" role="status">模型读取失败，可刷新重试</p>
-              <p v-else-if="profile" class="profile-model" role="status">{{ profile.executionModel || '暂未上报' }}</p>
-              <p v-else role="status">模型资料尚未读取</p>
-              <p class="profile-note">最近上报的默认执行模型；不代表某次调用或工具模型，离线时仍保留最近记录。</p>
-            </section>
             <section class="profile-section" aria-label="技能">
               <div class="profile-heading">
                 <h3>技能</h3>
@@ -579,7 +583,7 @@ button {
   overscroll-behavior: contain;
   overflow-wrap: anywhere;
 }
-.profile-model { overflow-wrap: anywhere; }
+.detail-head .profile-model { margin-top: 4px; color: var(--hall-text-muted, #68716b); line-height: 1.6; overflow-wrap: anywhere; }
 .profile-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--hall-border, #e3e5dc); }
 .profile-heading, .skill-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .profile-heading h3 { margin: 0; font-size: 14px; font-weight: 600; }

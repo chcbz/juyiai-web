@@ -45,3 +45,7 @@
 .mmd-more-menu {display:grid;gap:8px}.mmd-more-menu button {text-align:left}
 @media(max-width:600px){.chat-panel .composer-textarea{font-size:16px}.chat-panel .composer-body{padding:9px}}
 .mmd-voice-transcript textarea {display:block;width:100%;margin-top:8px;padding:10px;border:1px solid #d6c6b3;border-radius:7px;font:inherit;resize:vertical}
+
+/* 好汉身份信息内的模型：长名称完整换行，不独立成区。 */
+.detail-head > div { min-width: 0; }
+.detail-head .profile-model, .persona-main .persona-model { display: block; margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--hall-text-muted, #68716b); white-space: normal; overflow-wrap: anywhere; }
