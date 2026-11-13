@@ -32,6 +32,24 @@ const tick = async () => { await Vue.nextTick(); await Promise.resolve(); await 
 const mountPanel = agentApi => mount(makeComponent(agentApi), { props: { ...props }, global: { stubs: { 'var-icon': true } } })
 
 describe('runtime self-host onboarding panel', () => {
+  it('shows the configured model in each catalog identity without substituting a reported model', async () => {
+    const wrapper = mountPanel({})
+    const longModel = 'model/' + 'long-'.repeat(60) + '<img src=x onerror=alert(1)>'
+    const persona = { personaCode: 'wuyong', name: '吴用', configuredModel: 'gpt-6-luna', executionModel: 'not-the-configured-model' }
+    try {
+      await wrapper.setProps({ personas: [persona, { personaCode: 'linchong', name: '林冲' }] })
+      const cards = () => wrapper.findAll('.persona-card')
+      expect(cards()[0].get('.persona-main .persona-model').text()).to.equal('配置模型：gpt-6-luna')
+      expect(cards()[0].text()).not.to.include('not-the-configured-model')
+      expect(cards()[1].get('.persona-model').text()).to.equal('配置模型：暂未配置')
+      await wrapper.setProps({ personas: [{ ...persona, configuredModel: longModel }] })
+      expect(cards()[0].get('.persona-model').text()).to.equal('配置模型：' + longModel)
+      expect(cards()[0].get('.persona-model').find('img').exists()).to.equal(false)
+      await wrapper.setProps({ personas: [{ ...persona, configuredModel: 'gpt-6.1-terra' }] })
+      expect(cards()[0].get('.persona-model').text()).to.equal('配置模型：gpt-6.1-terra')
+    } finally { wrapper.unmount() }
+  })
+
   it('renders real scope, guide, safe prepare command and legacy-free copy action', async () => {
     const wrapper = mountPanel({ post: async () => {}, get: async () => {} })
     const copied = []

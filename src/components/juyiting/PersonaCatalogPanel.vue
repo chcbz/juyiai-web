@@ -80,6 +80,7 @@
             <em>{{ persona.rankNo ? `第 ${persona.rankNo} 位` : '梁山好汉' }}</em>
           </div>
           <small>{{ portraitName(persona) }} / {{ persona.starName || '星号未载' }}</small>
+          <p class="persona-model">配置模型：{{ persona.configuredModel || '暂未配置' }}</p>
           <div class="ability-tags">
             <span v-for="ability in (persona.abilities || []).slice(0, 3)" :key="ability">{{ ability }}</span>
             <span v-if="!(persona.abilities || []).length">暂无能力介绍</span>
@@ -543,6 +544,14 @@ onUnmounted(() => { mounted = false; clearRuntimeState() })
 
 .persona-main {
   min-width: 0;
+}
+
+.persona-model {
+  margin: 4px 0 0;
+  color: var(--hall-text-muted, #68716b);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .persona-head {

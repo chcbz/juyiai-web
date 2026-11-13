@@ -329,12 +329,20 @@ describe('AgentPanel semantic controls', () => {
 
 describe('AgentPanel reported execution model', () => {
   it('shows the reported model, never a hardcoded target, and clears it on agent switch or refresh', async () => {
-    const target = { ...agent, boundToMe: true }
+    const target = { ...agent, boundToMe: true, configuredModel: 'target-must-not-replace-reported' }
     const profile = { agentId: agent.agentId, observedAt: 10000, executionModel: 'fixture-model/v2', abilities: [], skills: { status: 'AVAILABLE', items: [] } }
     const wrapper = mount(AgentPanel, { props: { ...props, selectedAgent: target, profileCapabilities: profile } })
     try {
       const text = () => wrapper.get('[aria-label="使用模型"]').text()
       expect(text()).to.include('fixture-model/v2')
+      expect(wrapper.get('.detail-head [aria-label="使用模型"]').text()).to.include('fixture-model/v2')
+      expect(wrapper.find('section[aria-label="使用模型"]').exists()).to.equal(false)
+      expect(text()).not.to.include('target-must-not-replace-reported')
+      const longModel = 'fixture-model/' + 'long-'.repeat(60) + '<img src=x onerror=alert(1)>'
+      await wrapper.setProps({ profileCapabilities: { ...profile, executionModel: longModel } })
+      expect(text()).to.include(longModel)
+      expect(wrapper.get('[aria-label="使用模型"]').find('img').exists()).to.equal(false)
+      await wrapper.setProps({ profileCapabilities: profile })
       await wrapper.setProps({ profileCapabilitiesLoading: true })
       expect(text()).to.include('正在读取模型').and.not.include('fixture-model/v2')
       await wrapper.setProps({ profileCapabilitiesLoading: false, profileCapabilitiesError: 'offline' })
