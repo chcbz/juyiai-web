@@ -18,13 +18,20 @@ window.requests=[];window.rejectStale=false;window.selfHosted=new URLSearchParam
 window.rentSnapshot=new URLSearchParams(location.search).has('lifecycle')?activeHostingLookup({lease:{amountWen:'500',periodSeconds:'2592000',paidThrough:Date.now()+2592000000}}):null;
 if(new URLSearchParams(location.search).has('transition'))window.rentSnapshot=activeHostingLookup({lease:{settlementKind:'TRANSITION',amountWen:new URLSearchParams(location.search).get('transition'),periodSeconds:'2592000',paidThrough:Date.now()+2592000000},intent:{reserveTransactionId:null,captureTransactionId:null,refundTransactionId:null,serviceReadyAt:null}});
 const amount={currency:'WEN',amountMinor:'3500'};
-export const economyApi={get:async path=>path==='/capabilities'?{economyPreviewEnabled:true,skillMarketplaceEnabled:true,principalScopeSha256:'a'.repeat(64)}:{currency:'WEN',available:amount,held:{currency:'WEN',amountMinor:'0'}}};
+window.onboarding=new URLSearchParams(location.search).has('onboarding');
+const host={hostId:'selfhost-browser',mode:'local',tenantId:'0',clientId:'fixture',ownerJiacn:'owner',tokenSha256:'b'.repeat(64)};
+window.hosts=[];
+const setup=mode=>({setupId:'hca_browser',personaCode:'linchong',agentId:'agt_server_proposal',mode,status:'WAITING_INVENTORY',authorization:{authorizationId:'hca_browser',hostId:mode==='local'?host.hostId:'managed-browser',tenantId:'0',clientId:'fixture',ownerJiacn:'owner',canonicalAgentId:'agt_server_proposal'}});
+export const economyApi={get:async path=>path==='/capabilities'?{economyPreviewEnabled:true,skillMarketplaceEnabled:true,hostingSetupEnabled:window.onboarding,principalScopeSha256:'a'.repeat(64)}:{currency:'WEN',available:amount,held:{currency:'WEN',amountMinor:'0'}}};
 export const agentApi={create:async(path,body,options)=>{
 window.requests.push({path,body,key:options.headers['Idempotency-Key']});
+if(path==='/hosting-hosts'){window.hosts=[host];return host;}
+if(path.endsWith('/hosting-setups'))return setup(body.mode);
+if(path.endsWith('/cancel'))return {...setup(window.selfHosted?'local':'server'),status:'REVOKED',authorization:null};
 if(path.endsWith('/quotes'))return hostingQuote({planId:window.selfHosted?'agent-self-hosted':'agent-hosting-preview',amountWen:window.selfHosted?'200':'650',recurringAmountWen:window.selfHosted?'50':'500',initialSkillCount:'3',initialSkillAmountWen:'150',periodSeconds:'2592000',expiresAt:Date.now()+300000});
 if(window.rejectStale){const e=new Error('HOSTING_RENT_QUOTE_STALE');e.code='HOSTING_RENT_QUOTE_STALE';e.status=409;throw e;}
 return hostingReceipt({amountWen:window.selfHosted?'200':'650',periodSeconds:'2592000',occurredAt:Date.now()});
-},get:async()=>window.rentSnapshot||hostingLookup({lease:{amountWen:'650',periodSeconds:'2592000'}})};`
+},get:async path=>path==='/hosting-hosts'?{items:window.hosts,nextCursor:null,hasMore:false}:window.rentSnapshot||hostingLookup({lease:{amountWen:'650',periodSeconds:'2592000'}})};`
 const page = `<meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div><script type="module">
 import {createApp,h} from 'vue';import Panel from '/src/components/juyiting/HostingRentPanel.vue';import {hostingPersona} from '/tests/hosting-rent-fixtures.js';
 sessionStorage.clear();window.panelClosed=false;const persona=hostingPersona(new URLSearchParams(location.search).has('lifecycle')?{bound:true,boundToMe:true,agentId:'agt_server_proposal'}:{});createApp({render:()=>h(Panel,{persona,requestedMode:new URLSearchParams(location.search).get('selection'),resolvePersona:()=>persona,onClose:()=>{window.panelClosed=true}})}).mount('#app');</script>`
@@ -151,6 +158,40 @@ try {
       await writeFile(`${evidence}/${name}-transition-${amount}.png`, image)
       result.screenshots[`${name}-transition-${amount}`] = hash(image)
       result.checks.push(`${name}:transition:${amount}:normal future rent, no invented payment, read-only refresh and fit`)
+    }
+  }
+  // Current capability + actual decoder + actual component, across device sizes.
+  for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844], ['narrow', 320, 740]]) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 760 })
+    for (const mode of ['server', 'local']) {
+      await cdp.send('Page.navigate', { url: `http://127.0.0.1:${address.port}/rent-check?onboarding&selection=${mode}${mode === 'local' ? '&selfhost' : ''}` })
+      if (mode === 'local') {
+        await waitForExpression(cdp, `!!document.querySelector('select[aria-label="自行部署主机"]')`)
+        assert.equal(await evaluate(cdp, 'window.requests.length'), 0)
+        await evaluate(cdp, `document.querySelector('details').open=true`)
+        const fill = value => evaluate(cdp, `(()=>{const t=document.querySelector('textarea[aria-label="主机公开登记材料"]');t.value=${JSON.stringify(JSON.stringify(value))};t.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+        await fill({ token: 'never-upload' }); await click('登记主机（不付款）')
+        await waitForExpression(cdp, `document.body.innerText.includes('不接受令牌')`)
+        assert.equal(await evaluate(cdp, 'window.requests.length'), 0)
+        await fill({ hostId: 'selfhost-browser', tokenSha256: 'b'.repeat(64) }); await click('登记主机（不付款）')
+        await waitForExpression(cdp, `!!document.querySelector('textarea[aria-label="主机归属元数据"]')`)
+        await click('选择主机并查看报价')
+      }
+      await waitForExpression(cdp, `!!document.querySelector('[aria-label="租金报价确认"]')`)
+      const writes = await evaluate(cdp, 'window.requests')
+      assert.deepEqual(writes.find(r => r.path.endsWith('/hosting-setups')).body, { mode, hostId: mode === 'local' ? 'selfhost-browser' : null })
+      assert.equal(writes.find(r => r.path.endsWith('/quotes')).body.setupId, 'hca_browser')
+      assert.equal(writes.some(r => r.path.endsWith('/bind')), false)
+      assert.equal(await evaluate(cdp, `document.querySelector('textarea')===null`), true, 'no per-invitation pairing after target prepared')
+      assert.equal(await evaluate(cdp, `(()=>{const p=document.querySelector('.hosting-rent-panel');return p.scrollWidth<=p.clientWidth+1&&document.documentElement.scrollWidth<=innerWidth})()`), true)
+      const image = Buffer.from((await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })).data, 'base64')
+      await writeFile(`${evidence}/${name}-onboarding-${mode}.png`, image)
+      result.screenshots[`${name}-onboarding-${mode}`] = hash(image)
+      await click('取消未付款目标，重新选择')
+      await waitForExpression(cdp, `!document.querySelector('[aria-label="租金报价确认"]')`)
+      assert.equal(await evaluate(cdp, `window.requests.filter(r=>r.path.endsWith('/cancel')).length`), 1)
+      assert.equal(await evaluate(cdp, `window.requests.filter(r=>r.path.endsWith('/bind')).length`), 0)
+      result.checks.push(`${name}:${mode}:current capability decoder, host registration/automatic setup, quote binding, unpaid cancellation, no charge and fit`)
     }
   }
   assert.deepEqual(result.exceptions, [])

@@ -2,11 +2,11 @@ import { computed, ref } from 'vue'
 import { isWenMoney } from '../../utils/wenAmount.js'
 import { registerIdentityCleanup } from '../../utils/identityLifecycle.js'
 import { definitiveHostingFailure, hostingPayload, hostingRequest, lookupNotOlder, matchingHostingReceipt,
-  text, validLookup, validOperation, validQuote, validSetup } from './hostingRentContract.js'
+  text, validLookup, validOperation, validQuote, validSetup, validHost, validHostRequest } from './hostingRentContract.js'
 
 const browserStorage = () => { try { return globalThis.sessionStorage } catch { return null } }
 const copy = value => value == null ? value : JSON.parse(JSON.stringify(value))
-const empty = () => ({ setup: null, waitingInventory: false, quote: null, operation: null, accepted: null, lookup: null, refreshPending: false })
+const empty = () => ({ registeredHost: null, setup: null, waitingInventory: false, quote: null, operation: null, accepted: null, lookup: null, refreshPending: false })
 const ownedAgentId = persona => persona?.boundToMe === true && text(persona.agentId) ? persona.agentId : null
 const targetSignature = persona => JSON.stringify([persona?.personaCode, ownedAgentId(persona), persona?.boundToMe === true,
   persona?.bound === true, persona?.systemAgent === true, persona?.canBind === true, persona?.version ?? null])
@@ -16,6 +16,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
   storage = browserStorage() } = {}) {
   const target = ref(null)
   const state = ref(empty())
+  const hosts = ref([])
   const wallet = ref(null)
   const busy = ref(false)
   const error = ref('')
@@ -63,6 +64,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     setupEnabled.value = false
     busy.value = false
     scope = ''
+    hosts.value = []
     wallet.value = null
     state.value = empty()
     error.value = '会话或选择已变化，请重新打开山寨安顿核对。'
@@ -123,6 +125,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     const saved = JSON.parse(raw)
     const code = target.value.personaCode
     if (saved.scope !== scope || saved.personaCode !== code) throw new Error('恢复记录 scope 不匹配。')
+    if (saved.registeredHost && !validHost(saved.registeredHost)) throw new Error('主机登记记录不完整，请核对。')
     if (saved.setup && !validSetup(saved.setup, code)) throw new Error('原接入登记记录不完整，请核对。')
     if (saved.operation && !validOperation(saved.operation, code)) throw new Error('原请求恢复记录不完整，已停止新付款。')
     if (saved.accepted && (!validOperation(saved.accepted.operation, code) || !matchingHostingReceipt(saved.accepted.receipt, saved.accepted.operation))) throw new Error('原回执恢复记录不完整，已停止新付款。')
@@ -132,7 +135,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     // A refreshed lease can make an unconfirmed preview stale. Discard only that
     // preview; an unresolved mutation retains its independently validated exact terms.
     const preview = saved.operation?.quote || (saved.quote && validQuote(saved.quote, saved.quote.purpose, code, agentId, saved.lookup?.lease) ? saved.quote : null)
-    state.value = { setup: saved.setup || null, waitingInventory: Boolean(saved.waitingInventory), quote: preview, operation: saved.operation || null, accepted: saved.accepted || null,
+    state.value = { registeredHost: saved.registeredHost || null, setup: saved.setup || null, waitingInventory: Boolean(saved.waitingInventory), quote: preview, operation: saved.operation || null, accepted: saved.accepted || null,
       lookup: saved.lookup || null, refreshPending: Boolean(saved.refreshPending) }
   }
 
@@ -162,7 +165,7 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
       await readWallet(ctx)
       if (!current(ctx)) return false
       if (ownedAgentId(target.value) || state.value.accepted || state.value.lookup?.managed ||
-        (state.value.operation && !state.value.operation.kind.endsWith('_QUOTE'))) await readLease(ctx)
+        (state.value.operation?.agentId && !state.value.operation.kind.endsWith('_QUOTE'))) await readLease(ctx)
       return current(ctx)
     } catch (cause) {
       if (current(ctx)) error.value = state.value.accepted ? `原请求已确认；读取待完成：${cause.message}` : cause.message
@@ -175,10 +178,26 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
     const result = hostingPayload(await agentApi.create(path, body, { ...requestOptions(ctx), headers: { 'Idempotency-Key': operation.key } }))
     if (!current(ctx)) return false
     state.value.waitingInventory = false
+    if (operation.kind === 'SETUP_CANCEL') {
+      if (result?.setupId !== operation.setupId || result.personaCode !== ctx.personaCode || result.status !== 'REVOKED' || result.authorization !== null) throw new Error('取消目标回执与原请求不匹配。')
+      state.value.setup = null
+      state.value.quote = null
+      state.value.operation = null
+      save()
+      return true
+    }
+    if (operation.kind === 'HOST_REGISTER') {
+      if (!validHost(result) || result.hostId !== operation.request.hostId || result.tokenSha256 !== operation.request.tokenSha256) throw new Error('主机登记回执与原请求不匹配。')
+      state.value.registeredHost = copy(result)
+      hosts.value = [...hosts.value.filter(host => host.hostId !== result.hostId), copy(result)]
+      state.value.operation = null
+      save()
+      return true
+    }
     if (operation.kind === 'SETUP') {
-      if (!validSetup(result, ctx.personaCode) || result.mode !== operation.request.mode || result.authorization.hostId !== operation.request.hostId) throw new Error('接入登记回执与原请求不匹配。')
+      if (!validSetup(result, ctx.personaCode) || result.mode !== operation.request.mode || (operation.request.mode === 'local' && result.authorization.hostId !== operation.request.hostId)) throw new Error('接入登记回执与原请求不匹配。')
       state.value.setup = { ...Object.fromEntries(['setupId', 'personaCode', 'agentId', 'mode', 'status'].map(key => [key, result[key]])),
-        authorization: Object.fromEntries(['authorizationId', 'hostId', 'purpose', 'tenantId', 'clientId', 'ownerJiacn', 'canonicalAgentId'].map(key => [key, result.authorization[key]])) }
+        authorization: Object.fromEntries(['authorizationId', 'hostId', 'tenantId', 'clientId', 'ownerJiacn', 'canonicalAgentId'].map(key => [key, result.authorization[key]])) }
       state.value.operation = null
       save()
       return true
@@ -246,6 +265,37 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
   }
   const startSetup = request => canInitial.value && !state.value.setup && setupEnabled.value
     ? perform({ kind: 'SETUP', key: requestKey(), request: copy(request) }) : Promise.resolve(false)
+  const cancelSetup = () => canInitial.value && state.value.setup
+    ? perform({ kind: 'SETUP_CANCEL', key: requestKey(), setupId: state.value.setup.setupId }) : Promise.resolve(false)
+  const registerHost = request => {
+    if (!validHostRequest(request)) { error.value = '只接受hostId和tokenSha256，不接受令牌或其他字段。'; return Promise.resolve(false) }
+    return canInitial.value && setupEnabled.value ? perform({ kind: 'HOST_REGISTER', key: requestKey(), request: copy(request) }) : Promise.resolve(false)
+  }
+  const loadHosts = async () => {
+    if (!ready.value || busy.value || !setupEnabled.value) return false
+    const ctx = context()
+    busy.value = true
+    error.value = ''
+    try {
+      const items = []
+      let cursor = null
+      do {
+        const page = hostingPayload(await agentApi.get('/hosting-hosts', { pageSize: 100, ...(cursor === null ? {} : { cursor }) }, requestOptions(ctx)))
+        if (!current(ctx)) return false
+        if (!Array.isArray(page?.items) || !page.items.every(validHost) || typeof page.hasMore !== 'boolean' ||
+          (page.hasMore ? !page.items.length || page.nextCursor !== page.items.at(-1).hostId : page.nextCursor !== null)) throw new Error('主机列表报文不完整，请重查。')
+        for (const host of page.items) {
+          if (cursor !== null && host.hostId <= cursor) throw new Error('主机列表顺序不匹配，请重查。')
+          cursor = host.hostId
+          items.push(host)
+        }
+        if (!page.hasMore) break
+      } while (current(ctx))
+      hosts.value = items
+      return true
+    } catch (cause) { if (current(ctx)) error.value = cause.message; return false }
+    finally { if (current(ctx)) busy.value = false }
+  }
   const previewRenewal = () => {
     tick()
     if (!canRenew.value || !selected()) return Promise.resolve(false)
@@ -277,6 +327,6 @@ export function useHostingRent({ agentApi, economyApi, loadCapability, enabled =
   }
   const retryUnknown = () => state.value.operation ? perform(copy(state.value.operation), true) : Promise.resolve(false)
 
-  return { target, state, setupEnabled, startSetup, wallet, busy, ready, error, clock, targetAgentId, canInitial, canRenew, canReprovision, canConfirm, quoteExpired,
+  return { target, state, hosts, loadHosts, registerHost, cancelSetup, setupEnabled, startSetup, wallet, busy, ready, error, clock, targetAgentId, canInitial, canRenew, canReprovision, canConfirm, quoteExpired,
     open, refresh, previewInitial, previewRenewal, confirmQuote, cancelQuote, reprovision, retryUnknown, tick, invalidate, dispose }
 }

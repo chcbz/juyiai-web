@@ -568,7 +568,7 @@ describe('outbound invitation setup', () => {
   it('keeps one request while inventory is pending and never submits payment during setup', async () => {
     const calls = []
     const setup = { setupId: 'hca_setup', personaCode: 'linchong', agentId: 'agt_server_proposal', mode: 'local', status: 'WAITING_INVENTORY',
-      authorization: { authorizationId: 'hca_setup', hostId: 'host-fixture', purpose: 'SETUP', tenantId: '0', clientId: 'fixture', ownerJiacn: 'owner', canonicalAgentId: 'agt_server_proposal' } }
+      authorization: { authorizationId: 'hca_setup', hostId: 'host-fixture', tenantId: '0', clientId: 'fixture', ownerJiacn: 'owner', canonicalAgentId: 'agt_server_proposal' } }
     let pending = true
     const h = harness({
       loadCapability: async () => ({ economyPreviewEnabled: true, hostingSetupEnabled: true, principalScopeSha256: 'fixture-scope' }),
@@ -581,7 +581,7 @@ describe('outbound invitation setup', () => {
     })
     await h.rent.open(h.persona)
     expect(await h.rent.previewInitial()).to.equal(false)
-    expect(await h.rent.startSetup({ mode: 'local', hostId: 'host-fixture', tokenSha256: 'a'.repeat(64), controlTokenSha256: 'b'.repeat(64) })).to.equal(true)
+    expect(await h.rent.startSetup({ mode: 'local', hostId: 'host-fixture' })).to.equal(true)
     expect(await h.rent.previewInitial()).to.equal(false)
     expect(h.rent.state.value.waitingInventory).to.equal(true)
     expect(calls[1].body).to.deep.equal({ purpose: 'INITIAL', setupId: 'hca_setup' })
@@ -590,5 +590,74 @@ describe('outbound invitation setup', () => {
     expect(calls[2].key).to.equal(calls[1].key)
     expect(calls.every(call => !call.url.endsWith('/bind'))).to.equal(true)
     expect(h.rent.state.value.waitingInventory).to.equal(false)
+  })
+})
+
+describe('host directory and durable onboarding recovery', () => {
+  afterEach(() => { for (const rent of rents.splice(0)) rent.dispose() })
+  const capability = async () => ({ economyPreviewEnabled: true, hostingSetupEnabled: true, principalScopeSha256: 'a'.repeat(64) })
+  const host = hostId => ({ hostId, mode: 'local', tenantId: '0', clientId: 'fixture', ownerJiacn: 'owner', tokenSha256: 'b'.repeat(64) })
+  it('publishes only complete ordered host pages and preserves the previous complete list on failure', async () => {
+    let fail = false
+    const cursors = []
+    const h = harness({ loadCapability: capability, agentApi: { get: async (_url, params) => {
+      cursors.push(params.cursor)
+      if (!params.cursor) return { items: [host('a')], nextCursor: 'a', hasMore: true }
+      if (fail) throw new Error('page unavailable')
+      return { items: [host('b')], nextCursor: null, hasMore: false }
+    } } })
+    await h.rent.open(h.persona)
+    expect(await h.rent.loadHosts()).to.equal(true)
+    expect(h.rent.hosts.value.map(value => value.hostId)).to.deep.equal(['a', 'b'])
+    expect(cursors).to.deep.equal([undefined, 'a'])
+    fail = true
+    expect(await h.rent.loadHosts()).to.equal(false)
+    expect(h.rent.hosts.value.map(value => value.hostId)).to.deep.equal(['a', 'b'])
+  })
+  it('recovers an unknown registration with the original key and public request after reopening', async () => {
+    const storage = memoryHostingStorage(), calls = []
+    let fail = true
+    const api = { create: async (url, body, options) => {
+      calls.push({ url, body, key: options.headers['Idempotency-Key'] })
+      if (fail) throw new Error('response lost')
+      return host('a')
+    } }
+    const h = harness({ storage, loadCapability: capability, agentApi: api })
+    await h.rent.open(h.persona)
+    expect(await h.rent.registerHost({ hostId: 'a', tokenSha256: 'b'.repeat(64) })).to.equal(false)
+    h.rent.dispose()
+    const reopened = harness({ storage, loadCapability: capability, agentApi: api })
+    await reopened.rent.open(h.persona)
+    expect(reopened.rent.state.value.operation.kind).to.equal('HOST_REGISTER')
+    fail = false
+    expect(await reopened.rent.retryUnknown()).to.equal(true)
+    expect(calls[1]).to.deep.equal(calls[0])
+    expect(reopened.rent.state.value.registeredHost).to.deep.equal(host('a'))
+    expect(reopened.rent.state.value.operation).to.equal(null)
+  })
+  it('preserves an unknown cancellation and clears setup and quote only after its exact receipt', async () => {
+    const calls = []
+    let fail = true
+    const setup = { setupId: 'hca_cancel', personaCode: 'linchong', agentId: 'agt_server_proposal', mode: 'local', status: 'WAITING_INVENTORY',
+      authorization: { authorizationId: 'hca_cancel', hostId: 'a', tenantId: '0', clientId: 'fixture', ownerJiacn: 'owner', canonicalAgentId: 'agt_server_proposal' } }
+    const h = harness({ loadCapability: capability, agentApi: { create: async (url, body, options) => {
+      calls.push({ url, body, key: options.headers['Idempotency-Key'] })
+      if (url.endsWith('/hosting-setups')) return setup
+      if (url.endsWith('/quotes')) return hostingQuote()
+      if (fail) throw new Error('cancel response lost')
+      return { ...setup, status: 'REVOKED', authorization: null }
+    } } })
+    await h.rent.open(h.persona)
+    await h.rent.startSetup({ mode: 'local', hostId: 'a' }); await h.rent.previewInitial()
+    expect(await h.rent.cancelSetup()).to.equal(false)
+    expect(h.rent.state.value.setup.setupId).to.equal(setup.setupId)
+    expect(h.rent.state.value.quote).not.to.equal(null)
+    expect(await h.rent.confirmQuote()).to.equal(false)
+    fail = false
+    expect(await h.rent.retryUnknown()).to.equal(true)
+    expect(calls[3]).to.deep.equal(calls[2])
+    expect(h.rent.state.value.setup).to.equal(null)
+    expect(h.rent.state.value.quote).to.equal(null)
+    expect(calls.some(call => call.url.endsWith('/bind'))).to.equal(false)
   })
 })

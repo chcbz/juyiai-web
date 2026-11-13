@@ -11,22 +11,35 @@
     <p v-if="rent.wallet.value">钱袋可用：{{ money(rent.wallet.value.available.amountMinor) }}；已预留：{{ money(rent.wallet.value.held.amountMinor) }}</p>
 
     <section v-if="rent.setupEnabled.value && !lookup?.managed && !receipt" class="hosting-quote" aria-label="接入目标准备">
-      <template v-if="!rent.state.value.setup">
-        <h4>先登记接入目标（不付款）</h4>
-        <p>粘贴接入端生成的公开登记材料；不要粘贴原令牌。平台托管材料由运维提供，自行部署材料在自己的机器生成。</p>
-        <label>登记材料 JSON<textarea v-model="setupInput" rows="4" aria-label="接入登记材料"></textarea></label>
-        <button type="button" :disabled="!rent.canInitial.value" @click="registerSetup">登记目标</button>
+      <template v-if="!rent.state.value.setup && requestedMode !== 'local'">
+        <h4>平台自动准备接应目标</h4>
+        <p>无需登记材料。目标准备后查询实测技能清单，确认报价前不预留租金。</p>
+        <button type="button" :disabled="!rent.canInitial.value" @click="prepareManaged">准备目标并查看报价</button>
+      </template>
+      <template v-else-if="!rent.state.value.setup">
+        <h4>选择本人的自行部署主机</h4>
+        <label>接应主机<select v-model="selectedHost" aria-label="自行部署主机">
+          <option value="">请选择已登记主机</option>
+          <option v-for="host in rent.hosts.value" :key="host.hostId" :value="host.hostId">{{ host.hostId }}</option>
+        </select></label>
+        <button type="button" :disabled="rent.busy.value" @click="rent.loadHosts">刷新主机列表</button>
+        <p v-if="!rent.hosts.value.length">没有已登记主机，或列表尚未加载；首次接入请登记下方公开材料。</p>
+        <button type="button" :disabled="!rent.canInitial.value || !selectedHost" @click="prepareLocal">选择主机并查看报价</button>
+        <details><summary>首次登记新主机</summary>
+          <p>仅粘贴目标机生成的request.json（hostId、tokenSha256），不要粘贴令牌。以后邀请直接选择此主机。</p>
+          <label>主机公开登记材料<textarea v-model="setupInput" rows="4" aria-label="主机公开登记材料"></textarea></label>
+          <button type="button" :disabled="!rent.canInitial.value" @click="registerHost">登记主机（不付款）</button>
+        </details>
+        <template v-if="rent.state.value.registeredHost">
+          <p>将以下公开主机归属元数据在目标机确认一次。主机登记成功不代表Runtime已在线。</p>
+          <textarea :value="JSON.stringify(rent.state.value.registeredHost, null, 2)" rows="6" readonly aria-label="主机归属元数据"></textarea>
+        </template>
       </template>
       <template v-else>
-        <h4>目标已登记，等待Runtime接入</h4>
-        <p>将以下公开授权元数据导入接入端一次。后续控制权限自动领取，不需要固定IP或手动建立隧道。</p>
-        <textarea
-          :value="JSON.stringify(rent.state.value.setup.authorization, null, 2)"
-          rows="6"
-          readonly
-          aria-label="接入授权元数据"
-        ></textarea>
-        <p>Runtime仅准备隔离目录并实测技能清单；确认报价前不预留租金、不启动付费Agent。</p>
+        <h4>目标已准备，等待实测技能清单</h4>
+        <p>主机：{{ rent.state.value.setup.authorization.hostId }}。Runtime主动连接，不需要固定IP或手动建立隧道。</p>
+        <p>确认报价前不预留租金、不启动付费Agent。等待中使用原请求查询，不重复登记。</p>
+        <button type="button" :disabled="!rent.canInitial.value" @click="rent.cancelSetup">取消未付款目标，重新选择</button>
       </template>
     </section>
 
@@ -49,7 +62,7 @@
         <p>起租 {{ timestamp(lookup.lease.paidFrom) }}；到期 {{ timestamp(lookup.lease.paidThrough) }}</p>
         <p v-if="lookup.lease.status === 'LOCKED'">余额足够时自动扣费解锁，新租期从成功扣费时开始；暂不可接新事项、发起密议或变更技能，已有事项可继续完成。</p>
         <p v-else-if="lookup.lease.status === 'FINISHING'">已停止续费，正在收尾已有事务；收尾完成前不可重新邀请。公共技能、项目仓库及 Git 历史保留。</p>
-        <p v-else>到期后进入解除收尾，已有事项可继续完成；公共技能、项目仓库及 Git 历史保留。</p>
+        <p v-else>离线不暂停租期；到期余额足够自动续费，余额不足锁定新业务。正式解绑另行处理，自行部署资产不会删除。</p>
         <p v-if="lookup.intent?.reserveTransactionId">预留流水 {{ lookup.intent.reserveTransactionId }}</p>
         <p v-if="lookup.intent?.captureTransactionId">收租流水：{{ lookup.intent.captureTransactionId }}</p>
         <p v-if="lookup.intent?.refundTransactionId">原单退款流水：{{ lookup.intent.refundTransactionId }}</p>
@@ -140,16 +153,26 @@ const timestamp = value => {
   return new Date(value).toLocaleString()
 }
 const setupInput = ref('')
-const registerSetup = async () => {
+const selectedHost = ref('')
+const registerHost = async () => {
   try {
-    const value = JSON.parse(setupInput.value)
-    if (!value || Object.keys(value).some(key => !['hostId', 'tokenSha256', 'controlTokenSha256'].includes(key))) throw new Error('只接受hostId和两个凭据摘要，不接受令牌。')
-    await rent.startSetup({ ...value, mode: props.requestedMode || 'server' })
+    if (await rent.registerHost(JSON.parse(setupInput.value))) selectedHost.value = rent.state.value.registeredHost.hostId
   } catch (cause) { rent.error.value = cause.message }
 }
+const prepareManaged = async () => {
+  if (await rent.startSetup({ mode: 'server', hostId: null })) await rent.previewInitial()
+}
+const prepareLocal = async () => {
+  if (await rent.startSetup({ mode: 'local', hostId: selectedHost.value })) await rent.previewInitial()
+}
 const openPersona = async () => {
+  selectedHost.value = ''
+  setupInput.value = ''
   const opened = await rent.open(props.persona)
-  if (opened && rent.canInitial.value && !rent.state.value.quote && (!rent.setupEnabled.value || rent.state.value.setup)) await rent.previewInitial()
+  if (!opened || !rent.canInitial.value || rent.state.value.quote) return
+  if (!rent.setupEnabled.value || rent.state.value.setup) await rent.previewInitial()
+  else if (props.requestedMode === 'local') await rent.loadHosts()
+  else await prepareManaged()
 }
 const acceptedAction = async action => {
   if (await action()) {
@@ -164,7 +187,7 @@ const acceptedAction = async action => {
   }
 }
 watch(() => [props.persona.personaCode, props.persona.agentId, props.persona.boundToMe, props.persona.bound,
-  props.persona.canBind, props.persona.systemAgent, props.persona.version], openPersona, { immediate: true })
+  props.persona.canBind, props.persona.systemAgent, props.persona.version, props.requestedMode], openPersona, { immediate: true })
 watch(() => apiStore.authorizationGeneration, rent.invalidate, { flush: 'sync' })
 const clockTimer = setInterval(rent.tick, 1000)
 onUnmounted(() => { clearInterval(clockTimer); rent.dispose() })

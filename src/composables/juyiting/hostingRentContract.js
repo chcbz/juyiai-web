@@ -44,15 +44,21 @@ export const validLookup = (value, agentId, personaCode) => {
 }
 
 const hash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
-export const validSetupRequest = value => value && Object.keys(value).every(key => ['mode', 'hostId', 'tokenSha256', 'controlTokenSha256'].includes(key)) && ['server', 'local'].includes(value.mode) && text(value.hostId) &&
-  hash(value.tokenSha256) && hash(value.controlTokenSha256) && value.tokenSha256 !== value.controlTokenSha256
+export const validHostRequest = value => value && Object.keys(value).length === 2 &&
+  Object.keys(value).every(key => ['hostId', 'tokenSha256'].includes(key)) && text(value.hostId) && hash(value.tokenSha256)
+export const validHost = value => value?.mode === 'local' && ['hostId', 'tenantId', 'clientId', 'ownerJiacn'].every(key => text(value[key])) && hash(value.tokenSha256)
+export const validSetupRequest = value => value && Object.keys(value).length === 2 &&
+  Object.keys(value).every(key => ['mode', 'hostId'].includes(key)) &&
+  (value.mode === 'server' ? value.hostId === null : value.mode === 'local' && text(value.hostId))
 export const validSetup = (value, personaCode) => text(value?.setupId) && value.personaCode === personaCode && text(value.agentId) &&
   ['server', 'local'].includes(value.mode) && ['WAITING_INVENTORY', 'INVENTORY_READY'].includes(value.status) &&
-  value.authorization?.authorizationId === value.setupId && value.authorization.purpose === 'SETUP' &&
+  value.authorization?.authorizationId === value.setupId &&
   value.authorization.canonicalAgentId === value.agentId && ['hostId', 'tenantId', 'clientId', 'ownerJiacn'].every(key => text(value.authorization[key]))
 
 export const validOperation = (op, personaCode) => {
   if (!uuid(op?.key)) return false
+  if (op.kind === 'SETUP_CANCEL') return text(op.setupId)
+  if (op.kind === 'HOST_REGISTER') return validHostRequest(op.request)
   if (op.kind === 'SETUP') return validSetupRequest(op.request)
   if (op.kind === 'INITIAL_QUOTE') return optional(op.agentId, text) && optional(op.setupId, text)
   if (op.kind === 'INITIAL') return validQuote(op.quote, 'INITIAL', personaCode, op.agentId)
@@ -65,7 +71,9 @@ export const validOperation = (op, personaCode) => {
 export const hostingRequest = (op, personaCode) => {
   const persona = encodeURIComponent(personaCode)
   const leaseId = encodeURIComponent(op.lease?.leaseId || '')
-  if (op.kind === 'SETUP') return [`/personas/${persona}/hosting-setups`, { mode: op.request.mode, hostId: op.request.hostId, tokenSha256: op.request.tokenSha256, controlTokenSha256: op.request.controlTokenSha256 }]
+  if (op.kind === 'SETUP_CANCEL') return [`/personas/${persona}/hosting-setups/${encodeURIComponent(op.setupId)}/cancel`, {}]
+  if (op.kind === 'HOST_REGISTER') return ['/hosting-hosts', { hostId: op.request.hostId, tokenSha256: op.request.tokenSha256 }]
+  if (op.kind === 'SETUP') return [`/personas/${persona}/hosting-setups`, { mode: op.request.mode, hostId: op.request.hostId }]
   if (op.kind === 'INITIAL_QUOTE') return [`/personas/${persona}/hosting-rent/quotes`, { purpose: 'INITIAL', ...(op.setupId ? { setupId: op.setupId } : {}), ...(op.agentId ? { agentId: op.agentId } : {}) }]
   if (op.kind === 'RENEWAL_QUOTE') return [`/hosting-leases/${leaseId}/renewal-quotes`, { agentId: op.agentId, expectedLeaseVersion: op.lease.version }]
   if (op.kind === 'REPROVISION') return [`/personas/${persona}/bind`, { mode: hostingMode(op.lease.planId), hostingAction: 'REPROVISION', agentId: op.agentId, leaseId: op.lease.leaseId, expectedLeaseVersion: op.lease.version }]
