@@ -47,7 +47,7 @@ const open = async name => {
   if (!await load()) return
   title.value = snapshot.value.title; description.value = snapshot.value.description || ''
   materials.value = requirementPickerMaterials(snapshot.value.attachments)
-  if (name === 'files') { await nextTick(); picker.value?.open() } else await showDialog()
+  if (name === 'files') { await nextTick(); picker.value?.open(returnFocus) } else await showDialog()
 }
 const close = () => { if (busy.value) return; dialog.value?.close(); dialogOpen.value = false; returnFocus?.isConnected && returnFocus.focus() }
 const saveText = async () => {
@@ -56,7 +56,10 @@ const saveText = async () => {
 const checkSave = async () => { if (await check()) close() }
 const saveMaterials = async selected => {
   materials.value = selected
-  if (!await save({ title: title.value, description: description.value, attachments: selected })) await showDialog()
+  if (await save({ title: title.value, description: description.value, attachments: selected })) {
+    await nextTick()
+    close()
+  } else await showDialog()
 }
 defineExpose({ open })
 </script>

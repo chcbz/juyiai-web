@@ -382,10 +382,12 @@ const pickerDetail = computed(() => {
 })
 const materialKey = material => `${material.fileId}:${material.version}`
 const resetMaterialPicker = () => { previewDownloading.value = false; selectionExpanded.value = false; uploadMessage.value = ''; mobilePreviewOpen.value = false; pickerGeneration += 1; pickerFileId.value = ''; pickerVersion.value = null; workspace.closeDetail() }
-const openQuickMaterialPicker = async () => {
+const openQuickMaterialPicker = async returnFocus => {
   if (props.readOnly || !props.enabled || !props.identityScope || props.disabled || uploading.value) return
   directUpload.value = false
-  pickerReturnFocus = typeof document !== 'undefined' ? document.activeElement : null
+  pickerReturnFocus = returnFocus instanceof HTMLElement
+    ? returnFocus
+    : (typeof document !== 'undefined' ? document.activeElement : null)
   closeSelectedPreview()
   uploadedFiles.value = []
   draftMaterials.value = selectedMaterials.value.map(material => ({ ...material }))

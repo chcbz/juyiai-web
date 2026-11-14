@@ -25,6 +25,29 @@ const picker = state => compile('HallMaterialPicker', { usePersonalWorkspace: ()
 const mountPicker = state => mount(picker(state), { attachTo: document.body, props: { identityScope: 'owner/thread-a', dialogOnly: true }, global: { stubs: { 'var-icon': true } } })
 
 describe('shared discussion material import receipts', () => {
+  it('returns cancellation focus to an explicitly supplied pre-load trigger', async () => {
+    const trigger = document.createElement('button'); document.body.append(trigger)
+    const state = workspace(), wrapper = mountPicker(state)
+    try {
+      document.body.focus()
+      await wrapper.vm.open(trigger); await settle()
+      const cancel = [...document.querySelectorAll('.quick-material-picker button')].find(button => button.textContent.trim() === '取消')
+      cancel.click(); await settle()
+      expect(document.activeElement).to.equal(trigger)
+    } finally { wrapper.unmount(); trigger.remove() }
+  })
+
+  it('keeps click-event callers returning focus to the current trigger', async () => {
+    const trigger = document.createElement('button'); document.body.append(trigger); trigger.focus()
+    const wrapper = mountPicker(workspace())
+    try {
+      await wrapper.vm.open(new window.MouseEvent('click')); await settle()
+      const cancel = [...document.querySelectorAll('.quick-material-picker button')].find(button => button.textContent.trim() === '取消')
+      cancel.click(); await settle()
+      expect(document.activeElement).to.equal(trigger)
+    } finally { wrapper.unmount(); trigger.remove() }
+  })
+
   it('imports authoritative fixed versions without opening a picker or sending a message', async () => {
     const state = workspace(), wrapper = mountPicker(state)
     try {
