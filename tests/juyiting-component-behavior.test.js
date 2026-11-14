@@ -3241,6 +3241,37 @@ describe('lightweight workbench real panel navigation', () => {
     } finally { wrapper.unmount() }
   })
 
+  for (const mode of ['portrait-command', 'landscape-map']) {
+    for (const [target, label] of [['library', '典籍阁'], ['agents', '好汉名册'], ['messages', '待办提醒']]) {
+      it(`keeps Mine source, scroll and focus through ${target} in ${mode}`, async () => {
+        const home = Vue.ref('overview')
+        const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+        const mocks = createActualHallMocks({ mode: Vue.ref(mode), mounts: { library: 0, archive: 0 }, counters })
+        mocks.useHallHomeMode = () => ({ homeMode: home, isOverviewHome: Vue.computed(() => home.value === 'overview'), setHomeMode: value => { home.value = value } })
+        mocks.HallMinePage = loadSfc('../src/components/juyiting/HallMinePage.vue')
+        const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+        try {
+          await flushPromises()
+          await wrapper.find('.hall-workbench-sidebar [data-workbench-tab="mine"]').trigger('click')
+          await Vue.nextTick()
+          const state = wrapper.vm.$.setupState
+          const source = wrapper.findAll('.mine-grid button').find(button => button.text().includes(label))
+          state.panelRef.scrollTop = 137
+          source.element.focus()
+          await source.trigger('click'); await Vue.nextTick()
+          expect(state.panelFrames).to.deep.equal(['mine', target])
+          expect(wrapper.find('.hall-workbench-sidebar [data-workbench-tab="mine"]').attributes('aria-current')).to.equal('page')
+          expect(state.panelReturnPanel).to.equal('mine')
+          await wrapper.find('.panel-return').trigger('click'); await Vue.nextTick()
+          expect(state.panelFrames).to.deep.equal(['mine'])
+          expect(state.panelRef.scrollTop).to.equal(137)
+          expect(document.activeElement).to.equal(source.element)
+          expect(wrapper.findAll('.panel-overlay')).to.have.length(1)
+        } finally { wrapper.unmount() }
+      })
+    }
+  }
+
   it('treats header utilities as root pages and returns focus to the latest visible workbench tab', async () => {
     const home = Vue.ref('overview')
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }

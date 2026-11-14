@@ -548,7 +548,7 @@
             :inert="renderedPanel !== 'mine' ? '' : null"
             :aria-hidden="renderedPanel !== 'mine' ? 'true' : null"
             :account-entry-disabled="accountEntryDisabled"
-            @open="openPanel($event, { root: true })"
+            @open="openPanel($event)"
             @map="openWorkbenchMap"
             @profile="openProfile"
             @help="openHelp"
@@ -1174,7 +1174,8 @@ const workbenchPrimaryTabs = Object.freeze([
 const workbenchMobileTabs = workbenchPrimaryTabs
 const workbenchPrimaryPanelSet = new Set(workbenchPrimaryTabs.map(tab => tab.panel))
 const workbenchMenuOpen = ref(false)
-const workbenchCurrentPage = computed(() => isOverviewHome.value ? (activePanel.value && workbenchPrimaryPanelSet.has(renderedPanel.value) ? renderedPanel.value : 'overview') : '')
+const workbenchCurrentPage = computed(() => isOverviewHome.value
+  ? (activePanel.value && panelFrames.value.slice().reverse().find(panel => workbenchPrimaryPanelSet.has(panel)) || 'overview') : '')
 const workbenchCurrentLabel = computed(() => workbenchPrimaryTabs.find(tab => tab.panel === workbenchCurrentPage.value)?.label || '办事')
 watch(homeMode, () => { workbenchMenuOpen.value = false })
 watch(activePanel, panel => {
