@@ -12,6 +12,18 @@ const delivery = overrides => ({
 })
 
 describe('OD10 formal delivery historical read boundary', () => {
+  it('preserves multiline revision reasons while rejecting non-text controls', async () => {
+    const reason = '标识J1\n人数10人\r\n方案预算\t120文'
+    let rows = [delivery({ state: 'changes_requested', deliveryVersion: 1, reviewedAt: 2, reviewReason: reason })]
+    const history = useFormalDeliveries({ taskId: ref('task-1'), identityFingerprint: ref('owner:client:1'), adapter: { list: async () => rows } })
+    try {
+      await tick()
+      expect((await history.refresh())[0].reviewReason).to.equal(reason)
+      rows = [delivery({ state: 'changes_requested', deliveryVersion: 1, reviewedAt: 2, reviewReason: 'bad\u0000reason' })]
+      expect(await history.refresh()).to.equal(null)
+    } finally { history.dispose() }
+  })
+
   it('keeps frozen versions and owner/task reads but exposes no independent mutation or key factory', async () => {
     const calls = []; let writes = 0
     const history = useFormalDeliveries({ taskId: ref('task-1'), identityFingerprint: ref('owner:client:1'),

@@ -14,7 +14,11 @@ const validEntityVersion = value => Number.isSafeInteger(value) && value >= 0 &&
 const validTimestamp = value => (Number.isSafeInteger(value) && value >= 0) || (typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value)))
 const positiveTimestamp = value => (Number.isSafeInteger(value) && value > 0) || (typeof value === 'string' && value.length > 0 && Date.parse(value) > 0)
 const validHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value)
-const validReviewReason = value => validText(value, 4000) && value.length > 0 && value === value.trim()
+const validReviewReason = value => typeof value === 'string' && value.length > 0 && value.length <= 4000 &&
+  value === value.trim() && ![...value].some(character => {
+    const code = character.codePointAt(0)
+    return (code < 32 || (code >= 127 && code <= 159)) && ![9, 10, 13].includes(code)
+  })
 const PAGE_FIELDS = new Set(['items'])
 const DELIVERY_FIELDS = new Set([
   'taskId', 'workItemId', 'deliveryId', 'revision', 'deliveryVersion', 'state', 'runId', 'producerAgentId', 'summary',
