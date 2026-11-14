@@ -13,12 +13,12 @@ import { taskStatusText, taskStateClass } from '../src/constants/juyiting.js'
 const read = name => readFileSync(new URL(`../src/components/${name}.vue`, import.meta.url), 'utf8')
 const hall = read('world/JuyiHall')
 const Empty = Vue.defineComponent({ render: () => Vue.h('span') })
-const compile = name => {
+const compile = (name, overrides = {}) => {
   const { descriptor } = parse(read(name))
   const imports = new Proxy({ vue: Vue, '@/utils/wenAmount': silver,
     './HallRequirementEditor.vue': Vue.defineComponent({ name: 'HallRequirementEditor', render: () => Vue.h('span') }),
     './HallTaskResources.vue': Vue.defineComponent({ name: 'HallTaskResources', props: ['resultCount'], render: () => Vue.h('section') }),
-    '../../composables/juyiting/hallAssigneeRecommendation.js': recommendationHelpers, '@/composables/juyiting/hallAssigneeCandidates.js': assigneeCandidates, '../../composables/juyiting/hallTaskPresentation.js': taskPresentation, '../../composables/juyiting/useHallOrdinaryCancellation.js': cancellation }, { get: (target, key) => target[key] || Empty })
+    '../../composables/juyiting/hallAssigneeRecommendation.js': recommendationHelpers, '@/composables/juyiting/hallAssigneeCandidates.js': assigneeCandidates, '../../composables/juyiting/hallTaskPresentation.js': taskPresentation, '../../composables/juyiting/useHallOrdinaryCancellation.js': cancellation, ...overrides }, { get: (target, key) => target[key] || Empty })
   const code = compileScript(descriptor, { id: 'flow-ui-test', inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_, names, path) => `const { ${names.replace(/\s+as\s+/g, ': ')} } = imports[${JSON.stringify(path)}]`)
     .replace(/^import\s+(\w+)\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_, name, path) => `const ${name} = imports[${JSON.stringify(path)}]`)
@@ -33,6 +33,26 @@ const baseProps = { embeddedHall: true, detailAllowed: true, identityScope: 'own
   operableAgents: [{ agentId: 'old-agent', name: '林冲', canOperate: true, status: 'online' }] }
 
 describe('flow gap actual UI consumers', () => {
+  it('resolves the material action from its current ref after a task version remount', async () => {
+    let resolver
+    const Resources = Vue.defineComponent({ name: 'HallTaskResources', setup (_props, { slots }) { return () => Vue.h('section', slots.actions?.()) } })
+    const Editor = Vue.defineComponent({ setup (_props, { expose }) { expose({ open: (field, resolveFocus) => { expect(field).to.equal('files'); resolver = resolveFocus } }); return () => null } })
+    const Component = compile('juyiting/BountyPanel', { './HallTaskResources.vue': Resources, './HallRequirementEditor.vue': Editor })
+    const task = { id: 'focus-task', title: '待承办', description: '需求', status: 'open', taskVersion: '1', assignedAgentIds: [] }
+    const wrapper = mount(Component, { props: { ...baseProps, tasks: [task], selectedTask: task } })
+    try {
+      wrapper.vm.openTask(task); await Vue.nextTick()
+      const before = wrapper.get('button[aria-label="选择资料"]').element
+      await wrapper.get('button[aria-label="选择资料"]').trigger('click')
+      expect(resolver).to.be.a('function')
+      expect(resolver()).to.equal(before)
+      const updated = { ...task, taskVersion: '2' }
+      await wrapper.setProps({ tasks: [updated], selectedTask: updated }); await Vue.nextTick()
+      const after = wrapper.get('button[aria-label="选择资料"]').element
+      expect(after).not.to.equal(before)
+      expect(resolver()).to.equal(after)
+    } finally { wrapper.unmount() }
+  })
   it('pending acceptance has exactly one review CTA and a readonly resource card on the shared PC/mobile detail', async () => {
     const task = { id: 'a', title: '待验收', status: 'reviewing', taskVersion: '3', assignedAgentIds: ['old-agent'], assignedTarget: { agentId: 'old-agent', displayName: '林冲', providerDisplayName: null, isMine: true, availability: 'online' } }
     const wrapper = mount(Panel, { props: { ...baseProps, tasks: [task], selectedTask: task } })

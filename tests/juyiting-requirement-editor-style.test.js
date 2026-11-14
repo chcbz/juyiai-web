@@ -61,6 +61,18 @@ describe('pending matter editor prototype styling', () => {
     finishSave(); await flushPromises(); await Vue.nextTick()
     expect(document.activeElement).to.equal(trigger)
   })
+  it('resolves the current trigger after the keyed resource section is replaced by a saved version', async () => {
+    const Picker = Vue.defineComponent({ emits: ['update:modelValue'], setup (_props, { expose, emit }) { expose({ open: () => {} }); return () => Vue.h('button', { class: 'fixture-picker-complete', onClick: () => emit('update:modelValue', []) }, '完成') } })
+    const { component, state } = editor(Picker)
+    let trigger = document.createElement('button'); document.body.append(trigger); trigger.focus()
+    const original = trigger
+    state.save = async () => { trigger.remove(); trigger = document.createElement('button'); document.body.append(trigger); return true }
+    wrapper = mount(component, { props: { task: { id: 'test' }, enabled: true }, attachTo: document.body })
+    await wrapper.vm.open('files', () => trigger)
+    await wrapper.get('.fixture-picker-complete').trigger('click'); await flushPromises(); await Vue.nextTick()
+    expect(original.isConnected).to.equal(false)
+    expect(document.activeElement).to.equal(trigger)
+  })
   it('keeps a failed material save in its recovery dialog instead of closing it', async () => {
     const Picker = Vue.defineComponent({ emits: ['update:modelValue'], setup (_props, { expose, emit }) { expose({ open: () => {} }); return () => Vue.h('button', { class: 'fixture-picker-complete', onClick: () => emit('update:modelValue', []) }, '完成') } })
     const { component, state } = editor(Picker)

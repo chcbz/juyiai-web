@@ -29,27 +29,29 @@ const props = defineProps({ task: { type: Object, required: true }, enabled: Boo
 const emit = defineEmits(['saved', 'busy'])
 const picker = ref(null), dialog = ref(null), field = ref(null), dialogOpen = ref(false), lastField = ref('title')
 const title = ref(''), description = ref(''), materials = ref([])
-let returnFocus = null
+let returnFocus = () => null
 const { snapshot, busy, error, pending, blocked, load, save, check } = useHallRequirementEdit({
   agentApi, task: () => props.task, identity: () => `${props.identityScope}\u0000${props.identityEpoch}`,
   enabled: () => props.enabled, onSaved: value => emit('saved', value)
 })
 watch(blocked, value => emit('busy', value), { flush: 'sync' })
 watch(() => [props.identityScope, props.identityEpoch, props.task.id, props.enabled], () => {
-  dialog.value?.close(); dialogOpen.value = false
+  dialog.value?.close(); dialogOpen.value = false; returnFocus = () => null
 })
 const dialogTitle = computed(() => lastField.value === 'files' ? '保存资料' : `修改${lastField.value === 'title' ? '事项标题' : '需求描述'}`)
 const showDialog = async () => { dialogOpen.value = true; await nextTick(); dialog.value?.showModal(); field.value?.focus() }
-const open = async name => {
+const open = async (name, resolveTrigger) => {
   if (!props.enabled || busy.value) return
-  returnFocus = document.activeElement; lastField.value = name
+  const trigger = document.activeElement
+  returnFocus = typeof resolveTrigger === 'function' ? resolveTrigger : () => trigger
+  lastField.value = name
   if (pending.value) { await showDialog(); return }
   if (!await load()) return
   title.value = snapshot.value.title; description.value = snapshot.value.description || ''
   materials.value = requirementPickerMaterials(snapshot.value.attachments)
-  if (name === 'files') { await nextTick(); picker.value?.open(returnFocus) } else await showDialog()
+  if (name === 'files') { await nextTick(); picker.value?.open(returnFocus()) } else await showDialog()
 }
-const close = () => { if (busy.value) return; dialog.value?.close(); dialogOpen.value = false; returnFocus?.isConnected && returnFocus.focus() }
+const close = () => { if (busy.value) return; dialog.value?.close(); dialogOpen.value = false; const target = returnFocus(); if (target?.isConnected) target.focus() }
 const saveText = async () => {
   if (await save({ title: title.value, description: description.value, attachments: materials.value })) close()
 }

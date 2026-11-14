@@ -333,7 +333,7 @@
                 :result-count="matterResultCount"
                 :completed="['completed', 'archived'].includes(detailTask.status)"
                 @summary="matterResourceSummary = $event"
-              ><template #actions><button v-if="canEditRequirement" type="button" class="matter-edit-button" aria-label="选择资料" title="选择资料" :disabled="requirementEditBusy" @click="requirementEditor?.open('files')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12l-8 8a5 5 0 0 1-7-7l9-9a3 3 0 0 1 4 4l-9 9a1 1 0 0 1-2-2l8-8"/></svg></button></template></HallTaskResources>
+              ><template #actions><button v-if="canEditRequirement" type="button" ref="requirementMaterialTrigger" class="matter-edit-button" aria-label="选择资料" title="选择资料" :disabled="requirementEditBusy" @click="requirementEditor?.open('files', () => requirementMaterialTrigger)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12l-8 8a5 5 0 0 1-7-7l9-9a3 3 0 0 1 4 4l-9 9a1 1 0 0 1-2-2l8-8"/></svg></button></template></HallTaskResources>
               <section v-if="!embeddedHall || taskPresentation(detailTask).readOnly || taskPresentation(detailTask).phase === 'COMPLETED'" class="matter-resources" aria-label="资料与成果">
                 <button type="button" class="matter-results-action" @click="$emit('open-formal-results', detailTask)">{{ ['completed', 'archived'].includes(detailTask.status) ? '查看成果与验收记录' : embeddedHall || taskPresentation(detailTask).readOnly ? '查看历史成果' : '查看正式成果与验收' }}</button>
               </section>
@@ -756,6 +756,7 @@ const taskPresentation = task => projectHallTask({ task })
 const hasTaskAction = (task, action) => taskPresentation(task).actions.includes(action)
 const canActOnTask = task => hasTaskAction(task, 'ASSIGN') || hasTaskAction(task, 'DISCUSS')
 const requirementEditor = ref(null)
+const requirementMaterialTrigger = ref(null)
 const requirementEditBusy = ref(false)
 const canEditRequirement = computed(() => props.embeddedHall && hasTaskAction(detailTask.value, 'ASSIGN') &&
   !isFundedTask(detailTask.value) && !props.pointAndStartBusy && !pointAndStartForDetail.value)
