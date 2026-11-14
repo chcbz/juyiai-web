@@ -2325,6 +2325,7 @@ const archiveTask = async (task) => {
   } finally { archiveConfirmationPending.value = false }
   if (selectedTask.value?.status === 'archived') {
     markTaskArchived(selectedTask.value)
+    hallReadRevision.value += 1
   }
 }
 

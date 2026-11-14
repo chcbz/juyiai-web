@@ -268,15 +268,26 @@ describe('completed matter records display over fixed acceptance facts', () => {
 describe('completed detail shell confirmation and original read-only navigation', () => {
   const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
   const archiveCode = hall.slice(hall.indexOf('const archiveTask = async'), hall.indexOf('const loadSettlement ='))
-  const archiveHarness = dialog => {
+  const archiveHarness = (dialog, mutation = () => {}) => {
     const task = { id: 'task-1', status: 'completed', taskVersion: '8' }, selectedTask = Vue.ref(task), store = { authorizationGeneration: 1 }
-    const pending = Vue.ref(false), calls = []
-    const archive = new Function('archiveConfirmationPending', 'apiStore', 'hallIdentityScope', 'selectedTask', 'Dialog', 'runArchiveTask', 'markTaskArchived', `${archiveCode};return archiveTask`)(pending, store, Vue.ref('owner'), selectedTask, dialog, async t => { calls.push(t) }, () => {})
-    return { task, selectedTask, store, pending, calls, archive }
+    const pending = Vue.ref(false), calls = [], revision = Vue.ref(0)
+    const archive = new Function('archiveConfirmationPending', 'apiStore', 'hallIdentityScope', 'selectedTask', 'Dialog', 'runArchiveTask', 'markTaskArchived', 'hallReadRevision', `${archiveCode};return archiveTask`)(pending, store, Vue.ref('owner'), selectedTask, dialog, async t => { calls.push(t); await mutation(selectedTask) }, () => {}, revision)
+    return { task, selectedTask, store, pending, calls, archive, revision }
   }
   it('cancel never archives; confirm uses the original task once', async () => {
     const cancelled = archiveHarness(async () => 'cancel'); await cancelled.archive(cancelled.task); expect(cancelled.calls).to.have.length(0)
     const confirmed = archiveHarness(async () => 'confirm'); await confirmed.archive(confirmed.task); expect(confirmed.calls).to.deep.equal([confirmed.task])
+  })
+  it('refreshes the existing overview only after archive has reached the authoritative archived state', async () => {
+    const success = archiveHarness(async () => 'confirm', selected => { selected.value = { ...selected.value, status: 'archived', taskVersion: '9' } })
+    await success.archive(success.task)
+    expect(success.revision.value).to.equal(1)
+    const unchanged = archiveHarness(async () => 'confirm')
+    await unchanged.archive(unchanged.task)
+    expect(unchanged.revision.value).to.equal(0)
+    const cancelled = archiveHarness(async () => 'cancel')
+    await cancelled.archive(cancelled.task)
+    expect(cancelled.revision.value).to.equal(0)
   })
   it('identity/task/version switch while confirming discards the old intent, with no parallel dialogs', async () => {
     for (const change of [h => { h.store.authorizationGeneration++ }, h => { h.selectedTask.value = { ...h.task, id: 'other' } }, h => { h.selectedTask.value = { ...h.task, taskVersion: '9' } }]) {
