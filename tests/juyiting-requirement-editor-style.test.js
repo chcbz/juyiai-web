@@ -66,12 +66,20 @@ describe('pending matter editor prototype styling', () => {
     const { component, state } = editor(Picker)
     let trigger = document.createElement('button'); document.body.append(trigger); trigger.focus()
     const original = trigger
-    state.save = async () => { trigger.remove(); trigger = document.createElement('button'); document.body.append(trigger); return true }
+    state.save = async () => { trigger.remove(); trigger = document.createElement('button'); document.body.append(trigger); await wrapper.setProps({ task: { id: 'test', taskVersion: '2' } }); return true }
     wrapper = mount(component, { props: { task: { id: 'test' }, enabled: true }, attachTo: document.body })
     await wrapper.vm.open('files', () => trigger)
     await wrapper.get('.fixture-picker-complete').trigger('click'); await flushPromises(); await Vue.nextTick()
     expect(original.isConnected).to.equal(false)
     expect(document.activeElement).to.equal(trigger)
+  })
+  for (const change of [{ task: { id: 'other' } }, { identityScope: 'other' }, { identityEpoch: 1 }, { enabled: false }]) it(`closes stale editing when ${Object.keys(change)[0]} actually changes`, async () => {
+    const { component } = editor()
+    wrapper = mount(component, { props: { task: { id: 'test' }, enabled: true }, attachTo: document.body })
+    await wrapper.vm.open('description'); await Vue.nextTick()
+    expect(document.querySelector('.requirement-edit-dialog[open]')).not.to.equal(null)
+    await wrapper.setProps(change); await Vue.nextTick()
+    expect(document.querySelector('.requirement-edit-dialog[open]')).to.equal(null)
   })
   it('keeps a failed material save in its recovery dialog instead of closing it', async () => {
     const Picker = Vue.defineComponent({ emits: ['update:modelValue'], setup (_props, { expose, emit }) { expose({ open: () => {} }); return () => Vue.h('button', { class: 'fixture-picker-complete', onClick: () => emit('update:modelValue', []) }, '完成') } })

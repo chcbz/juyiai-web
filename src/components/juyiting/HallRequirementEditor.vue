@@ -35,7 +35,7 @@ const { snapshot, busy, error, pending, blocked, load, save, check } = useHallRe
   enabled: () => props.enabled, onSaved: value => emit('saved', value)
 })
 watch(blocked, value => emit('busy', value), { flush: 'sync' })
-watch(() => [props.identityScope, props.identityEpoch, props.task.id, props.enabled], () => {
+watch([() => props.identityScope, () => props.identityEpoch, () => props.task.id, () => props.enabled], () => {
   dialog.value?.close(); dialogOpen.value = false; returnFocus = () => null
 })
 const dialogTitle = computed(() => lastField.value === 'files' ? '保存资料' : `修改${lastField.value === 'title' ? '事项标题' : '需求描述'}`)
