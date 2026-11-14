@@ -47,6 +47,29 @@ const executionMock = () => {
   return execution
 }
 
+describe('workspace document category and upload selector', () => {
+  it('labels DOCUMENT generically and offers supported JSON in the actual upload input', async () => {
+    const workspace = workspaceMock(), execution = executionMock()
+    workspace.items.value = ['a.json', 'a.md', 'a.html', 'a.docx'].map((name, i) => ({ fileId: `doc_${i}`, displayName: name, mediaFamily: 'DOCUMENT', originKind: 'USER_UPLOAD', latestVersion: '1', state: 'ACTIVE' }))
+    const component = new Function('Vue', 'deps', script)(Vue, { workspaceByteText, validMaterialVersion,
+      deliveryTypeText, useApiStore: () => ({ authorizationGeneration: 1, oauthClientId: 'web-client' }),
+      useGlobalStore: () => ({ user: { id: 'owner-a', tenantId: 'tenant-a' } }),
+      usePersonalWorkspace: () => workspace, usePersonalWorkspaceExecution: () => execution, savePersonalWorkspaceBlob: () => {}
+    })
+    const wrapper = mount(component, { props: { embedded: true } })
+    try {
+      await flushPromises()
+      for (const row of wrapper.findAll('.treasure-file-row')) {
+        assert.ok(row.text().includes('本人上传 · 文档 · v1'))
+        assert.ok(!row.text().includes('Word'))
+      }
+      await wrapper.get('button[aria-label="上传资料"]').trigger('click')
+      const accept = wrapper.get('input[type="file"]').attributes('accept').split(',')
+      for (const type of ['.json', 'application/json', '.png', '.pdf', '.docx']) assert.ok(accept.includes(type), type)
+    } finally { wrapper.unmount() }
+  })
+})
+
 describe('personal workspace execution receipt presentation', () => {
   it('opens the exact embedded file through the full-row native control and preserves disabled states', async () => {
     const workspace = workspaceMock(); const execution = executionMock()

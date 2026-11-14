@@ -5,6 +5,7 @@ const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelect
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={login:'登录预览',results:'正式成果',public:'厅前公议',library:'典籍阁',messages:'消息',catalog:'招贤令',map:'厅中实景',help:'使用帮助',file:'资料详情',reader:'典籍阅读',account:'个人中心入口',home:'办事',tasks:'事项',create:'提出需求',agents:'好汉名册',detail:'事项详情',chat:'事项议事',private:'密议',workspace:'资料',mine:'我的'};
 const catalog=[
+ {id:'ref-json',name:'资料示例.json',type:'document',text:'{"case":"workspace","value":14}',note:'文档'},
  {id:'ref-pdf',name:'观察活动手册.pdf',type:'pdf',url:'assets/observation-guide.pdf',pages:3,parts:['Observe from a safe distance. Record the time and location.','Prepare a notebook, water and a simple observation checklist.','Summarize observations. Review the full batch before accepting.'],note:'PDF · 3页离线示例'},
  {id:'ref-bird',name:'小鸟图片.svg',type:'image',url:'assets/bird-v1.svg',note:'图片 · 示意插画'},
  {id:'ref-brief',name:'活动说明.md',type:'document',url:'assets/brief.md',text:'# 活动说明\n主题：自然观察\n对象：亲子家庭\n需要：一张配图、一段介绍、一份活动方案。',note:'文档'},

@@ -99,7 +99,7 @@
           <button type="button" :disabled="!uploadFile || workspace.actionState.value === 'uploading'" @click="upload">{{ workspace.actionState.value === 'uploading' ? '收入箱中…' : '收入百宝箱' }}</button>
         </div>
         <p v-if="uploadFile" class="selected-file">待收入：{{ uploadFile.name }}（{{ byteText(uploadFile.size) }}）</p>
-        <form class="filters" @submit.prevent="refresh"><label><span>搜索</span><input v-model="query" maxlength="100" placeholder="按显示名搜索" /></label><label><span>类型</span><select v-model="mediaFamily"><option value="">全部类型</option><option value="IMAGE">图片</option><option value="AUDIO">音频</option><option value="TEXT">文本</option><option value="DOCUMENT">Word 文档</option><option value="SPREADSHEET">Excel 表格</option><option value="PRESENTATION">PPT 演示</option><option value="PDF">PDF</option></select></label><div class="filter-actions"><button type="submit">筛选</button><button type="button" :class="{ active: state === 'ACTIVE' }" @click="switchState('ACTIVE')">文件</button><button type="button" :class="{ active: state === 'TRASHED' }" @click="switchState('TRASHED')">回收站</button></div></form>
+        <form class="filters" @submit.prevent="refresh"><label><span>搜索</span><input v-model="query" maxlength="100" placeholder="按显示名搜索" /></label><label><span>类型</span><select v-model="mediaFamily"><option value="">全部类型</option><option value="IMAGE">图片</option><option value="AUDIO">音频</option><option value="TEXT">文本</option><option value="DOCUMENT">文档</option><option value="SPREADSHEET">Excel 表格</option><option value="PRESENTATION">PPT 演示</option><option value="PDF">PDF</option></select></label><div class="filter-actions"><button type="submit">筛选</button><button type="button" :class="{ active: state === 'ACTIVE' }" @click="switchState('ACTIVE')">文件</button><button type="button" :class="{ active: state === 'TRASHED' }" @click="switchState('TRASHED')">回收站</button></div></form>
         <p v-if="workspace.listState.value === 'loading'" class="workspace-note" role="status">正在翻看资料…</p><p v-else-if="workspace.listState.value === 'empty'" class="workspace-empty">{{ state === 'TRASHED' ? '回收站为空。' : embedded ? '还没有文件。可先添入资料。' : '还没有文件。可先添入资料，或返回箱面打开交付台。' }}</p>
         <div v-else ref="fileListRef" class="file-list"><button
           v-for="file in workspace.items.value"
@@ -287,12 +287,12 @@ const recentExecutionText = computed(() => {
   const recent = execution.receipt.value || execution.history.value[0]
   return recent ? executionStateText(recent.state) : '暂无'
 })
-const acceptTypes = '.html,.htm,.md,.markdown,text/html,text/markdown,text/x-markdown,.webp,.gif,.mp3,.ogg,.oga,.wav,.m4a,.mp4,.webm,image/webp,image/gif,audio/mpeg,audio/ogg,audio/wav,audio/mp4,audio/webm,.png,.jpg,.jpeg,.txt,.pdf,.docx,.xlsx,.pptx,image/png,image/jpeg,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation'
+const acceptTypes = '.json,application/json,.html,.htm,.md,.markdown,text/html,text/markdown,text/x-markdown,.webp,.gif,.mp3,.ogg,.oga,.wav,.m4a,.mp4,.webm,image/webp,image/gif,audio/mpeg,audio/ogg,audio/wav,audio/mp4,audio/webm,.png,.jpg,.jpeg,.txt,.pdf,.docx,.xlsx,.pptx,image/png,image/jpeg,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation'
 
 const byteText = workspaceByteText
 const nextVersion = computed(() => { const value = workspace.detail.value?.file.latestVersion; return validMaterialVersion(value) && BigInt(value) < 2147483647n ? String(BigInt(value) + 1n) : null })
 const formatDate = value => Number.isFinite(value) ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '时间未知'
-const familyText = value => ({ IMAGE: '图片', AUDIO: '音频', TEXT: '文本', DOCUMENT: 'Word 文档', SPREADSHEET: 'Excel 表格', PRESENTATION: 'PPT 演示', PDF: 'PDF' })[value] || '文件'
+const familyText = value => ({ IMAGE: '图片', AUDIO: '音频', TEXT: '文本', DOCUMENT: '文档', SPREADSHEET: 'Excel 表格', PRESENTATION: 'PPT 演示', PDF: 'PDF' })[value] || '文件'
 const originText = value => ({ USER_UPLOAD: '本人上传', AGENT_DELIVERY: 'Agent 交付' })[value] || '来源待确认'
 const executionStateText = value => ({ QUEUED: '已接受，等待结果', OUTPUT_COMMITTED: '交付已归档', FAILED: '交付失败', CANCELLED: '事项已取消', INPUTS_REVOKED: '输入已撤销', UNKNOWN: '提交结果待确认' })[value] || '状态待确认'
 const iconFor = value => ({ IMAGE: '🖼', AUDIO: '🎵', TEXT: '📝', DOCUMENT: '📄', SPREADSHEET: '📊', PRESENTATION: '📽', PDF: '📕' })[value] || '📁'
