@@ -715,7 +715,7 @@ function openMatterRequirementEditor(field){
  if(field==='files'){openMaterials('task-requirement',state.task.files||[]);return;}
  if(!['title','description'].includes(field))return;
  const task=state.task,label=field==='title'?'事项标题':'需求描述';
- const d=dialog('修改'+label,`<label class="matter-edit-field">${label}${field==='title'?`<input data-requirement-value value="${esc(task[field]||'')}" required>`:`<textarea data-requirement-value rows="7" required>${esc(task[field]||'')}</textarea>`}</label><p class="mmd-muted">保存后仍为待承办，不会自动开始办理。</p><p data-edit-error role="alert" hidden></p>`,button('取消','close-dialog')+button('保存','complete-save-requirement','class="mmd-primary"'));
+ const d=dialog('修改'+label,`<label class="matter-edit-field">${label}${field==='title'?`<input data-requirement-value value="${esc(task[field]||'')}" required>`:`<textarea data-requirement-value rows="7">${esc(task[field]||'')}</textarea>`}</label><p class="mmd-muted">保存后仍为待承办，不会自动开始办理。</p><p data-edit-error role="alert" hidden></p>`,button('取消','close-dialog')+button('保存','complete-save-requirement','class="mmd-primary"'));
  d.requirementEdit={task,field,original:task[field]};
  $('[data-requirement-value]',d).focus();
 }
@@ -725,7 +725,7 @@ function saveMatterRequirementEditor(t){
  if(edit.task!==state.task||!canEditMatterRequirement())return fail('事项或状态已变化，请关闭后重新查看。');
  if(edit.task[edit.field]!==edit.original)return fail('需求已变化，请关闭后重新编辑。');
  const input=$('[data-requirement-value]',d),value=input.value.trim();
- if(!value){fail('请填写'+(edit.field==='title'?'事项标题':'需求描述')+'。');input.focus();return;}
+ if(!value&&(edit.field==='title'||!(edit.task.files||[]).length)){fail(edit.field==='title'?'请填写事项标题。':'请填写需求描述或选择资料。');input.focus();return;}
  edit.task[edit.field]=value;
  if(!persist()){edit.task[edit.field]=edit.original;return fail('浏览器会话保存失败，请重试；本次修改未保存。');}
  state.task.assignmentCandidate=null;taskRecommendation();

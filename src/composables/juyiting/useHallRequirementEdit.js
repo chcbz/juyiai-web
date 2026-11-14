@@ -57,7 +57,8 @@ export function useHallRequirementEdit({ agentApi, task, identity, enabled, onSa
       if (!snapshot.value || snapshot.value.taskId !== id) throw new Error('请先读取当前事项需求。')
       const body = { expectedTaskVersion: snapshot.value.taskVersion, expectedRequirementRevision: snapshot.value.requirementRevision,
         title: values.title.trim(), description: values.description.trim(), attachments: editAttachments(values.attachments) }
-      if (!body.title || !body.description) throw new Error('请填写事项标题和需求描述。')
+      if (!body.title) throw new Error('请填写事项标题。')
+      if (!body.description && !body.attachments.length) throw new Error('请填写需求描述或选择资料。')
       pending.value = { key: crypto.randomUUID(), body }
     }
     const intent = pending.value

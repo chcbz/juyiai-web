@@ -140,3 +140,20 @@ describe('current-state saves are not audit revisions', () => {
     try { await f.editor.load(); expect(await f.editor.save(values())).to.equal(false); expect(f.saved).to.have.length(0) } finally { f.scope.stop() }
   })
 })
+
+ describe('material-only requirement edits', () => {
+  it('saves empty description with fixed materials and preserves the authoritative empty value', async () => {
+    let captured
+    const f = fixture({ get: async () => ({ ...initial(), description: '' }), put: async (url, body) => { captured = body; return { ...initial(), ...body, taskVersion: '1', requirementRevision: '2' } } })
+    try {
+      await f.editor.load()
+      expect(await f.editor.save({ title: '资料处理', description: '', attachments: [{ fileId: 'file', version: '2' }] })).to.equal(true)
+      expect(captured.description).to.equal(''); expect(captured.attachments).to.deep.equal([{ fileId: 'file', version: 2 }])
+      expect(f.saved).to.have.length(1); expect(f.editor.pending.value).to.equal(null)
+    } finally { f.scope.stop() }
+  })
+  it('does not save an empty requirement after removing its last material', async () => {
+    const f = fixture()
+    try { await f.editor.load(); expect(await f.editor.save({ title: '资料处理', description: '  ', attachments: [] })).to.equal(false); expect(f.writes).to.have.length(0); expect(f.editor.pending.value).to.equal(null) } finally { f.scope.stop() }
+  })
+})
