@@ -36,7 +36,7 @@ const formalDelivery = (delivery, taskId) => delivery && typeof delivery === 'ob
   validId(delivery.runId) && validId(delivery.producerAgentId) && validText(delivery.summary, 4000) &&
   validId(delivery.manifestArtifactId) && validRevision(delivery.manifestArtifactVersion) && validTimestamp(delivery.submittedAt) &&
   (delivery.reviewedAt == null || validTimestamp(delivery.reviewedAt)) &&
-  (delivery.reviewReason == null || validText(delivery.reviewReason, 4000)) && validEntityVersion(delivery.taskVersion) &&
+  validEntityVersion(delivery.taskVersion) &&
   validEntityVersion(delivery.workItemVersion) && Array.isArray(delivery.items) && delivery.items.length <= 100 && delivery.items.every(formalItem) &&
   (delivery.state === 'submitted' ? delivery.deliveryVersion === 0 && delivery.reviewedAt == null && delivery.reviewReason == null
     : delivery.deliveryVersion >= 1 && positiveTimestamp(delivery.reviewedAt) &&
