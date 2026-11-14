@@ -360,7 +360,8 @@ watch(() => apiStore.authorizationGeneration, () => {
   identityRequest = null
   identityLoading.value = false
   identityError.value = ''
-  if (profileMounted) void loadCurrentIdentity()
+  // Generation changes invalidate identity; they are not a new login request.
+  // Hydration belongs to mount/explicit retry, never the logout watcher.
 }, { flush: 'post' })
 
 onBeforeUnmount(() => {

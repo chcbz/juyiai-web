@@ -4,6 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { assessReadOnlyPreviewCapabilities } from '../src/utils/economyReadOnlyPreviewPolicy.js'
 import * as profileNavigation from '../src/utils/profileNavigation.js'
+import { useApiStore } from '../src/stores/api.js'
+import { useGlobalStore } from '../src/stores/global.js'
+import { useAccountSecuritySession } from '../src/composables/useAccountSecuritySession.js'
 import * as displayName from '../src/utils/displayName.js'
 
 const Vue = await import('vue')
@@ -46,6 +49,7 @@ const routerAt = async path => {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/', name: 'PublicLanding', component: { template: '<div />' } },
       { path: '/profile', name: 'UserProfile', component: { template: '<div />' } },
       { path: '/economy-preview', name: 'EconomyReadOnlyPreview', component: { template: '<div />' } },
       { path: '/juyiting', name: 'JuyiHall', component: { template: '<div />' } },
@@ -57,12 +61,12 @@ const routerAt = async path => {
   return router
 }
 
-const profileComponent = ({ globalStore, apiStore, client }) => compileComponent('../src/components/UserProfile.vue', 'profile-navigation-mounted', {
+const profileComponent = ({ globalStore, apiStore, client, securitySession }) => compileComponent('../src/components/UserProfile.vue', 'profile-navigation-mounted', {
   vue: Vue,
   'vue-router': VueRouter,
   '@/stores/global': { useGlobalStore: () => globalStore },
   '@/stores/api': { useApiStore: () => apiStore },
-  '@/composables/useAccountSecuritySession': { useAccountSecuritySession: () => ({ busy: Vue.ref(false), error: Vue.ref(''), status: Vue.ref(''), signOutCurrentDevice: () => {}, signOutAllDevices: async () => true }) },
+  '@/composables/useAccountSecuritySession': { useAccountSecuritySession: securitySession || (() => ({ busy: Vue.ref(false), error: Vue.ref(''), status: Vue.ref(''), signOutCurrentDevice: () => {}, signOutAllDevices: async () => true })) },
   '@/composables/useConfirmationDialog': { useConfirmationDialog: () => ({ cancelButton: Vue.ref(null), close: () => {}, confirming: Vue.ref(false), dialog: Vue.ref(null), onKeydown: () => {}, open: () => {} }) },
   '@/utils/wenAmount': { isEconomyPreviewBuildEnabled: () => false },
   '@/utils/economyPreviewCapability': { isEconomyPreviewCapability: () => false, isSkillMarketplaceCapability: value => value?.skillMarketplaceEnabled === true, loadEconomyPreviewCapability: client.marketCapability || (async () => ({})) },
@@ -82,6 +86,28 @@ const previewComponent = state => compileComponent('../src/components/economy/Ec
 })
 
 describe('profile navigation mounted behavior', () => {
+  it('does not reload identity or restart OAuth when the mounted profile signs out', async () => {
+    const apiStore = useApiStore()
+    const globalStore = useGlobalStore()
+    globalStore.setUser({ id: '5', username: 'fixture-user' })
+    let authorizationCalls = 0
+    apiStore.beginAuthorization = async () => { authorizationCalls++; return false }
+    const router = await routerAt('/profile')
+    const wrapper = mount(profileComponent({ globalStore, apiStore,
+      client: { capabilities: async () => capabilities(false) },
+      securitySession: options => useAccountSecuritySession({ ...options, apiStore })
+    }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === '退出当前设备').trigger('click')
+    await flushPromises()
+    expect(apiStore.authorizationGeneration).to.equal(1)
+    expect(globalStore.user.id).to.equal(null)
+    expect(authorizationCalls).to.equal(0)
+    expect(router.currentRoute.value.path).to.equal('/')
+    expect(wrapper.find('.profile-identity-retry').exists()).to.equal(false)
+  })
+
   it('keeps the skill discovery link when economy is disabled and clears it on identity change', async () => {
     let enabled = true
     const client = { capabilities: async () => capabilities(false), marketCapability: async () => ({ skillMarketplaceEnabled: enabled }) }
@@ -179,7 +205,7 @@ describe('profile navigation mounted behavior', () => {
     expect(wrapper.find('.profile-identity-retry').exists()).to.equal(false)
   })
 
-  it('aborts profile hydration on unmount and starts a fresh request after auth generation changes', async () => {
+  it('aborts invalidated hydration without reauthentication and hydrates again only on a fresh mount', async () => {
     const globalStore = Vue.reactive({ user: {}, setTitle: () => {}, setShowBack: () => {}, setShowMore: () => {} })
     const signals = []
     const apiStore = Vue.reactive({ authorizationGeneration: 0, getUserInfo: ({ signal }) => { signals.push(signal); return new Promise(() => {}) } })
@@ -188,10 +214,14 @@ describe('profile navigation mounted behavior', () => {
     await flushPromises()
     apiStore.authorizationGeneration++
     await flushPromises()
-    expect(signals).to.have.length(2)
+    expect(signals).to.have.length(1)
     expect(signals[0].aborted).to.equal(true)
-    expect(signals[1].aborted).to.equal(false)
     wrapper.unmount()
+    const remounted = mount(profileComponent({ globalStore, apiStore, client: { capabilities: async () => capabilities(true) } }), { global: { plugins: [router], stubs: { 'var-icon': true } } })
+    await flushPromises()
+    expect(signals).to.have.length(2)
+    expect(signals[1].aborted).to.equal(false)
+    remounted.unmount()
     expect(signals[1].aborted).to.equal(true)
   })
 
