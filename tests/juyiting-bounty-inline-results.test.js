@@ -99,9 +99,31 @@ describe('scoped bounty output actions live on the actual message cards', () => 
       await rows[1].get('.message-output-accept').trigger('click')
       expect(f.wrapper.emitted('accept-output')[1][0].requestId).to.equal('request-2')
       expect(f.calls.every(call => call.method === 'GET')).to.equal(true)
-      expect(f.wrapper.find('[aria-label="统一验收"]').exists()).to.equal(false)
+      expect(f.wrapper.find('[aria-label="统一验收"]').exists()).to.equal(true)
       expect(f.wrapper.emitted('review-delivery')).to.equal(undefined)
       expect(f.wrapper.emitted('outputs-change').at(-1)[0]).to.have.length(2)
+    } finally { f.wrapper.unmount() }
+  })
+  it('toolbar opens the shared selection with no preselected version and fences busy/terminal states', async () => {
+    const f = setup()
+    try {
+      await settle()
+      const entry = () => f.wrapper.get('.panel-toolbar [aria-label="统一验收"]')
+      expect(entry().attributes('title')).to.equal('验收')
+      await entry().trigger('click')
+      expect(f.wrapper.emitted('accept-output')).to.deep.equal([[]])
+      expect(f.calls.every(call => call.method === 'GET')).to.equal(true)
+      for (const busy of [{ reviewBusy: true }, { reviewBusy: false, conversationBusy: true },
+        { conversationBusy: false, voice: { voiceInteractionLocked: true } }]) {
+        await f.wrapper.setProps(busy)
+        expect(entry().element.disabled).to.equal(true)
+        await entry().trigger('click')
+        expect(f.wrapper.emitted('accept-output')).to.have.length(1)
+      }
+      await f.wrapper.setProps({ voice: null, selectedTask: { ...props.selectedTask, status: 'completed' } })
+      expect(f.wrapper.find('[aria-label="统一验收"]').exists()).to.equal(false)
+      await f.wrapper.setProps({ selectedTask: { ...props.selectedTask, status: 'cancelled' } })
+      expect(f.wrapper.find('[aria-label="统一验收"]').exists()).to.equal(false)
     } finally { f.wrapper.unmount() }
   })
   it('inline gallery reuses parent request snapshots and does not fetch them again', async () => {

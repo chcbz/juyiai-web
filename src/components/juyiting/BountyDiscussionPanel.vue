@@ -38,6 +38,21 @@
       @voice-apply="$emit('voice-apply', $event)"
       @typed-reply="$emit('typed-reply', $event)"
     >
+      <template #toolbar-actions>
+        <button
+          v-if="deliberationV2Enabled && !taskCompleted && !['cancelled', 'archived'].includes(selectedTask?.status) && messageOutputs.length"
+          class="icon-button hall-tool"
+          type="button"
+          title="验收"
+          aria-label="统一验收"
+          :disabled="reviewBusy || conversationBusy || voice?.voiceInteractionLocked || Boolean(outputGallery?.loading)"
+          @click="$emit('accept-output')"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M9 6h11M9 12h11M9 18h11M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
+          </svg>
+        </button>
+      </template>
       <template #after-toolbar>
         <label v-if="typedEnabled && !taskCompleted && (deliveryChoices.length > 1 || deliveryHasMore || selectedDeliveryId)" class="media-basis-choice">
           <span>本轮成果</span>

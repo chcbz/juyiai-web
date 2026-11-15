@@ -7,6 +7,7 @@
         <em>{{ displayStatus }}</em>
       </div>
       <div class="toolbar-actions">
+        <slot name="toolbar-actions"></slot>
         <button
           class="icon-button hall-tool"
           type="button"
