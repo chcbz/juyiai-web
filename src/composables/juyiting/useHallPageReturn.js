@@ -57,7 +57,7 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
       }
       if (!current()) return
       await candidate.apply(clone(scene))
-      if (!current()) return
+      if (!current() || status.value === 'error') return
       candidate.revision = saved?.revision || null
       // Persist merged scene before ACL reads. Unreadable fixed refs must survive refresh.
       if (!['FINISHED', 'ABANDONED'].includes(original.phase)) {

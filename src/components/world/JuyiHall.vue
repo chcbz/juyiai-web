@@ -251,7 +251,7 @@
     <transition name="panel" @after-leave="handlePanelAfterLeave">
       <div
         v-if="activePanel && pageReturn.status.value !== 'loading'"
-        v-show="!helpReplayVisible"
+        v-show="!helpReplayVisible && !returnBlocking"
         :key="panelSessionGeneration"
         class="panel-overlay"
         :class="{ 'is-full-window': panelLayout === 'full-window', 'is-agent-overlay': renderedPanel === 'agents', 'is-low-height': isLowHeightPanel, 'is-chat-overlay': renderedPanel === 'chat', 'is-compact-chat-overlay': renderedPanel === 'chat' && isCompactChat, 'theme-workbench': isOverviewHome, 'is-workbench-panel': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel), 'is-workbench-page': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) }"
@@ -3121,7 +3121,10 @@ const handleTypedResume = async () => {
 const restoreDiscussionContext = context => {
   const ids = context?.mentionAgentIds || []
   const agent = ids.length ? chatMentionAgents.value.find(item => item.agentId === ids[0]) : null
-  if (ids.some(id => !chatMentionAgents.value.some(item => item.agentId === id))) throw new Error('原点名好汉暂不可用，未自动替换。')
+  if (ids.some(id => !chatMentionAgents.value.some(item => item.agentId === id))) {
+    pageReturn.report(new Error('原点名好汉暂不可用，未自动替换。'))
+    return false
+  }
   setMentionAgent(agent)
   chatMentionAgentIds.value = [...ids]
   outgoingMetadata.value = context?.outgoingMetadata || {}
@@ -3287,6 +3290,8 @@ const restoreReturnTarget = async (record, current) => {
   } else resetToPublic()
   await nextTick()
   if (!current()) return
+  const sourceScene = record.checkpoint || record.snapshot
+  if ((sourceScene.discussionContext?.mentionAgentIds || []).some(id => !chatMentionAgents.value.some(agent => agent.agentId === id))) throw new Error('原点名好汉暂不可用，未自动替换。')
   await loadHallConversationHistory({ force: true })
   while (current() && !conversationHistory.value.some(item => item.id === source.conversationId) && conversationHistoryHasMore.value && !conversationHistoryError.value) {
     const count = conversationHistory.value.length

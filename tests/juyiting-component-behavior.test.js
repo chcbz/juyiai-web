@@ -4324,7 +4324,7 @@ describe('JuyiHall direct page-return', () => {
     const storage = { getItem(k) { return this[k] ?? null }, setItem(k, v) { this[k] = String(v) }, removeItem(k) { delete this[k] } }
     const host = { localStorage: storage, crypto: { randomUUID }, location: { href: 'https://kit.chaoyoufan.cn/juyiting' }, history: { replaceState(_a, _b, url) { host.location.href = url } } }
     const store = returnState.createPageReturnStore(host)
-    const context = { kind: 'chat', owner, mode: modeName, conversationId: 'original-thread', taskId: options.task || (modeName === 'bounty' ? 'original-task' : ''), agentId: modeName === 'private' ? 'agent-o04' : '', draft: '原议事草稿' }
+    const context = { kind: 'chat', owner, mode: modeName, conversationId: 'original-thread', taskId: options.task || (modeName === 'bounty' ? 'original-task' : ''), agentId: modeName === 'private' ? 'agent-o04' : '', draft: '原议事草稿', discussionContext: options.discussionContext }
     const record = store.prepare({ source: context, scope: owner, selected: [], staged: [] })
     if (!options.pendingOnly) { const url = new URL(host.location.href); url.searchParams.set('wechatImport', record.requestId); url.searchParams.set('wechatFiles', '[]'); url.searchParams.set('wechatState', 'cancelled'); host.location.href = url.href }
     mocks.useHallPageReturn = args => pageReturn.useHallPageReturn({ ...args, host })
@@ -4394,6 +4394,16 @@ describe('JuyiHall direct page-return', () => {
   it('opens home only once on closing a cold restored chat', async () => {
     const f = await make('public', 'portrait-command')
     try { f.auth.resolve('token'); await f.settle(); f.state.closePanel(); await f.settle(); expect(f.mounts.portrait).to.equal(1); expect(f.counters.loads.agents).to.equal(1) }
+    finally { f.wrapper.unmount() }
+  })
+  it('does not turn a revoked mentioned target into a public broadcast', async () => {
+    const f = await make('public', 'portrait-command', { discussionContext: { mentionAgentIds: ['revoked'], outgoingMetadata: { inputRefs: [] } } })
+    try { f.auth.resolve('token'); await f.settle(); expect(f.state.pageReturn.status.value).to.equal('error'); expect(f.state.pageReturn.error.value).to.include('原点名好汉'); expect(f.mounts.panels).to.deep.equal([]) }
+    finally { f.wrapper.unmount() }
+  })
+  for (const orientation of ['portrait-command', 'landscape-map']) it(`restores task-private scope in ${orientation}`, async () => {
+    const f = await make('private', orientation, { task: 'original-task' })
+    try { f.auth.resolve('token'); await f.settle(); expect(f.state.pageReturn.error.value).to.equal(''); expect(f.state.chatContext.conversationScopeKey).to.equal('task:original-task:agent:agent-o04'); expect(f.mounts.panels).to.deep.equal(['private']); expect(f.mounts.portrait + f.mounts.stage).to.equal(0) }
     finally { f.wrapper.unmount() }
   })
   it('does not apply late task restore after identity changes', async () => {
