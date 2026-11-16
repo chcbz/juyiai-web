@@ -1,10 +1,9 @@
 <view class="import-page">
-  <view class="heading">从微信选择资料</view>
-  <view class="hint">选择聊天中的文件或图片，上传到你的资料库。返回后确认加入原页面，不会自动发送。</view>
+  <view class="heading">{{needsAction ? '微信资料' : chosen ? '正在上传资料…' : '正在打开微信选择器…'}}</view>
   <view class="files" wx:if="{{files.length}}"><view class="file" wx:for="{{files}}" wx:key="index"><text class="name">{{item.name}}</text><text class="state">{{item.label}}</text></view></view>
   <view class="message" wx:if="{{message}}">{{message}}</view>
-  <view class="actions">
-    <button wx:if="{{!chosen}}" disabled="{{!ready || busy}}" loading="{{busy}}" bindtap="chooseFiles">选择微信资料</button>
+  <view class="actions" wx:if="{{needsAction}}">
+    <button wx:if="{{!chosen && ready}}" disabled="{{busy}}" loading="{{busy}}" bindtap="chooseFiles">重试选择</button>
     <button wx:if="{{canRetry}}" disabled="{{busy}}" loading="{{busy}}" bindtap="uploadFiles">核对原上传</button>
     <button disabled="{{busy}}" bindtap="returnToSource">{{returnLabel}}</button>
   </view>

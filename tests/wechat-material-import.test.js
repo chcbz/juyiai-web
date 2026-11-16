@@ -37,11 +37,11 @@ const settle = async () => { await flushPromises(); await Vue.nextTick() }
 const native = () => {
   const state = { pendingImports: Object.create(null), consumedImports: Object.create(null) }
   const uploads = [], navigation = [], copied = [], removed = []
-  let choose
+  let choose, chooseCount = 0
   const fs = { mkdir: options => options.success(), copyFile: options => { copied.push(options); options.success() },
     unlink: options => { removed.push(options.filePath); options.success?.() }, rmdir() {} }
   const wx = { env: { USER_DATA_PATH: '/owned' }, getFileSystemManager: () => fs,
-    chooseMessageFile: options => { choose = options }, uploadFile: options => { uploads.push(options); return { abort() {} } },
+    chooseMessageFile: options => { choose = options; chooseCount += 1 }, uploadFile: options => { uploads.push(options); return { abort() {} } },
     redirectTo: options => navigation.push(options), navigateBack() {} }
   const load = relative => createMiniRuntimeLoader(miniRoot)(relative, { wx, getApp: () => ({ globalData: state }), setInterval, clearInterval, setTimeout, clearTimeout })
   const { acceptImportMessages } = load('utils/import-messages.js')
@@ -50,14 +50,14 @@ const native = () => {
   const source = 'https://kit.chaoyoufan.cn/juyiting?nativeOrientation=landscape#chat'
   const message = { protocolVersion: 1, requestId: id, messageType: 'file.import', data: { token: 'test-token', count: 3, returnUrl: source } }
   const accept = value => acceptImportMessages({ detail: { data: [value] } }, state, config)
-  const start = () => { accept(message); page.onLoad({ requestId: id, returnUrl: encodeURIComponent(source), returnLabel: encodeURIComponent('返回选择资料'), orientation: 'landscape' }) }
+  const start = () => { accept(message); page.onLoad({ requestId: id, returnUrl: encodeURIComponent(source), returnLabel: encodeURIComponent('返回选择资料'), orientation: 'landscape' }); page.onReady() }
   const respond = (index, alter = () => {}) => {
     const options = uploads[index], key = options.header['X-Request-Id'], fileId = 'pws_' + index
     const response = { statusCode: 200, header: { 'X-Request-Id': key }, data: JSON.stringify({ protocolVersion: 1, requestId: key, code: 'E0', msg: '', data: {
       operation: { state: 'COMMITTED' }, file: { fileId, state: 'ACTIVE' }, version: { fileId, version: '1' } } }) }
     alter(response); options.success(response)
   }
-  return { state, wx, page, uploads, navigation, copied, removed, load, start, accept, message, respond, choose: () => choose }
+  return { state, wx, page, uploads, navigation, copied, removed, load, start, accept, message, respond, choose: () => choose, chooseCount: () => chooseCount }
 }
 
 describe('WeChat material H5 handoff', () => {
@@ -115,12 +115,48 @@ describe('native WeChat material selector', () => {
     const expected = '// Generated from src/utils/apiEnvelope.js; do not edit.\n' + source.replace(/^export /gm, '') + '\nmodule.exports = { parseStrictJson, decodeHttpResponse }\n'
     expect(readFileSync(new URL('../miniprogram/juyiting/utils/api-envelope.js', import.meta.url), 'utf8')).to.equal(expected)
   })
-  it('validates origin/count/protocol; consumes once; opens the chooser only on user action', () => {
+  it('validates origin/count/protocol; consumes once; opens the chooser automatically once after the user handoff', () => {
     const n = native()
     for (const invalid of [{ protocolVersion: 2 }, { data: { ...n.message.data, count: 33 } }, { data: { ...n.message.data, returnUrl: 'https://evil.invalid/' } }]) {
       n.accept({ ...n.message, ...invalid }); expect(Object.keys(n.state.pendingImports)).to.have.length(0)
     }
-    n.start(); try { expect(n.page.data.ready).to.equal(true); n.accept(n.message); expect(Object.keys(n.state.pendingImports)).to.have.length(0); expect(n.choose()).to.equal(undefined) } finally { n.page.onUnload() }
+    n.start(); try { expect(n.page.data.ready).to.equal(true); n.accept(n.message); expect(Object.keys(n.state.pendingImports)).to.have.length(0); expect(n.choose()).to.include({ count: 3, type: 'all' }); n.page.onReady(); n.page.consume(); expect(n.chooseCount()).to.equal(1) } finally { n.page.onUnload() }
+  })
+  it('waits for page readiness and delayed handoff, without an intermediate action', () => {
+    const n = native()
+    n.page.onLoad({ requestId: id, returnUrl: encodeURIComponent(n.message.data.returnUrl), orientation: 'landscape' })
+    try {
+      expect(n.chooseCount()).to.equal(0)
+      n.page.onReady(); expect(n.chooseCount()).to.equal(0)
+      n.accept(n.message); n.page.consume(); expect(n.chooseCount()).to.equal(1)
+      expect(n.page.data.needsAction).to.equal(false)
+      n.page.onReady(); n.page.consume(); expect(n.chooseCount()).to.equal(1)
+    } finally { n.page.onUnload() }
+    const early = native(); early.accept(early.message)
+    early.page.onLoad({ requestId: id, returnUrl: encodeURIComponent(early.message.data.returnUrl), orientation: 'landscape' })
+    try { expect(early.chooseCount()).to.equal(0); early.page.onReady(); expect(early.chooseCount()).to.equal(1) }
+    finally { early.page.onUnload() }
+  })
+  it('shows retry only for selector errors and unsupported clients; unload prevents late opening', () => {
+    const n = native(); n.start()
+    try {
+      n.choose().fail({ errMsg: 'chooseMessageFile:fail unavailable' })
+      expect(n.navigation).to.have.length(0); expect(n.page.data.needsAction).to.equal(true)
+      n.page.chooseFiles(); expect(n.chooseCount()).to.equal(2)
+      delete n.wx.chooseMessageFile; n.page.data.busy = false; n.page.chooseFiles()
+      expect(n.page.data.message).to.include('不支持'); expect(n.page.data.needsAction).to.equal(true)
+    } finally { n.page.onUnload() }
+    n.page.onReady(); expect(n.chooseCount()).to.equal(2)
+  })
+  it('returns automatically on confirmed upload; failed return can retry without reupload', async () => {
+    const n = native(); n.start()
+    try {
+      n.choose().success({ tempFiles: [{ path: '/a', name: 'a.txt' }] }); await settle()
+      n.respond(0); await settle(); expect(n.navigation).to.have.length(1)
+      expect(decodeURIComponent(n.navigation[0].url)).to.include('wechatState=complete')
+      n.navigation[0].fail(); expect(n.page.data.needsAction).to.equal(true)
+      n.page.returnToSource(); expect(n.navigation).to.have.length(2); expect(n.uploads).to.have.length(1)
+    } finally { n.page.onUnload() }
   })
   it('uploads docs/images via the fixed API, preserving filename extension and return references only', async () => {
     const n = native(); n.start()
@@ -143,7 +179,7 @@ describe('native WeChat material selector', () => {
     try {
       n.page.chooseFiles(); n.choose().success({ tempFiles: [{ path: '/a', name: 'a.txt' }, { path: '/b', name: 'b.txt' }] }); await settle()
       n.respond(0); await settle(); n.uploads[1].fail(Error('network')); await settle()
-      expect(n.page.data.files.map(file => file.state)).to.deep.equal(['committed', 'unknown'])
+      expect(n.page.data.files.map(file => file.state)).to.deep.equal(['committed', 'unknown']); expect(n.navigation).to.have.length(0); expect(n.page.data.needsAction).to.equal(true)
       const retry = n.page.uploadFiles(); await settle()
       expect(n.uploads[2].header['Idempotency-Key']).to.equal(n.uploads[1].header['Idempotency-Key'])
       expect(n.uploads[2].filePath).to.equal(n.uploads[1].filePath); expect(n.copied).to.have.length(2)
@@ -164,7 +200,7 @@ describe('native WeChat material selector', () => {
     const n = native(); n.start()
     try {
       n.page.chooseFiles(); n.choose().fail({ errMsg: 'chooseMessageFile:fail cancel' }); expect(n.uploads).to.have.length(0)
-      expect(n.page.data.message).to.include('已取消'); delete n.wx.chooseMessageFile; n.page.chooseFiles(); expect(n.page.data.message).to.include('不支持')
+      expect(decodeURIComponent(n.navigation[0].url)).to.include('wechatState=cancelled'); expect(n.page.data.needsAction).to.equal(false)
       const { ownImportDirectory } = n.load('utils/import-files.js')
       expect(ownImportDirectory('juyiting-import-' + id + '-0', 'juyiting-')).to.equal(true)
       for (const name of ['other-' + id + '-0', 'juyiting-import-' + id + '-32', 'juyiting-import-' + id + '-0/../private']) expect(ownImportDirectory(name, 'juyiting-')).to.equal(false)

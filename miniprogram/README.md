@@ -75,7 +75,9 @@ Remove-Item Env:MINIPROGRAM_PROJECT
 
 H5与原生容器必须配套更新。首页“选择资料”保留系统上传、拍照、相册图标并新增微信；议事附件区为拍照、相册、微信、资料四个纯文字44px入口。普通浏览器不显示微信入口；未具备恢复契约的编辑器不展示原生导入。
 
-用户主动调用 `wx.chooseMessageFile({type: 'all'})`，按选择器最多32份的剩余额度选择聊天文件/图片。复用现有个人资料 multipart 上传，不新增后端接口。部署时配置 `juyiting/utils/app-config.json` 的 `importUploadUrl` 为实际HTTPS API地址，并核对微信后台 **uploadFile合法域名**；web-view业务域名不能代替上传域名。修改配置后运行 `node scripts/generate-mini-program-config.mjs`，同步提交生成的JS。
+用户点击“微信”后，原生路由就绪并收到有效交接即自动调用选择器（仅一次），不再展示中间确认按钮；取消自动返回，全部上传确认后自动返回，仅异常展示重试/返回操作。原生承接路由保留平台调用及上传职责，不要求用户再次确认。
+
+用户主动发起的 `wx.chooseMessageFile({type: 'all'})`，按选择器最多32份的剩余额度选择聊天文件/图片。复用现有个人资料 multipart 上传，不新增后端接口。部署时配置 `juyiting/utils/app-config.json` 的 `importUploadUrl` 为实际HTTPS API地址，并核对微信后台 **uploadFile合法域名**；web-view业务域名不能代替上传域名。修改配置后运行 `node scripts/generate-mini-program-config.mjs`，同步提交生成的JS。
 
 桥接遵循根仓 `api/docs/interface-standard.md` v1.4（2026-10-24），公共protocolVersion仍为1：`requestId/messageType=file.import/data={token,count,returnUrl}`。H5先保存同身份/同来源的草稿和固定版本选择，再通过销毁web-view交接。bearer仅用于消息与原生内存，不进入URL、文件、日志或持久存储；上传目标只取部署配置，不接受外部传入。返回URL只含请求号、固定fileId/version及状态。
 

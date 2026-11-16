@@ -3,7 +3,7 @@
 (() => {
   const environment = new URLSearchParams(location.search).get('materialSource') === 'browser' ? 'browser' : 'wechat';
   const sources = {
-    chat: { title: '从微信聊天选择', note: '选择聊天中的图片或文件。这里是离线示意，不会读取真实聊天。', files: [
+    chat: { title: '从微信聊天选择', note: '点击“微信”直接进入此选择器，无中间确认页。选择聊天中的图片或文件；这里只是离线示意，不会读取真实聊天。', files: [
       { key: 'brief', name: '春游活动说明.pdf', type: 'pdf', url: 'assets/observation-guide.pdf', pages: 3, parts: ['活动目标：认识身边的鸟类。', '准备观察手册，分组记录。', '汇总观察结果与活动建议。'], size: '248 KB' },
       { key: 'photo', name: '聊天图片.svg', type: 'image', url: 'assets/bird-v1.svg', size: '图片示意' },
       { key: 'notes', name: '活动需求.txt', type: 'text', text: '请根据活动资料整理一份亲子自然观察方案，包含物料与时间安排。', size: '文本示意' }
