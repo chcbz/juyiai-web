@@ -268,12 +268,12 @@ describe('JYT-MMD-W2 conversation archive operations', () => {
   it('renders save only for ready persisted assets and leaves existing media controls intact', async () => {
     const saves = []
     const archive = { statusFor: () => ({ state: 'idle', message: '', busy: false, operationId: '' }), save: item => { saves.push(item); return Promise.resolve(null) }, retry: () => Promise.resolve(null) }
-    const wrapper = mount(loadParts(archive), { props: { conversationId: 'conversation-1', identityKey: 'owner-a', parts: [part({ kind: 'text', text: '可保存文本' }), part({ partId: 'ready-image' }), part({ partId: 'ready-audio', kind: 'audio' }), part({ partId: 'ready-file', kind: 'file' }), part({ partId: 'missing-asset', assetId: '' }), part({ partId: 'processing', state: 'processing' })] } })
+    const wrapper = mount(loadParts(archive), { props: { conversationId: 'conversation-1', identityKey: 'owner-a', parts: [part({ kind: 'text', text: '可保存文本' }), part({ partId: 'ready-image' }), part({ partId: 'ready-audio', kind: 'audio' }), part({ partId: 'ready-file', kind: 'file' }), part({ partId: 'missing-asset', assetId: '' }), part({ partId: 'processing', state: 'processing' }), part({ partId: 'failed', state: 'failed' }), part({ partId: 'missing-revision', revision: '' })] } })
     try {
-      expect(wrapper.findAll('.part-save-button')).to.have.length(1)
-      expect(wrapper.findAll('.media-stub')).to.have.length(4)
-      await wrapper.get('.part-save-button').trigger('click')
-      expect(saves).to.deep.equal([part({ kind: 'text', text: '可保存文本' })])
+      expect(wrapper.findAll('.part-save-button')).to.have.length(4)
+      expect(wrapper.findAll('.media-stub')).to.have.length(5)
+      for (const button of wrapper.findAll('.part-save-button')) await button.trigger('click')
+      expect(saves).to.deep.equal([part({ kind: 'text', text: '可保存文本' }), part({ partId: 'ready-image' }), part({ partId: 'ready-audio', kind: 'audio' }), part({ partId: 'ready-file', kind: 'file' })])
     } finally { wrapper.unmount() }
   })
 })
