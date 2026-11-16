@@ -350,7 +350,7 @@ describe('useHallConversation scoped message loading', () => {
   it('trims sent hall messages while preserving scoped payload fields', async () => {
     const chatContext = ref({
       conversationScopeType: 'private',
-      conversationScopeKey: 'task:task-2:agent:wuyong',
+      conversationScopeKey: 'agent:wuyong',
       mode: 'private',
       participantAgentIds: ['wuyong'],
       selectedTaskId: 'task-2',
@@ -388,10 +388,10 @@ describe('useHallConversation scoped message loading', () => {
       content: 'discuss this task',
       conversationType: 'juyiting',
       conversationScopeType: 'private',
-      conversationScopeKey: 'task:task-2:agent:wuyong',
-      targetAgentId: 'wuyong',
-      taskId: 'task-2'
+      conversationScopeKey: 'agent:wuyong',
+      targetAgentId: 'wuyong'
     })
+    expect(payloads[0]).not.to.have.property('taskId')
     expect(payloads[0].targetAgentIds).to.deep.equal(['wuyong'])
     expect(payloads[0].metadata.mentionAgentIds).to.deep.equal(['wuyong'])
     expect(payloads[0].metadata).not.to.have.any.keys('senderName', 'senderType')

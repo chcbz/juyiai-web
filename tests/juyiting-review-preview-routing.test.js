@@ -31,17 +31,22 @@ describe('actual selected preview routing and late-result isolation', () => {
     await h.preview(item(1)); expect(h.state.value.loading).to.equal(false); expect(h.state.value.error).to.include('不会换用其他版本')
     h.open.value = false; h.accept({ item: item(1), url: 'blob:old' }); expect(h.state.value.url).to.equal(undefined)
   })
-  it('only the latest gallery preview emits, even when earlier work completes later', async () => {
-    const items = [item(1), item(2)], jobs = [], emitted = [], urls = ref({})
-    const code = gallery.slice(gallery.indexOf('let selectedPreviewGeneration'), gallery.indexOf('defineExpose({ previewSelected'))
-    const api = new Function('allItems', 'outputItemKey', 'loadPreview', 'previewUrls', 'textPreviews', 'itemErrors', 'emit',
-      `let epoch=0; ${code}; return { previewSelected, invalidate:()=>epoch++ }`)(ref(items), selectionKey,
-      value => new Promise(resolve => jobs.push({ value, resolve })), urls, ref({}), ref({}), (...args) => emitted.push(args))
-    const first = api.previewSelected(items[0]), second = api.previewSelected(items[1])
-    urls.value[selectionKey(items[1])] = 'blob:b'; jobs[1].resolve(); await second
-    jobs[0].resolve(); await first
-    expect(emitted).to.have.length(1); expect(emitted[0][1].item.requestId).to.equal('request-2')
-    const third = api.previewSelected(items[0]); api.invalidate(); jobs[2].resolve(); await third
+  it('routes only the exact current gallery item to the shared source loader', () => {
+    const items = ref([item(1), item(2)]), emitted = []
+    const code = gallery.slice(gallery.indexOf('const previewSelected ='), gallery.indexOf('defineExpose({ previewSelected'))
+    const api = new Function('allItems', 'outputItemKey', 'previewSource', 'emit',
+      `${code}; return { previewSelected }`)(items, selectionKey,
+      value => ({ key: selectionKey(value), mimeType: value.contentMimeType }), (...args) => emitted.push(args))
+    api.previewSelected({ ...items.value[0], sha256: 'wrong' })
+    expect(emitted).to.have.length(0)
+    api.previewSelected(items.value[1])
     expect(emitted).to.have.length(1)
+    expect(emitted[0][1].item).to.equal(items.value[1])
+    expect(emitted[0][1].source.key).to.equal(selectionKey(items.value[1]))
+    const old = items.value[0]; items.value = []
+    api.previewSelected(old)
+    expect(emitted).to.have.length(1)
+    // Async bytes are owned by FilePreview; its actual lifecycle tests cover
+    // A/B switching and close, while the parent routing cases above fence events.
   })
 })

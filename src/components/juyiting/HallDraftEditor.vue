@@ -200,7 +200,7 @@ watch(() => props.selectedAgent?.agentId, id => { if (!isTaskCreate.value && !dr
 watch(form, () => { if (savedFormSnapshot.value !== formSnapshot()) authorizationAcknowledgement.value = false }, { deep: true, flush: 'sync' })
 watch([() => props.identityEpoch, () => props.identityScope], () => { materialLabels.value = {}; view.value = 'draft'; fill({}) }, { flush: 'sync' })
 const openInitial = async () => { const ref = props.initialRef; if (!ref || !props.identityScope || sourceReadState.value === 'loading') return; sourceReadState.value = 'loading'; let loaded = null; if (ref.sourceType === 'DRAFT') { loaded = await drafts.load(ref.sourceId); if (loaded) fill(loaded.editableFields) } else if (ref.sourceType === 'PRIVATE_CASE') loaded = await drafts.loadCase(ref.sourceId); else if (ref.sourceType === 'LEGACY_EXECUTION') loaded = await drafts.loadExecution(ref.sourceId); sourceReadState.value = loaded ? 'ready' : 'error' }
-onMounted(async () => { if (!props.initialRef && props.initialContext) { fill(props.initialContext); savedFormSnapshot.value = '' }; await openInitial(); if (activeView.value === 'draft' && !isTaskCreate.value) void workspace.refresh({ state: 'ACTIVE' }) })
+onMounted(async () => { if (!props.initialRef && props.initialContext) { fill({ ...props.initialContext, targetAgentId: props.initialContext.targetAgentId ?? (!isTaskCreate.value ? props.selectedAgent?.agentId : '') }); savedFormSnapshot.value = '' }; await openInitial(); if (activeView.value === 'draft' && !isTaskCreate.value) void workspace.refresh({ state: 'ACTIVE' }) })
 onBeforeUnmount(() => { disposed = true; invalidateDownload(); workspace.dispose(); drafts.dispose() })
 </script>
 

@@ -1,3 +1,5 @@
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
 import { FilePreview } from './helpers/file-preview-component.js'
 import * as assigneeCandidates from '../src/composables/juyiting/hallAssigneeCandidates.js'
 import * as taskPresentation from '../src/composables/juyiting/hallTaskPresentation.js'
@@ -77,7 +79,7 @@ function fixture (panelProps = {}) {
     createIdempotencyKey: () => 'bird-original-key', onCommitted: (value, fence) => { if (!fence.isCurrent()) return false; adopted.push(value); return true } })
   disposers.push(() => create.dispose())
   const Picker = compileComponent('../src/components/juyiting/HallMaterialPicker.vue', {
-    vue: Vue, '../preview/FilePreview.vue': FilePreview, '../../utils/filePreview.js': { filePreviewKind, previewMime }, '../../composables/juyiting/materialVersion.js': materialVersion, '@/composables/usePersonalWorkspace': { usePersonalWorkspace: options => usePersonalWorkspace({ ...options, api, urlApi }), savePersonalWorkspaceBlob: () => {} }
+    vue: Vue, '../../composables/juyiting/useHallPageReturn.js': pageReturn, '../../utils/pageReturnState.js': returnState, '../preview/FilePreview.vue': FilePreview, '../../utils/filePreview.js': { filePreviewKind, previewMime }, '../../composables/juyiting/materialVersion.js': materialVersion, '@/composables/usePersonalWorkspace': { usePersonalWorkspace: options => usePersonalWorkspace({ ...options, api, urlApi }), savePersonalWorkspaceBlob: () => {} }
   })
   const stub = Vue.defineComponent({ render: () => Vue.h('span') })
   const TaskMaterialLinks = Vue.defineComponent({ name: 'TaskMaterialLinks', render: () => Vue.h('section', { class: 'formal-material-controls' }) })
