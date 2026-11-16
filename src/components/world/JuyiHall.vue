@@ -1754,7 +1754,7 @@ const openPanel = (panel, options = {}) => {
     panelSessionGeneration.value += 1
     panelClosingGeneration.value = 0
   }
-  if (panel !== 'chat') {
+  if (panel !== 'chat' || options.restore) {
     cancelPanelChatLoad()
   }
   if (panel === 'chat' && options.mode === 'public') {
@@ -2065,7 +2065,7 @@ const openFormalResults = task => {
 }
 // Return only to the scoped existing discussion; never point, create, or send on navigation.
 const continueBountyModification = async (task, source) => {
-  if (!task?.id || (isTerminalMatter(task) && !['completed', 'archived'].includes(String(task.status).toLowerCase())) || (source && source.taskId !== task.id) || !openPanel('chat')) return false
+  if (!task?.id || (isTerminalMatter(task) && !['completed', 'archived'].includes(String(task.status).toLowerCase())) || (source && source.taskId !== task.id) || !openPanel('chat', { restore: true })) return false
   const identity = `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`
   const sameDiscussion = chatMode.value === 'bounty' && conversationTask.value?.id === task.id
   if (sameDiscussion && conversationId.value && (!source?.conversationId || conversationId.value === source.conversationId)) return true
@@ -3192,7 +3192,8 @@ const restoreWechatSource = async () => {
           const agent = operableRosterAgents.value.find(item => item.agentId === source.agentId)
           if (!agent || !enterPrivateConversation(agent, { task })) throw new Error('原好汉或密议不可用，请核对权限。')
         } else resetToPublic()
-        if (!openPanel('chat')) throw new Error('无法打开议事，请重试。')
+        // Exact-source restoration owns history/content reads; never also load the latest thread.
+        if (!openPanel('chat', { restore: true })) throw new Error('无法打开议事，请重试。')
         await loadHallConversationHistory({ force: true })
         while (current() && !conversationHistory.value.some(item => item.id === source.conversationId) && conversationHistoryHasMore.value && !conversationHistoryError.value) {
           const count = conversationHistory.value.length

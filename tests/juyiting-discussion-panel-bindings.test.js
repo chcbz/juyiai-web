@@ -2,6 +2,7 @@ import { discussionTurns } from '../src/composables/juyiting/hallDiscussionTurns
 import { useHallExecutionAbandonment } from '../src/composables/juyiting/useHallExecutionAbandonment.js'
 import { expect } from 'chai'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import * as Vue from 'vue'
 import { mount } from '@vue/test-utils'
 import { compileScript, parse } from '@vue/compiler-sfc'
@@ -15,7 +16,7 @@ const ChatProbe = Vue.defineComponent({
   setup: (_props, { slots }) => () => Vue.h('div', {}, slots['bounty-results']?.())
 })
 const loadPanel = (name, refresh = () => {}) => {
-  const filename = new URL(`../src/components/juyiting/${name}.vue`, import.meta.url).pathname
+  const filename = fileURLToPath(new URL(`../src/components/juyiting/${name}.vue`, import.meta.url))
   const descriptor = parse(readFileSync(filename, 'utf8'), { filename }).descriptor
   const script = compileScript(descriptor, { id: name, inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)

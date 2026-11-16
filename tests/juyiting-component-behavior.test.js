@@ -4308,7 +4308,7 @@ describe('discussion retest task status and scroll', () => {
 })
 
 describe('JuyiHall WeChat import source restoration', () => {
-  const fixture = async (variant, { selectable = true, holdTask = null } = {}) => {
+  const fixture = async (variant, { selectable = true, holdTask = null, slowHistory = false } = {}) => {
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
     const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
     const api = { authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => null }
@@ -4337,8 +4337,17 @@ describe('JuyiHall WeChat import source restoration', () => {
       const conversation = originalConversation(options)
       conversation.conversationId.value = ''
       conversation.conversationHistory = Vue.ref([])
-      conversation.loadHallConversationHistory = async () => { conversation.conversationHistory.value = [{ id: 'saved-conversation' }] }
-      conversation.selectHallConversation = async value => { selected.push(value); if (!selectable) return false; conversation.conversationId.value = value; return true }
+      conversation.loadHallConversationHistory = async () => {
+        if (slowHistory) await new Promise(resolve => setTimeout(resolve, 10))
+        conversation.conversationHistory.value = [{ id: 'saved-conversation' }]
+      }
+      // Model the competing default-panel latest load: real selection rejects a busy load.
+      if (slowHistory) conversation.loadHallMessages = async () => {
+        counters.loads.messages++
+        conversation.isConversationBusy.value = true
+        conversation.conversationId.value = 'unrelated-latest-conversation'
+      }
+      conversation.selectHallConversation = async value => { selected.push(value); if (!selectable || conversation.isConversationBusy.value) return false; conversation.conversationId.value = value; return true }
       conversation.newHallConversation = () => newConversations.push(true)
       conversation.sendHallMessage = () => sends.push(true)
       return conversation
@@ -4359,6 +4368,31 @@ describe('JuyiHall WeChat import source restoration', () => {
       } finally { f.wrapper.unmount() }
     })
   }
+  for (const variant of ['public', 'private', 'bounty']) {
+    it(`restores ${variant} directly without racing a default latest load while history is slow`, async () => {
+      const f = await fixture(variant, { slowHistory: true })
+      try {
+        await f.wrapper.vm.$.setupState.restoreWechatSource(); await Vue.nextTick()
+        expect(f.counters.loads.messages, 'must not request the latest conversation on exact return').to.equal(0)
+        expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
+        expect(f.counters.refs.draft.value).to.equal(f.source.draft)
+        expect(f.activated).to.have.length(1)
+        expect(f.wrapper.vm.$.setupState.toast).to.equal('')
+        expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+      } finally { f.wrapper.unmount() }
+    })
+  }
+  it('cancels an already queued default chat load before exact-source recovery', async () => {
+    const f = await fixture('public', { slowHistory: true })
+    try {
+      f.wrapper.vm.$.setupState.openPanel('chat')
+      await f.wrapper.vm.$.setupState.restoreWechatSource(); await Vue.nextTick()
+      expect(f.counters.loads.messages).to.equal(0)
+      expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
+      expect(f.activated).to.have.length(1)
+      expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+    } finally { f.wrapper.unmount() }
+  })
   it('does not attach a draft to a replacement conversation when the original is inaccessible', async () => {
     const f = await fixture('public', { selectable: false })
     try {
