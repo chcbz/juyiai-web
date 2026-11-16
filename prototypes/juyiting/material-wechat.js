@@ -53,12 +53,24 @@
     const busy = !!picker.uploading;
     d.insertAdjacentHTML('beforeend', `<section class="material-import-panel" aria-label="${source.title}离线演示"><header><h3>${source.title}</h3>${control('取消', 'cancel')}</header><p class="material-import-note">${source.note}</p><div class="material-import-files">${source.files.map(f => `<label class="material-import-file">${f.type === 'image' ? `<img src="${f.url}" alt="${esc(f.name)}示意">` : '<span class="material-import-file-icon" aria-hidden="true">文</span>'}<span><strong>${esc(f.name)}</strong><small>${f.size}</small></span><input type="checkbox" data-material-fixture="${f.key}" aria-label="选择 ${esc(f.name)}" ${chosen.includes(f.key) ? 'checked' : ''} ${busy ? 'disabled' : ''}></label>`).join('')}</div><p class="material-import-status" role="status">${esc(picker.importStatus || (chosen.length ? `已选 ${chosen.length} 份，上传后加入当前暂选。` : '请先选择资料。'))}</p><footer><small>仅示例文件 · 不会真实上传</small><div>${control('模拟上传失败', 'failure', busy || !chosen.length ? 'disabled' : '')}${control(busy ? '正在模拟上传…' : `上传并选中（${chosen.length}）`, 'upload', `class="mmd-primary" ${busy || !chosen.length ? 'disabled' : ''}`)}</div></footer></section>`);
   }
+  function showReturnState(done) {
+    const status = document.createElement('div');
+    status.className = 'wechat-return-status';
+    status.setAttribute('role', 'status');
+    status.textContent = '正在返回原页面…';
+    document.body.append(status);
+    const siblings = Array.from(document.body.children).filter(node => node !== status && !['SCRIPT', 'LINK'].includes(node.tagName));
+    const previous = siblings.map(node => [node, node.inert]);
+    previous.forEach(([node]) => { node.inert = true; });
+    setTimeout(() => {
+      try { done(); } finally { status.remove(); previous.forEach(([node, inert]) => { node.inert = inert; }); }
+    }, 350);
+  }
   function cancelImport() {
     picker.uploading = false;
     picker.importSource = null;
     picker.importGeneration = (picker.importGeneration || 0) + 1;
-    renderMaterialPicker();
-    $('[data-wechat-entry]')?.focus();
+    showReturnState(() => { renderMaterialPicker(); $('[data-wechat-entry]')?.focus(); });
   }
   function upload(fail) {
     const current = picker;
@@ -93,9 +105,11 @@
       current.previewDismissed = false;
       current.importSource = null;
       current.uploadStatus = `已模拟上传 ${added.length} 份并选中，点击“完成”带回。取消选材仅放弃引用，不删除已保存的示例资料。`;
-      renderMaterialPicker();
-      $('[data-action="picker-select"][data-id="' + added[0].id + '"]', d)?.scrollIntoView({ block: 'nearest' });
-      $('[data-action="confirm-materials"]', d)?.focus({ preventScroll: true });
+      showReturnState(() => {
+        renderMaterialPicker();
+        $('[data-action="picker-select"][data-id="' + added[0].id + '"]', d)?.scrollIntoView({ block: 'nearest' });
+        $('[data-action="confirm-materials"]', d)?.focus({ preventScroll: true });
+      });
     }, 550);
   }
   document.addEventListener('click', event => {

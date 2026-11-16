@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createMiniRuntimeLoader } from './helpers/miniProgramRuntime.js'
-import { requestWechatMaterials, readWechatImport, activateWechatImport, isWechatImportActive, clearWechatImport } from '../src/utils/miniProgramMaterialBridge.js'
+import { requestWechatMaterials, readWechatImport, hasWechatImportReturn, activateWechatImport, isWechatImportActive, clearWechatImport } from '../src/utils/miniProgramMaterialBridge.js'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { mount, flushPromises } from '@vue/test-utils'
 import * as Vue from 'vue'
@@ -61,6 +61,32 @@ const native = () => {
 }
 
 describe('WeChat material H5 handoff', () => {
+  it('detects return before identity hydration without granting recovery to a different owner', async () => {
+    const { host } = createHost()
+    expect(hasWechatImportReturn(host)).to.equal(false)
+    await request(host)
+    expect(hasWechatImportReturn(host)).to.equal(true)
+    expect(readWechatImport(host, 'other-owner')).to.equal(null)
+    host.__wxjs_environment = ''
+    expect(hasWechatImportReturn(host)).to.equal(false)
+    callback(host, [], 'cancelled')
+    expect(hasWechatImportReturn(host)).to.equal(true)
+    host.localStorage = { getItem() { throw Error('blocked') } }
+    expect(hasWechatImportReturn(host)).to.equal(true)
+  })
+  it('does not mask ordinary startup for expired/corrupt pending records or disabled storage', async () => {
+    const { host } = createHost()
+    await request(host)
+    const key = 'cyf:wechat-import:' + id
+    const record = JSON.parse(host.localStorage.getItem(key)); record.createdAt = 0
+    host.localStorage.setItem(key, JSON.stringify(record))
+    expect(hasWechatImportReturn(host)).to.equal(false)
+    host.localStorage.setItem(key, '{')
+    expect(hasWechatImportReturn(host)).to.equal(false)
+    Object.defineProperty(host, 'localStorage', { get() { throw Error('disabled') } })
+    expect(hasWechatImportReturn(host)).to.equal(false)
+  })
+
   it('preserves draft before destruction; never persists bearer or puts it in navigation', async () => {
     const { host, messages, navigations } = createHost(); expect(await request(host)).to.equal(id)
     expect(messages[0].data).to.include({ protocolVersion: 1, messageType: 'file.import', requestId: id })

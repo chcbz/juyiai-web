@@ -51,3 +51,5 @@ body[data-ui-revision] .composer-material-actions [data-composer-wechat] { min-w
   body[data-ui-revision] .composer-material-actions > :disabled,
   body[data-ui-revision] .composer-material-actions > [aria-disabled="true"] { opacity:.45; cursor:default; }
 }
+
+.wechat-return-status { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; background:#fffefa; color:#645a50; font-size:15px; padding:24px; }

@@ -29,6 +29,23 @@ registerIdentityCleanup(() => {
     for (const key of Object.keys(store)) if (key.startsWith(PREFIX)) store.removeItem(key)
   } catch { /* storage can be disabled */ }
 })
+// Presentation hint only, usable before identity hydration. Actual recovery still
+// requires readWechatImport's owner and reference validation.
+export const hasWechatImportReturn = host => {
+  try {
+    if (KEYS.some(key => new URL(host.location.href).searchParams.has(key))) return true
+    if (!inMiniProgram(host)) return false
+    const store = storage(host)
+    return Object.keys(store).some(key => {
+      if (!key.startsWith(PREFIX)) return false
+      try {
+        const record = JSON.parse(store.getItem(key))
+        return ID.test(record?.requestId || '') && Number.isFinite(record.createdAt) &&
+          record.createdAt <= Date.now() && Date.now() - record.createdAt <= MAX_AGE
+      } catch { return false }
+    })
+  } catch { return false }
+}
 export const readWechatImport = (host, owner) => {
   const params = new URL(host.location.href).searchParams
   if (params.has('wechatImport') ? !params.has('wechatFiles') || !params.has('wechatState') : KEYS.some(key => params.has(key))) return null

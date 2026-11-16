@@ -1,4 +1,4 @@
-import { readWechatImport, activateWechatImport } from '../src/utils/miniProgramMaterialBridge.js'
+import { readWechatImport, activateWechatImport, hasWechatImportReturn } from '../src/utils/miniProgramMaterialBridge.js'
 import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
 import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
 import * as historyWindowHelpers from '../src/composables/juyiting/hallHistoryWindow.js'
@@ -2920,7 +2920,7 @@ const loadActualJuyiHall = (mocks) => {
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
   .replace('export default', 'return')
-  const component = new Function('Vue', 'mocks', body)(Vue, { readWechatImport, activateWechatImport, useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
+  const component = new Function('Vue', 'mocks', body)(Vue, { readWechatImport, activateWechatImport, hasWechatImportReturn, useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
   const renderBody = template.code
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace('export function render', 'return function render')
@@ -4308,16 +4308,22 @@ describe('discussion retest task status and scroll', () => {
 })
 
 describe('JuyiHall WeChat import source restoration', () => {
-  const fixture = async (variant, { selectable = true, holdTask = null, slowHistory = false } = {}) => {
+  const settleReturn = async wrapper => {
+    for (let pass = 0; pass < 30 && wrapper.vm.$.setupState.wechatReturnPending; pass++) await flushPromises()
+    await Vue.nextTick()
+  }
+
+  const fixture = async (variant, { selectable = true, holdTask = null, slowHistory = false, startup = false, holdAuth = null, holdHistory = null, returnHint = true } = {}) => {
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
     const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
-    const api = { authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => null }
+    const api = { authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => { if (holdAuth) return await holdAuth; return startup ? 'test-token' : null } }
     const global = { ...mocks.useGlobalStore(), user: { id: 'owner-a', tenantId: 'tenant-a' } }
     mocks.useGlobalStore = () => global; mocks.useApiStore = () => api
-    const source = { kind: 'chat', owner: 'tenant-a\u0000client-a\u0000owner-a', mode: variant, taskId: variant === 'bounty' ? 'task-wechat' : '',
+    const source = { kind: variant === 'home' ? 'home' : 'chat', owner: 'tenant-a\u0000client-a\u0000owner-a', mode: variant, taskId: variant === 'bounty' ? 'task-wechat' : '',
       conversationId: 'saved-conversation', agentId: variant === 'private' ? 'agent-o04' : '', draft: '返回后仍未发送的原草稿' }
     const record = { requestId: '69f021ba-5fc0-4b54-9f40-1467aa7ab26d', source }
     const activated = [], selected = [], newConversations = [], sends = []
+    mocks.hasWechatImportReturn = () => returnHint
     mocks.readWechatImport = (_host, owner) => owner === source.owner ? record : null
     mocks.activateWechatImport = (_host, requestId) => activated.push(requestId)
     const originalData = mocks.useHallData
@@ -4338,6 +4344,7 @@ describe('JuyiHall WeChat import source restoration', () => {
       conversation.conversationId.value = ''
       conversation.conversationHistory = Vue.ref([])
       conversation.loadHallConversationHistory = async () => {
+        if (holdHistory) await holdHistory
         if (slowHistory) await new Promise(resolve => setTimeout(resolve, 10))
         conversation.conversationHistory.value = [{ id: 'saved-conversation' }]
       }
@@ -4353,9 +4360,73 @@ describe('JuyiHall WeChat import source restoration', () => {
       return conversation
     }
     const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    const initialGate = wrapper.classes().includes('is-wechat-restoring') && wrapper.find('.wechat-return-status').exists()
     await flushPromises()
-    return { wrapper, counters, api, source, activated, selected, newConversations, sends }
+    return { wrapper, counters, api, source, activated, selected, newConversations, sends, initialGate }
   }
+  for (const variant of ['home', 'public', 'private', 'bounty']) {
+    it(`masks the first frame and slow authentication, then reveals the original ${variant} page`, async () => {
+      let resolveAuth
+      const holdAuth = new Promise(done => { resolveAuth = done })
+      const f = await fixture(variant, { startup: true, holdAuth })
+      try {
+        expect(f.initialGate).to.equal(true)
+        expect(f.wrapper.classes()).to.include('is-wechat-restoring')
+        expect(f.wrapper.get('.wechat-return-status').text()).to.equal('正在返回原页面…')
+        expect(f.activated).to.have.length(0)
+        resolveAuth('test-token'); await settleReturn(f.wrapper)
+        expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
+        expect(f.wrapper.find('.wechat-return-status').exists()).to.equal(false)
+        expect(f.activated).to.have.length(1)
+        if (variant !== 'home') expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
+        expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+      } finally { resolveAuth(null); f.wrapper.unmount() }
+    })
+  }
+  it('keeps the homepage hidden until slow exact-conversation history is restored', async () => {
+    let resolveHistory
+    const holdHistory = new Promise(done => { resolveHistory = done })
+    const f = await fixture('public', { startup: true, holdHistory })
+    try {
+      expect(f.wrapper.classes()).to.include('is-wechat-restoring')
+      expect(f.activated).to.have.length(0)
+      resolveHistory(); await settleReturn(f.wrapper)
+      expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
+      expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
+      expect(f.activated).to.have.length(1)
+    } finally { resolveHistory(); f.wrapper.unmount() }
+  })
+  it('releases the gate and shows the existing failure when the source is inaccessible', async () => {
+    const f = await fixture('public', { startup: true, selectable: false })
+    try {
+      await settleReturn(f.wrapper)
+      expect(f.initialGate).to.equal(true)
+      expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
+      expect(f.wrapper.vm.$.setupState.toast).to.include('原议事暂不可读取')
+      expect(f.activated).to.have.length(0); expect(f.newConversations).to.have.length(0)
+    } finally { f.wrapper.unmount() }
+  })
+  it('releases the gate on auth cancellation and does not add a gate to ordinary startup', async () => {
+    for (const returnHint of [true, false]) {
+      const f = await fixture('public', { returnHint })
+      try {
+        expect(f.initialGate).to.equal(returnHint)
+        expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
+        expect(f.activated).to.have.length(0)
+      } finally { f.wrapper.unmount() }
+    }
+  })
+  it('releases the gate without restoring a source after identity changes during auth', async () => {
+    let resolveAuth
+    const holdAuth = new Promise(done => { resolveAuth = done })
+    const f = await fixture('public', { startup: true, holdAuth })
+    try {
+      f.api.authorizationGeneration++
+      resolveAuth('test-token'); await settleReturn(f.wrapper)
+      expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
+      expect(f.activated).to.have.length(0); expect(f.selected).to.have.length(0)
+    } finally { resolveAuth(null); f.wrapper.unmount() }
+  })
   for (const variant of ['public', 'private', 'bounty']) {
     it(`returns to the exact authorized ${variant} conversation before restoring draft, never creates or sends`, async () => {
       const f = await fixture(variant)

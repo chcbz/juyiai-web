@@ -1,5 +1,6 @@
 <template>
-  <div ref="hallRootRef" class="juyi-page" tabindex="-1" :style="hallViewportStyle" :class="{ 'is-immersive-map': isImmersiveMap, 'is-panel-open': isPanelSessionActive, 'is-virtual-landscape': isVirtualLandscape, 'has-workbench-dock': showWorkbenchDock && (Boolean(activePanel) || !renderedPanel), 'is-keyboard-active': hallKeyboardActive, [`experience-${experienceMode}`]: true, [`home-${homeMode}`]: true }">
+  <div ref="hallRootRef" class="juyi-page" tabindex="-1" :style="hallViewportStyle" :class="{ 'is-wechat-restoring': wechatReturnPending, 'is-immersive-map': isImmersiveMap, 'is-panel-open': isPanelSessionActive, 'is-virtual-landscape': isVirtualLandscape, 'has-workbench-dock': showWorkbenchDock && (Boolean(activePanel) || !renderedPanel), 'is-keyboard-active': hallKeyboardActive, [`experience-${experienceMode}`]: true, [`home-${homeMode}`]: true }">
+    <div v-if="wechatReturnPending" class="wechat-return-status" role="status" aria-live="polite">正在返回原页面…</div>
     <aside v-show="isOverviewHome" class="hall-workbench-sidebar" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null" aria-label="工作台侧栏">
       <button class="workbench-brand" type="button" @click="openWorkbenchPage('overview')"><span class="workbench-seal">聚</span><span>聚义<small>一起，把事情办成。</small></span></button>
       <p class="workbench-nav-caption">我的工作空间</p>
@@ -924,7 +925,7 @@ import { saveOutputBlob } from '@/utils/outputDownload'
 import OutputPreview from '@/components/outputs/OutputPreview.vue'
 import { isTerminalMatter } from '@/composables/juyiting/useHallOrdinaryCancellation'
 import HallOverview from '@/components/juyiting/HallOverview.vue'
-import { readWechatImport, activateWechatImport } from '../../utils/miniProgramMaterialBridge.js'
+import { readWechatImport, activateWechatImport, hasWechatImportReturn } from '../../utils/miniProgramMaterialBridge.js'
 import HallMinePage from '@/components/juyiting/HallMinePage.vue'
 import HallHelpCenter from '@/components/juyiting/HallHelpCenter.vue'
 import HallDraftEditor from '@/components/juyiting/HallDraftEditor.vue'
@@ -1069,6 +1070,8 @@ const hostedPointFlow = ref(null)
 let hostedPointWaitTimer = null
 const toast = ref('')
 const panelWhitelist = new Set(['agents', 'catalog', 'tasks', 'workspace', 'treasure', 'chat', 'library', 'messages', 'mine', 'help', 'item', 'formalDraft', 'draft'])
+// Decide before the first render, including before token/profile hydration.
+const wechatReturnPending = ref(hasWechatImportReturn(window))
 const activePanel = ref('')
 const renderedPanel = ref('')
 const panelSessionGeneration = ref(0)
@@ -3216,27 +3219,34 @@ onMounted(async () => {
   globalStore.setShowBack(false)
   globalStore.setShowAppBar(false)
   globalStore.setShowMore(false)
-  await nextTick()
-  experienceReady.value = true
-  document.addEventListener?.('visibilitychange', handleDocumentVisibility)
-  handleDocumentVisibility()
-  // token() initiates the one OAuth redirect when identity is absent. Do not mount
-  // the live hall workflow while that redirect is pending: its protected loaders
-  // would otherwise race the redirect and turn authentication into a fetch error.
-  const initializationGeneration = apiStore.authorizationGeneration
-  const initializationIsCurrent = () => !panelDisposed && initializationGeneration === apiStore.authorizationGeneration
-  if (!await apiStore.token() || !initializationIsCurrent()) return
-  // A valid restored bearer token can survive while only the unverified local ID
-  // cache remains. Hydrate the server profile before identity-scoped state opens.
-  if (!hasHydratedIdentity(globalStore.user)) {
-    try { await apiStore.getUserInfo() } catch (error) { log.warn('hall identity hydration failed:', error) }
+  try {
+    await nextTick()
+    experienceReady.value = true
+    document.addEventListener?.('visibilitychange', handleDocumentVisibility)
+    handleDocumentVisibility()
+    // token() initiates the one OAuth redirect when identity is absent. Do not mount
+    // the live hall workflow while that redirect is pending: its protected loaders
+    // would otherwise race the redirect and turn authentication into a fetch error.
+    const initializationGeneration = apiStore.authorizationGeneration
+    const initializationIsCurrent = () => !panelDisposed && initializationGeneration === apiStore.authorizationGeneration
+    if (!await apiStore.token() || !initializationIsCurrent()) return
+    // A valid restored bearer token can survive while only the unverified local ID
+    // cache remains. Hydrate the server profile before identity-scoped state opens.
+    if (!hasHydratedIdentity(globalStore.user)) {
+      try { await apiStore.getUserInfo() } catch (error) { log.warn('hall identity hydration failed:', error) }
+    }
+    if (!initializationIsCurrent()) return
+    if (hasHydratedIdentity(globalStore.user)) emit('onboarding-auth-ready', initializationGeneration)
+    permitStageMount()
+    await refreshHall({ silent: true })
+    if (initializationIsCurrent()) await restoreWechatSource()
+    startDialogueBubbles()
+  } finally {
+    // Include child picker activation in the gate; failures/auth changes must not
+    // leave an invisible hall or a permanent loading screen.
+    await nextTick()
+    wechatReturnPending.value = false
   }
-  if (!initializationIsCurrent()) return
-  if (hasHydratedIdentity(globalStore.user)) emit('onboarding-auth-ready', initializationGeneration)
-  permitStageMount()
-  await refreshHall({ silent: true })
-  if (initializationIsCurrent()) await restoreWechatSource()
-  startDialogueBubbles()
 })
 
 onUnmounted(() => {
@@ -3276,6 +3286,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.juyi-page.is-wechat-restoring { overflow: hidden; height: 100dvh; }
+.juyi-page.is-wechat-restoring > :not(.wechat-return-status) { visibility: hidden !important; pointer-events: none !important; }
+.wechat-return-status { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 24px; background: #fffefa; color: #645a50; font-size: 15px; }
+
 .terminal-task-history { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 12px; }
 .terminal-history-actions {
   display: flex;
