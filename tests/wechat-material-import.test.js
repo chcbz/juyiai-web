@@ -111,7 +111,7 @@ describe('WeChat material H5 handoff', () => {
 
 describe('native WeChat material selector', () => {
   it('generates the strict common envelope decoder from its canonical H5 source', () => {
-    const source = readFileSync(new URL('../src/utils/apiEnvelope.js', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../src/utils/apiEnvelope.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
     const expected = '// Generated from src/utils/apiEnvelope.js; do not edit.\n' + source.replace(/^export /gm, '') + '\nmodule.exports = { parseStrictJson, decodeHttpResponse }\n'
     expect(readFileSync(new URL('../miniprogram/juyiting/utils/api-envelope.js', import.meta.url), 'utf8')).to.equal(expected)
   })
