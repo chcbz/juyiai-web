@@ -1923,7 +1923,7 @@ describe('PRIVATE native send intent', () => {
       expect(conversation.activeRequest.value.state).to.equal('RESULT_COMMITTED')
       expect(conversation.isAwaitingReply.value).to.equal(false)
       expect(conversation.isConversationBusy.value).to.equal(false)
-    } finally { gate.resolve(); conversation.disposeHallConversation(); controller?.close(); global.fetch = originalFetch }
+    } finally { gate.resolve(); conversation.disposeHallConversation(); global.fetch = originalFetch }
   })
   it('freezes original null and exact materials before awaiting capabilities or receiving a conversation ID', async () => {
     const gate = deferred(), payloads = []
