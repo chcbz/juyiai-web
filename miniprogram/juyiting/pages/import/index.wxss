@@ -1,0 +1,8 @@
+page { background: #f7f5ef; color: #493a28; }
+.import-page { box-sizing: border-box; min-height: 100vh; padding: 40rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 32rpx; }
+.heading { font-size: 40rpx; font-weight: 600; }
+.hint, .message { font-size: 28rpx; line-height: 1.7; overflow-wrap: anywhere; }
+.hint { color: #68716b; }.message { color: #923f30; }
+.files { background: #fffefa; border-radius: 16rpx; padding: 0 24rpx; }
+.file { display: flex; gap: 24rpx; padding: 24rpx 0; border-bottom: 1rpx solid #e3e5dc; font-size: 28rpx; }.name { flex: 1; overflow-wrap: anywhere; }.state { flex: none; color: #68716b; }
+.actions { margin-top: auto; display: flex; flex-direction: column; gap: 24rpx; padding-top: 32rpx; }.actions button { width: 100%; min-height: 44px; font-size: 30rpx; border-radius: 12rpx; background: #fffefa; color: #493a28; }.actions button:first-child { background: #923f30; color: white; }.actions button[disabled] { opacity: .55; }

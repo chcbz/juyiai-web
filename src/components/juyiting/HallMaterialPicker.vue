@@ -126,7 +126,7 @@
                 type="file"
                 multiple
                 aria-label="上传资料"
-                :disabled="uploading || uploadUnresolved"
+                :disabled="uploading || uploadUnresolved || wechatResumePending"
                 @change="uploadQuickMaterials"
               />
             </label>
@@ -154,7 +154,7 @@
                 accept="image/*"
                 capture="environment"
                 aria-label="拍照"
-                :disabled="uploading || uploadUnresolved"
+                :disabled="uploading || uploadUnresolved || wechatResumePending"
                 @change="uploadQuickMaterials"
               />
             </label>
@@ -182,11 +182,15 @@
                 accept="image/*"
                 multiple
                 aria-label="从相册选择"
-                :disabled="uploading || uploadUnresolved"
+                :disabled="uploading || uploadUnresolved || wechatResumePending"
                 @change="uploadQuickMaterials"
               />
             </label>
+            <button v-if="wechatAvailable" type="button" class="quick-material-upload hall-tool quick-material-wechat" aria-label="从微信选择资料" title="微信" :disabled="uploading || uploadUnresolved || disabled || wechatDisabled || !enabled" @click="importWechat">
+              <svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 4C8 1 2 5 3 10c0 2 1 3 3 4l-1 3 4-2M21 15l1 4-4-1c-6 2-11-2-9-6 2-5 13-4 13 1z"/><path d="M7 7h.01M12 7h.01M13 13h.01M18 13h.01"/></svg>
+            </button>
           </div>
+          <button v-if="wechatResumePending" type="button" :disabled="uploading || disabled || !enabled" @click="resumeWechatMaterials">重试读取微信资料</button>
           <p v-if="uploading || uploadMessage" class="quick-material-upload-status" :role="uploading ? 'status' : 'alert'">{{ uploading ? '正在上传资料…' : (uploadMessage || '上传结果尚未确认，请核对原上传。') }}</p>
           <button v-if="uploadUnresolved" type="button" :disabled="uploading" @click="retryQuickUpload">核对原上传</button>
           <section v-if="selectionExpanded" id="quick-material-staged" class="quick-material-selection" aria-label="已选资料">
@@ -197,7 +201,7 @@
           </section>
           <div class="quick-material-footer-actions">
             <button type="button" @click="cancelQuickMaterialPicker">取消</button>
-            <button type="button" class="quick-material-confirm" :disabled="uploading" @click="confirmQuickMaterials">完成（{{ draftMaterials.length }}）</button>
+            <button type="button" class="quick-material-confirm" :disabled="uploading || wechatResumePending" @click="confirmQuickMaterials">完成（{{ draftMaterials.length }}）</button>
           </div>
         </footer>
       </dialog>
@@ -237,6 +241,8 @@ import { usePersonalWorkspace, savePersonalWorkspaceBlob } from '@/composables/u
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
+  wechatContext: { type: Object, default: null },
+  wechatDisabled: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
   dialogOnly: { type: Boolean, default: false },
   identityScope: { type: String, default: '' },
@@ -244,7 +250,7 @@ const props = defineProps({
   enabled: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false }
 })
-const emit = defineEmits(['update:modelValue', 'import-materials', 'upload-busy', 'upload-pending'])
+const emit = defineEmits(['update:modelValue', 'import-materials', 'upload-busy', 'upload-pending', 'restore-wechat-draft', 'restore-wechat-context'])
 const materialIdentityKey = computed(() => `${props.identityEpoch}\u0000${props.identityScope}`)
 const workspace = usePersonalWorkspace({ identityEpoch: materialIdentityKey })
 let pickerGeneration = 0
@@ -395,8 +401,15 @@ const openQuickMaterialPicker = async returnFocus => {
   materialPickerOpen.value = true
   await workspace.refresh({ state: 'ACTIVE' })
 }
-defineExpose({ open: openQuickMaterialPicker, importImages, preview: material => previewSelectedMaterial(material) })
-const cancelQuickMaterialPicker = () => { materialPickerOpen.value = false; draftMaterials.value = []; resetMaterialPicker() }
+defineExpose({ open: openQuickMaterialPicker, importImages, importWechat: () => importWechat(), preview: material => previewSelectedMaterial(material) })
+const cancelQuickMaterialPicker = () => {
+  if (wechatResumePending.value) {
+    const record = workspace.readWechatImport?.(props.wechatContext?.owner)
+    if (record?.scope === props.identityScope && workspace.isWechatImportActive?.(record.requestId)) workspace.clearWechatImport(record.requestId)
+    wechatResumePending.value = false
+  }
+  materialPickerOpen.value = false; draftMaterials.value = []; resetMaterialPicker()
+}
 const loadMoreQuickMaterials = () => workspace.loadMore({ state: 'ACTIVE' })
 const selectQuickMaterialFile = async (fileId, fixedVersion = null) => {
   const operationIdentity = materialIdentityKey.value, generation = ++pickerGeneration
@@ -476,13 +489,99 @@ const stageQuickMaterial = () => {
 }
 const removeDraftMaterial = material => { draftMaterials.value = draftMaterials.value.filter(item => materialKey(item) !== materialKey(material)) }
 const confirmQuickMaterials = () => {
-  if (uploading.value || props.disabled || !materialPickerOpen.value) return
+  if (uploading.value || wechatResumePending.value || props.disabled || !materialPickerOpen.value) return
   selectedMaterials.value = draftMaterials.value.map(material => ({ ...material }))
   materialPickerOpen.value = false
   draftMaterials.value = []
   resetMaterialPicker()
 }
 const removeSelectedMaterial = material => { if (props.readOnly) return; selectedMaterials.value = selectedMaterials.value.filter(item => materialKey(item) !== materialKey(material)) }
+
+const wechatAvailable = computed(() => workspace.wechatSupported === true && !!props.wechatContext?.owner &&
+  (props.wechatContext.kind === 'home' || (props.wechatContext.kind === 'chat' && !!props.wechatContext.conversationId)))
+const wechatResumePending = ref(false)
+const importWechat = async () => {
+  if (!wechatAvailable.value || props.readOnly || props.disabled || props.wechatDisabled || !props.enabled || uploading.value || uploadUnresolved.value) return
+  if (wechatResumePending.value) return resumeWechatMaterials()
+  const identity = materialIdentityKey.value, generation = pickerGeneration
+  const source = JSON.stringify(props.wechatContext)
+  const current = () => identity === materialIdentityKey.value && generation === pickerGeneration && source === JSON.stringify(props.wechatContext) && !props.disabled && !props.wechatDisabled && props.enabled
+  const staged = materialPickerOpen.value ? draftMaterials.value : selectedMaterials.value
+  if (staged.length >= 32) { uploadMessage.value = '最多选择32份资料，请先移除部分资料。'; return }
+  uploading.value = true; uploadMessage.value = ''
+  try {
+    await workspace.importWechat({ source: props.wechatContext, scope: props.identityScope,
+      selected: selectedMaterials.value, staged, isCurrent: current })
+  } catch (error) {
+    if (current() && error?.name !== 'AbortError') uploadMessage.value = error.message || '微信选取未打开，已有草稿和资料保留。'
+  } finally { uploading.value = false }
+}
+const runWechatResume = async () => {
+  if (props.readOnly || props.disabled || !props.enabled || uploading.value || !props.wechatContext?.owner) return
+  const record = workspace.readWechatImport?.(props.wechatContext.owner)
+  if (!record || !workspace.isWechatImportActive?.(record.requestId) || record.scope !== props.identityScope || record.source.kind !== props.wechatContext.kind) return
+  if (record.source.kind === 'chat' && ['mode', 'taskId', 'conversationId', 'agentId'].some(key => record.source[key] !== props.wechatContext[key])) return
+  const identity = materialIdentityKey.value
+  // Text recovery is independent of an attachment ACL/read failure.
+  emit('restore-wechat-draft', record.source.draft)
+  await nextTick()
+  if (identity !== materialIdentityKey.value || props.disabled || !props.enabled) return
+  const context = JSON.stringify(props.wechatContext)
+  let generation
+  const current = () => identity === materialIdentityKey.value && generation === pickerGeneration && context === JSON.stringify(props.wechatContext) && materialPickerOpen.value && props.enabled && !props.disabled
+  wechatResumePending.value = true
+  const opening = openQuickMaterialPicker()
+  generation = pickerGeneration
+  await opening
+  if (!current()) return
+  uploading.value = true
+  try {
+    const refs = [...new Map([...record.selected, ...record.staged, ...record.references].map(ref => [materialKey(ref), ref])).values()]
+    const authorized = new Map()
+    for (const reference of refs) {
+      if (!current()) return
+      const detail = await workspace.select(reference.fileId)
+      if (!current()) return
+      if (!detail || detail.file.fileId !== reference.fileId || detail.file.state !== 'ACTIVE') throw new Error('部分微信资料暂不可读取；已有草稿保留，请重试。')
+      let version = detail.versions.find(item => item.version === reference.version)
+      while (!version && workspace.hasMoreVersions?.value && current()) {
+        const before = workspace.versionItems.value.length
+        await workspace.loadMoreVersions()
+        if (!current()) return
+        version = workspace.versionItems.value.find(item => item.version === reference.version)
+        if (before === workspace.versionItems.value.length) break
+      }
+      if (!version) throw new Error('无法读取资料的指定版本，请重试；不会改用最新版本。')
+      authorized.set(materialKey(reference), { ...reference, displayName: detail.file.displayName, contentMimeType: version.contentMimeType })
+    }
+    if (!current()) return
+    // Original committed selections survive; imported files stay staged until Complete.
+    if (!props.dialogOnly) selectedMaterials.value = record.selected.map(ref => authorized.get(materialKey(ref)))
+    emit('restore-wechat-context', record.source)
+    draftMaterials.value = [...new Map([...record.staged, ...record.references].map(ref => [materialKey(ref), authorized.get(materialKey(ref))])).values()]
+    workspace.clearWechatImport(record.requestId)
+    wechatResumePending.value = false
+    selectionExpanded.value = true
+    uploadMessage.value = record.status === 'unconfirmed' ? '部分微信上传结果未确认，请到资料列表核对，不要重复上传；已确认资料仍需点击完成。' : record.status === 'cancelled' ? '已取消微信选择，原草稿和资料保留。' : '微信资料已读取，点击完成后加入原页面。'
+  } catch (error) { if (current()) uploadMessage.value = error.message || '微信资料读取未完成，请重试。' }
+  finally { uploading.value = false }
+}
+let wechatResumeFlight = null
+const resumeWechatMaterials = () => {
+  const record = workspace.readWechatImport?.(props.wechatContext?.owner)
+  if (!record || record.scope !== props.identityScope || !workspace.isWechatImportActive?.(record.requestId)) return Promise.resolve()
+  if (wechatResumeFlight) return wechatResumeFlight
+  const identity = materialIdentityKey.value
+  wechatResumeFlight = runWechatResume().catch(error => {
+    if (identity === materialIdentityKey.value) uploadMessage.value = error.message || '微信资料读取未完成，请重试。'
+  }).finally(() => { wechatResumeFlight = null })
+  return wechatResumeFlight
+}
+onMounted(() => {
+  window.addEventListener('cyf:wechat-import-ready', resumeWechatMaterials)
+  void resumeWechatMaterials()
+})
+onBeforeUnmount(() => window.removeEventListener('cyf:wechat-import-ready', resumeWechatMaterials))
 
 watch(materialIdentityKey, () => {
   directUpload.value = false

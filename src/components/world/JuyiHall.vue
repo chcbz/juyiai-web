@@ -924,6 +924,7 @@ import { saveOutputBlob } from '@/utils/outputDownload'
 import OutputPreview from '@/components/outputs/OutputPreview.vue'
 import { isTerminalMatter } from '@/composables/juyiting/useHallOrdinaryCancellation'
 import HallOverview from '@/components/juyiting/HallOverview.vue'
+import { readWechatImport, activateWechatImport } from '../../utils/miniProgramMaterialBridge.js'
 import HallMinePage from '@/components/juyiting/HallMinePage.vue'
 import HallHelpCenter from '@/components/juyiting/HallHelpCenter.vue'
 import HallDraftEditor from '@/components/juyiting/HallDraftEditor.vue'
@@ -3166,6 +3167,49 @@ const handleUnbindPersona = async (persona) => {
   }
 }
 
+const restoreWechatSource = async () => {
+  const identity = hallIdentityScope.value, epoch = apiStore.authorizationGeneration
+  const record = readWechatImport(window, identity)
+  if (!record) return
+  const source = record.source
+  const current = () => !panelDisposed && identity === hallIdentityScope.value && epoch === apiStore.authorizationGeneration
+  try {
+    if (source.kind === 'home') {
+      if (!openWorkbenchPage('overview')) throw new Error('无法返回原需求页，请刷新重试。')
+    } else {
+      if (!source.conversationId || !['bounty', 'private', 'public'].includes(source.mode)) throw new Error('原议事上下文无效，未创建新会话。')
+      let task = null
+      if (source.taskId) {
+        selectedTask.value = { id: source.taskId }
+        if (!await loadTaskDetail(selectedTask.value) || !current() || selectedTask.value?.id !== source.taskId) throw new Error('原事项暂不可读取，请刷新重试。')
+        task = selectedTask.value
+      }
+      if (!current()) return
+      if (source.mode === 'bounty') {
+        if (!task || !await continueBountyModification(task, source)) throw new Error('无法返回原议事，未创建替代会话。')
+      } else {
+        if (source.mode === 'private') {
+          const agent = operableRosterAgents.value.find(item => item.agentId === source.agentId)
+          if (!agent || !enterPrivateConversation(agent, { task })) throw new Error('原好汉或密议不可用，请核对权限。')
+        } else resetToPublic()
+        if (!openPanel('chat')) throw new Error('无法打开议事，请重试。')
+        await loadHallConversationHistory({ force: true })
+        while (current() && !conversationHistory.value.some(item => item.id === source.conversationId) && conversationHistoryHasMore.value && !conversationHistoryError.value) {
+          const count = conversationHistory.value.length
+          await loadMoreHallConversationHistory()
+          if (conversationHistory.value.length === count) break
+        }
+        if (!current()) return
+        if (!await selectHallConversation(source.conversationId)) throw new Error('原议事暂不可读取，未创建新会话。')
+      }
+      if (!current() || conversationId.value !== source.conversationId) return
+      setDraft(source.draft)
+    }
+    await nextTick()
+    if (current()) activateWechatImport(window, record.requestId)
+  } catch (error) { if (current()) showToast(error.message || '返回原页面失败，请刷新重试；草稿仍保留。') }
+}
+
 onMounted(async () => {
   globalStore.setTitle('聚义')
   globalStore.setShowBack(false)
@@ -3190,6 +3234,7 @@ onMounted(async () => {
   if (hasHydratedIdentity(globalStore.user)) emit('onboarding-auth-ready', initializationGeneration)
   permitStageMount()
   await refreshHall({ silent: true })
+  if (initializationIsCurrent()) await restoreWechatSource()
   startDialogueBubbles()
 })
 

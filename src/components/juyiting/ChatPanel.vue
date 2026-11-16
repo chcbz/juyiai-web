@@ -278,6 +278,8 @@
       @open-tools="closeHistory"
       @close-materials="materialPickerOpen = false"
       @open-materials="toggleMaterialPicker"
+      :wechat-available="workspace.wechatSupported === true && Boolean(conversationId)"
+      @import-wechat="importWechatMaterials"
       @import-images="importMaterialImages"
     >
       <template #attachments>
@@ -340,6 +342,10 @@
           dialog-only
           :model-value="pickerMaterials"
           :identity-epoch="identityEpoch"
+          :wechat-context="wechatContext"
+          :wechat-disabled="materialWriteUnresolved || materialUploadPending || pendingMaterials.length > 0 || Boolean(voice?.voiceInteractionLocked) || isStreaming || isAwaitingReply"
+          @restore-wechat-draft="emit('update:draft', $event)"
+          @restore-wechat-context="restoreWechatMaterialContext"
           :identity-scope="`${identityScope}\u0000${taskId}\u0000${conversationId}`"
           :enabled="hasMaterialScope && !serverTaskCompleted"
           :disabled="materialSelectionBusy || materialActionBusy || conversationBusy || serverTaskCompleted"
@@ -584,6 +590,24 @@ const pickerMaterials = computed(() => [...new Map([
   ...pendingMaterials.value
 ].map(material => [`${material.fileId}:${material.version}`, material])).values()])
 const previewMaterial = link => materialPickerRef.value?.preview?.({ ...link, displayName: materialName(link) })
+const wechatContext = computed(() => ({ kind: 'chat', owner: props.identityScope, mode: props.discussionVariant,
+  taskId: taskId.value, conversationId: props.conversationId, agentId: props.selectedAgent?.agentId || '', draft: props.draft,
+  typedMaterialScope: typedMaterialScope.value, typedSourceIds: [...typedSelectedSourceIds.value],
+  draftMaterialScope: draftMaterialScope.value, draftSourceIds: [...draftSourceIds.value] }))
+const restoreWechatMaterialContext = source => {
+  if (serverTaskCompleted.value || source.owner !== props.identityScope || source.conversationId !== props.conversationId || source.taskId !== taskId.value) return
+  const allowedScopes = ['TASK_DEFAULT', 'EXPLICIT', 'NONE']
+  if (allowedScopes.includes(source.typedMaterialScope)) typedMaterialScope.value = source.typedMaterialScope
+  if (allowedScopes.includes(source.draftMaterialScope)) draftMaterialScope.value = source.draftMaterialScope
+  const ids = values => new Set(Array.isArray(values) ? values.filter(value => typeof value === 'string') : [])
+  typedSelectedSourceIds.value = ids(source.typedSourceIds)
+  draftSourceIds.value = ids(source.draftSourceIds)
+}
+const importWechatMaterials = async () => {
+  if (!hasMaterialScope.value || serverTaskCompleted.value || props.conversationBusy || materialSelectionBusy.value || materialActionBusy.value || materialWriteUnresolved.value || materialUploadPending.value || pendingMaterials.value.length || props.voice?.voiceInteractionLocked || props.isStreaming || props.isAwaitingReply) return
+  await toggleMaterialPicker()
+  if (!serverTaskCompleted.value && !props.conversationBusy) await materialPickerRef.value?.importWechat?.()
+}
 const importMaterialImages = files => {
   if (!hasMaterialScope.value) { materialPickerOpen.value = true; return }
   void materialPickerRef.value?.importImages?.(files)

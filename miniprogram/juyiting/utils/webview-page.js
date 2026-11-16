@@ -1,9 +1,10 @@
 const { validateWebUrl, decodeOption, withOrientation } = require('./navigation')
 const { acceptFileMessages } = require('./file-messages')
+const { acceptImportMessages } = require('./import-messages')
 
 const createWebViewPage = (config, orientation) => ({
   data: { url: '', message: '' },
-  onWebMessage(event) { acceptFileMessages(event, getApp().globalData) },
+  onWebMessage(event) { acceptFileMessages(event, getApp().globalData); acceptImportMessages(event, getApp().globalData, config) },
   onLoad(options = {}) {
     const entries = config.entries[orientation]
     const defaultUrl = Object.prototype.hasOwnProperty.call(entries, options.entry) ? entries[options.entry] : entries.default

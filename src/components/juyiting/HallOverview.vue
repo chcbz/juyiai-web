@@ -24,6 +24,8 @@
             :identity-epoch="identityEpoch"
             :enabled="enabled"
             :disabled="quickPending"
+            :wechat-context="{ kind: 'home', owner: identityScope, draft: quickRequest }"
+            @restore-wechat-draft="quickRequest = $event"
           >
             <button class="primary" type="submit" :disabled="quickPending || (!quickRequest.trim() && !selectedMaterials.length)">{{ quickPending ? '正在保存需求…' : '开始办事' }}</button>
           </HallMaterialPicker>

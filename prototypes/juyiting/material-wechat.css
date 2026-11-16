@@ -1,0 +1,53 @@
+.material-picker-dialog { position: fixed; }
+.material-import-panel { position: absolute; inset: 0; z-index: 8; background: #fff; display: flex; flex-direction: column; padding: 24px; border-radius: inherit; box-sizing: border-box; }
+.material-import-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.material-import-panel h3 { margin: 0; font-size: 20px; }
+.material-import-note { font-size: 13px; color: #64748b; line-height: 1.7; }
+.material-import-files { overflow: auto; min-height: 0; flex: 1; }
+.material-import-file { display: flex !important; align-items: center; gap: 14px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-bottom: 10px; cursor: pointer; }
+.material-import-file:has(input:checked) { border-color: #2563eb; background: #eff6ff; }
+.material-import-file img, .material-import-file-icon { width: 56px; height: 56px; object-fit: contain; background: #f1f5f9; border-radius: 8px; }
+.material-import-file-icon { display: grid; place-items: center; color: #475569; font-size: 22px; }
+.material-import-file > span:not(.material-import-file-icon) { flex: 1; min-width: 0; }
+.material-import-file strong { display: block; overflow-wrap: anywhere; font-size: 14px; }
+.material-import-file small { display: block; margin-top: 5px; color: #64748b; font-size: 12px; }
+.material-import-file input { width: 19px !important; height: 19px; accent-color: #2563eb; }
+.material-import-status { font-size: 13px; line-height: 1.6; min-height: 22px; color: #475569; }
+.material-import-panel > footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 15px; border-top: 1px solid #e2e8f0; }
+.material-import-panel > footer > div { display: flex; gap: 8px; }
+.material-import-panel > footer > small { color: #64748b; font-size: 12px; }
+.material-picker-dialog [data-material-import]:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.material-wechat-mode [data-picker-upload-status] { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width:720px) {
+  .material-import-panel { padding:18px 14px max(18px, env(safe-area-inset-bottom)); }
+  .material-import-panel > footer { flex-direction:column; align-items:stretch; }
+  .material-import-panel > footer > div { justify-content:flex-end; }
+}
+
+/* C08 develop specification: retain the original bottom upload/camera/album icon language. */
+body[data-ui-revision] .material-picker-dialog .material-upload-button { width:44px; min-width:44px; height:44px; min-height:44px; flex:0 0 44px; padding:0; border:0; border-radius:0; background:transparent!important; color:var(--hall-text-muted,#68716b); }
+body[data-ui-revision] .material-picker-dialog .material-upload-button svg { width:20px; height:20px; }
+body[data-ui-revision] .material-picker-dialog .material-upload-button:hover { color:var(--hall-brand,#923f30); }
+body[data-ui-revision] .material-picker-dialog .material-import-panel { background:var(--hall-surface,#fffefa); }
+.material-import-file:has(input:checked) { border-color:#923f30; background:#f6eee8; }
+.material-import-file input { accent-color:#923f30; }
+.material-selection-tools { flex-wrap:wrap; }
+
+body[data-ui-revision] .material-picker-dialog .material-wechat-button { display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+body[data-ui-revision] .material-picker-dialog .material-wechat-button:disabled { opacity:.45; cursor:default; }
+body[data-ui-revision] .material-picker-dialog .material-wechat-button:focus-visible { outline:2px solid var(--hall-brand,#923f30); outline-offset:2px; }
+
+/* The discussion attachment tray keeps camera, album and library, adding chat. */
+body[data-ui-revision] .composer-material-actions.has-wechat-source { grid-template-columns:repeat(4,minmax(0,1fr)); }
+body[data-ui-revision] .composer-material-actions [data-composer-wechat] { min-width:0; }
+
+@media (max-width:720px) {
+  body[data-ui-revision] .composer-material-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:10px 0; }
+  body[data-ui-revision] .composer-material-actions > label,
+  body[data-ui-revision] .composer-material-actions > button { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; box-sizing:border-box; min-width:0; min-height:44px; margin:0; padding:8px 3px; border:1px solid var(--hall-line,#e3e5dc); border-radius:12px; color:var(--hall-text,#242e2b); background:var(--hall-surface,#fffefa); font:inherit; font-size:13px; line-height:1.4; cursor:pointer; }
+  body[data-ui-revision] .composer-material-actions input[type="file"] { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+  body[data-ui-revision] .composer-material-actions > :focus-visible,
+  body[data-ui-revision] .composer-material-actions > label:focus-within { outline:2px solid var(--hall-brand,#923f30); outline-offset:2px; }
+  body[data-ui-revision] .composer-material-actions > :disabled,
+  body[data-ui-revision] .composer-material-actions > [aria-disabled="true"] { opacity:.45; cursor:default; }
+}

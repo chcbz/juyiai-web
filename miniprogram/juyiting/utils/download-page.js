@@ -121,4 +121,4 @@ const createDownloadPage = config => ({
   }
 })
 
-module.exports = { createDownloadPage }
+module.exports = { createDownloadPage, safeName }

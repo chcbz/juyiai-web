@@ -125,6 +125,7 @@
         <section v-if="materialActionsOpen" class="composer-material-actions" aria-label="添加资料方式">
           <button type="button" :disabled="inputLocked" @click="chooseImage(cameraInput)">拍照</button>
           <button type="button" :disabled="inputLocked" @click="chooseImage(albumInput)">相册</button>
+          <button v-if="wechatAvailable" type="button" :disabled="inputLocked" @click="chooseWechat">微信</button>
           <button type="button" :disabled="inputLocked" @click="chooseMaterials">资料</button>
         </section>
         <input
@@ -177,6 +178,7 @@ import HallVoiceControls from './HallVoiceControls.vue'
 
 const props = defineProps({
   materialsOpen: { type: Boolean, default: false },
+  wechatAvailable: { type: Boolean, default: false },
   sendBlocked: { type: Boolean, default: false },
   agents: { type: Array, default: () => [] },
   compact: { type: Boolean, default: false },
@@ -209,7 +211,8 @@ const emit = defineEmits([
   'open-tools',
   'close-materials',
   'open-materials',
-  'import-images'
+  'import-images',
+  'import-wechat'
 ])
 
 const materialActionsOpen = ref(false)
@@ -232,6 +235,7 @@ const importImages = event => {
   imageContextKey = null
 }
 const chooseMaterials = () => { materialActionsOpen.value = false; emit('open-materials') }
+const chooseWechat = () => { if (!inputLocked.value && props.wechatAvailable) { materialActionsOpen.value = false; emit('import-wechat') } }
 const composerRef = ref(null)
 const moreButtonRef = ref(null)
 const moreOpen = ref(false)
@@ -774,5 +778,5 @@ watch([() => props.draft, () => props.compact], () => nextTick(resizeTextarea), 
 .composer-more,.composer-add-materials,.composer-stop { color:var(--hall-text,#242e2b); }
 .composer-send:not(.composer-stop){background:var(--hall-brand,#923f30);color:var(--hall-surface,#fffefa)}
 .composer-material-actions { display: flex; gap: 12px; padding: 12px 0; }
-.composer-material-actions button { flex: 1; min-height: 64px; border: 1px solid var(--hall-border, #e3e5dc); border-radius: 10px; background: var(--hall-surface, #fffefa); color: inherit; font: inherit; cursor: pointer; }
+.composer-material-actions button { flex: 1; box-sizing: border-box; height: 44px; min-height: 44px; padding: 0 8px; border: 1px solid var(--hall-border, #e3e5dc); border-radius: 10px; background: var(--hall-surface, #fffefa); color: inherit; font: inherit; cursor: pointer; }
 </style>

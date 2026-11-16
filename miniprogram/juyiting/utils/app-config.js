@@ -19,7 +19,10 @@ module.exports = {
       "view",
       "taskId",
       "fileId",
-      "fileVersion"
+      "fileVersion",
+      "wechatImport",
+      "wechatFiles",
+      "wechatState"
     ]
   },
   "entries": {
@@ -31,5 +34,6 @@ module.exports = {
       "default": "https://kit.chaoyoufan.cn/juyiting?entry=direct",
       "portrait": "https://kit.chaoyoufan.cn/juyiting?entry=portrait"
     }
-  }
+  },
+  "importUploadUrl": "https://api.chaoyoufan.cn/agent/personal-workspace/files"
 }

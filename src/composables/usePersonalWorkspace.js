@@ -5,6 +5,7 @@ import { createApi } from './useHttp.js'
 import { usePersonalWorkspaceWriteIntent } from './usePersonalWorkspaceWriteIntent.js'
 import { workspaceDecimal as DECIMAL, validMaterialVersion as VERSION, workspaceRevisionTag } from '../utils/personalWorkspaceProtocol.js'
 import { registerIdentityCleanup } from '../utils/identityLifecycle.js'
+import { createWechatWorkspaceBridge } from '../utils/wechatWorkspaceBridge.js'
 
 export const PERSONAL_WORKSPACE_MIME_TYPES = Object.freeze([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
@@ -606,6 +607,7 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
   if (getCurrentInstance()) onBeforeUnmount(dispose)
 
   return {
+    ...createWechatWorkspaceBridge(),
     items, nextCursor, listState, loading, actionState, error, detail, preview, lastOperation,
     pendingWrites: writes.pending, retryWrite, confirmationStale, writeNotice, detailRetryFileId, retryDetail, versionItems, hasMoreVersions, versionsState, versionsError, versionsNextCursor, versionsLoaded, loadVersions, loadMoreVersions, closeDetail,
     refresh, loadMore, select, upload, appendVersion, rename, usage, trash, restore,

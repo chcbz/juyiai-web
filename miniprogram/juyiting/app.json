@@ -2,7 +2,8 @@
   "pages": [
     "pages/index/index",
     "pages/landscape/index",
-    "pages/download/index"
+    "pages/download/index",
+    "pages/import/index"
   ],
   "window": {
     "navigationBarTextStyle": "black",

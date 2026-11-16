@@ -1,3 +1,4 @@
+import { readWechatImport, activateWechatImport } from '../src/utils/miniProgramMaterialBridge.js'
 import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
 import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
 import * as historyWindowHelpers from '../src/composables/juyiting/hallHistoryWindow.js'
@@ -2919,7 +2920,7 @@ const loadActualJuyiHall = (mocks) => {
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
   .replace('export default', 'return')
-  const component = new Function('Vue', 'mocks', body)(Vue, { useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
+  const component = new Function('Vue', 'mocks', body)(Vue, { readWechatImport, activateWechatImport, useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
   const renderBody = template.code
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace('export function render', 'return function render')
@@ -4303,5 +4304,79 @@ describe('discussion retest task status and scroll', () => {
       await wrapper.setProps({ conversationId: 'c2' })
       expect(wrapper.find('.new-messages-button').exists()).to.equal(false)
     } finally { wrapper.unmount() }
+  })
+})
+
+describe('JuyiHall WeChat import source restoration', () => {
+  const fixture = async (variant, { selectable = true, holdTask = null } = {}) => {
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    const api = { authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => null }
+    const global = { ...mocks.useGlobalStore(), user: { id: 'owner-a', tenantId: 'tenant-a' } }
+    mocks.useGlobalStore = () => global; mocks.useApiStore = () => api
+    const source = { kind: 'chat', owner: 'tenant-a\u0000client-a\u0000owner-a', mode: variant, taskId: variant === 'bounty' ? 'task-wechat' : '',
+      conversationId: 'saved-conversation', agentId: variant === 'private' ? 'agent-o04' : '', draft: '返回后仍未发送的原草稿' }
+    const record = { requestId: '69f021ba-5fc0-4b54-9f40-1467aa7ab26d', source }
+    const activated = [], selected = [], newConversations = [], sends = []
+    mocks.readWechatImport = (_host, owner) => owner === source.owner ? record : null
+    mocks.activateWechatImport = (_host, requestId) => activated.push(requestId)
+    const originalData = mocks.useHallData
+    mocks.useHallData = options => {
+      const data = originalData(options)
+      data.agents.value = [{ agentId: 'agent-o04', name: '测试好汉', boundToMe: true, canOperate: true }]
+      data.loadTaskDetail = async task => {
+        if (holdTask) await holdTask
+        options.selectedTask.value = { id: task.id, taskVersion: '1', title: '原事项', status: 'running', assignedAgentId: 'agent-o04', assignedAgentIds: ['agent-o04'] }
+        return true
+      }
+      return data
+    }
+    mocks.useHallChatContext = useHallChatContext
+    const originalConversation = mocks.useHallConversation
+    mocks.useHallConversation = options => {
+      const conversation = originalConversation(options)
+      conversation.conversationId.value = ''
+      conversation.conversationHistory = Vue.ref([])
+      conversation.loadHallConversationHistory = async () => { conversation.conversationHistory.value = [{ id: 'saved-conversation' }] }
+      conversation.selectHallConversation = async value => { selected.push(value); if (!selectable) return false; conversation.conversationId.value = value; return true }
+      conversation.newHallConversation = () => newConversations.push(true)
+      conversation.sendHallMessage = () => sends.push(true)
+      return conversation
+    }
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    await flushPromises()
+    return { wrapper, counters, api, source, activated, selected, newConversations, sends }
+  }
+  for (const variant of ['public', 'private', 'bounty']) {
+    it(`returns to the exact authorized ${variant} conversation before restoring draft, never creates or sends`, async () => {
+      const f = await fixture(variant)
+      try {
+        await f.wrapper.vm.$.setupState.restoreWechatSource(); await Vue.nextTick()
+        expect(f.selected).to.deep.equal(['saved-conversation'])
+        expect(f.counters.refs.draft.value).to.equal(f.source.draft)
+        expect(f.activated).to.have.length(1)
+        expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+      } finally { f.wrapper.unmount() }
+    })
+  }
+  it('does not attach a draft to a replacement conversation when the original is inaccessible', async () => {
+    const f = await fixture('public', { selectable: false })
+    try {
+      const before = f.counters.refs.draft.value
+      await f.wrapper.vm.$.setupState.restoreWechatSource()
+      expect(f.counters.refs.draft.value).to.equal(before)
+      expect(f.activated).to.have.length(0); expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+    } finally { f.wrapper.unmount() }
+  })
+  it('ignores late source recovery after authorization generation changes', async () => {
+    let resolve
+    const holdTask = new Promise(done => { resolve = done })
+    const f = await fixture('bounty', { holdTask })
+    try {
+      const pending = f.wrapper.vm.$.setupState.restoreWechatSource()
+      f.api.authorizationGeneration++
+      resolve(); await pending
+      expect(f.activated).to.have.length(0); expect(f.selected).to.have.length(0); expect(f.sends).to.have.length(0)
+    } finally { f.wrapper.unmount() }
   })
 })

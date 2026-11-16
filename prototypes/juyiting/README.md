@@ -286,3 +286,9 @@ PROTOTYPE_FOCUS=unified PROTOTYPE_ORIGIN=http://127.0.0.1:18786 PROTOTYPE_EVIDEN
 本次补入此前未提交的外单、语义控件、登录、帮助中心和技能管理样式，并保留 develop 已有的租约收尾、原生执行与报价交互。仅为离线原型，不改产品 `src/`，不代表上线。
 
 `baseline-source.json`、`*-20261007.json`、`prototype-checks.json`、`screenshots/` 与 `SHA256SUMS.txt` 是原工作区保留的历史基线材料，内容和摘要保持原样；**SHA256SUMS.txt 不是当前目录的完整性清单，历史 PASS 也不是此次合并验收**。本次验证使用根仓库已有 `check-browser.cjs` 的 `PROTOTYPE_FOCUS=git-cleanup`，当次输出独立记录输入摘要与真实结果；详见根仓库 `docs/implementation/handoffs/GIT-CLEANUP-20261112.md`。
+
+## 微信资料选择（2026-11-16）
+
+首页“选择资料”保留系统文件上传、拍照、相册三个图标，新增独立微信入口，仅小程序环境展示。议事附件区为“拍照、相册、微信、资料”四个纯文字按钮，最小高度44px；浏览器环境不展示微信入口。上传、取消不自动发送消息，点击“完成”才将固定版本资料加入原页面。返回时保留原正文、已有资料与原会话；身份改变或原会话不可读不创建替代会话。
+
+离线原型：`index.html?materialSource=wechat#home` 和 `#chat`；浏览器对照使用 `materialSource=browser`。示例不访问微信或真实上传接口。实现与平台验收分开记录。

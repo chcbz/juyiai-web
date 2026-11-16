@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { validMaterialVersion } from '../src/composables/juyiting/materialVersion.js'
 import { expect } from 'chai'
 import { after, before, describe, it } from 'mocha'
@@ -11,7 +12,7 @@ let HallDraftEditor
 let model
 
 const loadMaterialPicker = deps => {
-  const filename = new URL('../src/components/juyiting/HallMaterialPicker.vue', import.meta.url).pathname
+  const filename = fileURLToPath(new URL('../src/components/juyiting/HallMaterialPicker.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const code = compileScript(descriptor, { id: 'draft-shared-material-picker', inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_line, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
@@ -24,7 +25,7 @@ const loadMaterialPicker = deps => {
 }
 
 const load = () => {
-  const filename = new URL('../src/components/juyiting/HallDraftEditor.vue', import.meta.url).pathname
+  const filename = fileURLToPath(new URL('../src/components/juyiting/HallDraftEditor.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const script = compileScript(descriptor, { id: 'prototype-draft-flow', inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_line, bindings) => `var { ${bindings.split(',').map(binding => { const [name, alias] = binding.trim().split(/\s+as\s+/); return alias ? `${name}: ${alias}` : name }).join(', ')} } = Vue`)

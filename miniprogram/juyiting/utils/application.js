@@ -1,5 +1,6 @@
 // Only this feature's strict UUID-v4 basename is owned here; never sweep other user files.
 const { ID } = require('./file-messages')
+const { cleanOrphanImports } = require('./import-files')
 const ownsFile = (name, prefix) => name.startsWith(prefix) && ID.test(name.slice(prefix.length, prefix.length + 36)) && name[prefix.length + 36] === '-' &&
   name.length > prefix.length + 37 && !/[\\/\x00-\x1f]/.test(name.slice(prefix.length + 37))
 const createApplication = config => ({
@@ -7,6 +8,7 @@ const createApplication = config => ({
     const fs = wx.getFileSystemManager()
     const root = wx.env.USER_DATA_PATH
     fs.readdir({ dirPath: root, success: ({ files }) => {
+      cleanOrphanImports(files, root, config, this.globalData)
       for (const name of files) {
         if (!ownsFile(name, config.filePrefix)) continue
         const id = name.slice(config.filePrefix.length, config.filePrefix.length + 36)
@@ -16,7 +18,7 @@ const createApplication = config => ({
       }
     }, fail: () => {} })
   },
-  globalData: { pendingDownloads: Object.create(null), consumedDownloads: Object.create(null) }
+  globalData: { pendingImports: Object.create(null), consumedImports: Object.create(null), pendingDownloads: Object.create(null), consumedDownloads: Object.create(null) }
 })
 
 module.exports = { createApplication }
