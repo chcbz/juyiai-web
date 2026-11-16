@@ -396,8 +396,10 @@ export const useHallData = ({
     deriveRosterProjections()
   }
 
+  let rosterRequest = 0, catalogRequest = 0
   const loadRosterAgents = async ({ derive = true } = {}) => {
-    const identity = identityFingerprint()
+    const identity = identityFingerprint(), request = ++rosterRequest
+    const current = () => identity === identityFingerprint() && request === rosterRequest
     rosterLoading.value = true
     rosterError.value = ''
     try {
@@ -407,39 +409,46 @@ export const useHallData = ({
       }, {
         autoLoading: false,
         onSuccess: (result) => {
-          if (identity === identityFingerprint()) allRosterAgents.value = result.items
+          if (current()) allRosterAgents.value = result.items
         }
       })
-      if (identity === identityFingerprint() && derive) deriveRosterProjections()
+      if (current() && derive) deriveRosterProjections()
+      return current()
     } catch (error) {
-      if (identity !== identityFingerprint()) return
+      if (!current()) return
       log.warn('load roster agents failed:', error)
       rosterError.value = error?.message || '好汉名册暂无法读取'
       allRosterAgents.value = []
-      if (identity === identityFingerprint() && derive) deriveRosterProjections()
+      if (current() && derive) deriveRosterProjections()
+      return false
     } finally {
-      if (identity === identityFingerprint()) rosterLoading.value = false
+      if (current()) rosterLoading.value = false
     }
   }
 
   const loadPersonaCatalog = async () => {
+    const identity = identityFingerprint(), request = ++catalogRequest
+    const current = () => identity === identityFingerprint() && request === catalogRequest
     catalogLoading.value = true
     catalogError.value = ''
     try {
       await agentApi.get('/personas/catalog', {}, {
         autoLoading: false,
         onSuccess: (result) => {
-          personaCatalog.value = result
+          if (current()) personaCatalog.value = result
         }
       })
-      deriveRosterProjections()
+      if (current()) deriveRosterProjections()
+      return current()
     } catch (error) {
+      if (!current()) return false
       log.warn('load persona catalog failed:', error)
       catalogError.value = error?.message || '招贤令暂无法读取'
       personaCatalog.value = []
       deriveRosterProjections()
+      return false
     } finally {
-      catalogLoading.value = false
+      if (current()) catalogLoading.value = false
     }
   }
 

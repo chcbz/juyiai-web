@@ -1,7 +1,12 @@
 <template>
   <div class="juyi-hall-entry">
     <div ref="juyiHallContainer" class="juyi-hall-background">
-      <JuyiHall :onboarding-visible="onboardingState.visible" @open-onboarding="reopen" @onboarding-auth-ready="onAuthReady" />
+      <JuyiHall
+        :onboarding-visible="onboardingState.visible"
+        @open-onboarding="reopen"
+        @onboarding-auth-ready="onAuthReady"
+        @return-active="returnActive = $event"
+      />
     </div>
 
     <HallOnboarding
@@ -33,6 +38,7 @@ const route = useRoute()
 const router = useRouter()
 const globalStore = useGlobalStore()
 const apiStore = useApiStore()
+const returnActive = ref(false)
 const authReady = ref(false)
 const handoffReady = ref(false)
 const onboardingState = reactive({ visible: false, status: null, snoozed: false })
@@ -51,8 +57,8 @@ const browserStorage = name => {
   }
 }
 
-const syncOnboarding = () => {
-  if (!authReady.value || !handoffReady.value) return
+const syncOnboarding = (explicit = false) => {
+  if (!authReady.value || !handoffReady.value || (returnActive.value && !explicit)) return
   onboarding = createHallOnboarding({
     subject: currentSubject.value,
     localStorage: browserStorage('localStorage'),
@@ -61,9 +67,12 @@ const syncOnboarding = () => {
   Object.assign(onboardingState, onboarding.snapshot())
 }
 
+watch(returnActive, value => { if (value) onboardingState.visible = false; else syncOnboarding() })
+
 const updateOnboarding = action => {
   if (!authReady.value || !handoffReady.value) return
-  if (!onboarding) syncOnboarding()
+  if (!onboarding) syncOnboarding(action === 'open')
+  if (!onboarding) return
   Object.assign(onboardingState, onboarding[action]())
 }
 

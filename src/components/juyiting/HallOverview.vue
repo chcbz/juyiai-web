@@ -69,6 +69,7 @@
 </template>
 
 <script setup>
+import { useHallReturnReceiver } from '../../composables/juyiting/useHallPageReturn.js'
 import { taskStatusText } from '../../constants/juyiting.js'
 import { computed, ref, watch } from 'vue'
 import { canOpenHallItem, HALL_SOURCES, useHallOverview } from '@/composables/juyiting/useHallOverview'
@@ -78,6 +79,7 @@ const props = defineProps({
   identityScope: { type: String, default: '' },
   identityEpoch: { type: [Number, String], default: 0 },
   enabled: { type: Boolean, default: false },
+  listsEnabled: { type: Boolean, default: true },
   messagesOnly: { type: Boolean, default: false },
   refreshKey: { type: Number, default: 0 },
   agents: { type: Array, default: () => [] },
@@ -108,6 +110,12 @@ watch(quickRequest, value => {
   try { if (value) draftStorage()?.setItem(homeDraftKey, value); else draftStorage()?.removeItem(homeDraftKey) } catch { /* no submission side effect */ }
 }, { flush: 'sync' })
 watch(selectedMaterials, onQuickRequestInput, { deep: true, flush: 'sync' })
+useHallReturnReceiver({
+  context: () => ({ kind: 'home', owner: props.identityScope, draft: quickRequest.value }),
+  scene: () => ({ draft: quickRequest.value, committedSelection: selectedMaterials.value, stagedSelection: selectedMaterials.value, materialContext: null, discussionContext: null }),
+  apply: scene => { quickRequest.value = scene.draft; selectedMaterials.value = scene.committedSelection.map(item => ({ ...item })) },
+  ready: () => props.enabled && !!props.identityScope
+})
 const submitQuickRequest = () => {
   const value = quickRequest.value
   const generation = quickRequestGeneration.value
@@ -176,11 +184,11 @@ const showArchive = () => {
   if (model.state.value !== 'loading') void refreshArchive()
 }
 const refresh = async () => {
-  if (!props.enabled || !props.identityScope) { model.reset(); return }
+  if (!props.enabled || !props.listsEnabled || !props.identityScope) { model.reset(); return }
   await model.refresh()
   if (archiveView.value && !props.messagesOnly) await refreshArchive()
 }
-watch([() => props.enabled, () => props.identityScope, () => props.identityEpoch, () => props.refreshKey], refresh, { immediate: true })
+watch([() => props.listsEnabled, () => props.enabled, () => props.identityScope, () => props.identityEpoch, () => props.refreshKey], refresh, { immediate: true })
 
 </script>
 

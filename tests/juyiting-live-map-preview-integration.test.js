@@ -1,3 +1,4 @@
+import { useHallPageReturn } from '../src/composables/juyiting/useHallPageReturn.js'
 import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
 import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
 import { useHallAgentAbilitiesEditor } from '../src/composables/juyiting/useHallAgentAbilitiesEditor.js'
@@ -131,7 +132,7 @@ const loadHallPage = mocks => {
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, name) => `var ${name} = mocks.${name}`)
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace('export default', 'return')
-  return new Function('Vue', 'mocks', body)(Vue, { useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, assignedTaskTarget, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
+  return new Function('Vue', 'mocks', body)(Vue, { useHallPageReturn, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, assignedTaskTarget, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
 }
 
 const makeHallPageMocks = ({ mode, counters, voiceLocked = Vue.ref(false) }) => {

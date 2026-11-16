@@ -90,3 +90,35 @@ describe('personal workspace conversation link adapter', () => {
     adapter.dispose()
   })
 })
+
+
+describe('page return durable conversation association adapter', () => {
+  it('recreates an unknown detach without automatic requests and replays its original key and If-Match', async () => {
+    let saved = [], online = false
+    const calls = [], initial = link()
+    const persistence = { enabled: () => true, read: () => saved, save: value => { saved = JSON.parse(JSON.stringify(value)) } }
+    const api = { execute: async options => {
+      calls.push(options)
+      assert.equal(saved[0].state, 'SENDING')
+      assert.equal(saved[0].key, options.headers['Idempotency-Key'])
+      if (!online) throw new Error('connection lost after write')
+      return reply(options, { link: link({ state: 'DETACHED', relationRevision: '2' }), executionSnapshotsPreserved: true })
+    } }
+    const create = () => usePersonalWorkspaceConversationLinks({ api, conversationId: ref('conversation_a'), identityEpoch: ref('owner'), persistence })
+    let adapter = create()
+    assert.equal(await adapter.detach(initial), null)
+    assert.equal(saved[0].state, 'UNKNOWN')
+    adapter.dispose(); adapter = create()
+    assert.equal(calls.length, 1)
+    assert.equal(adapter.pendingWrites.value.length, 1)
+    online = true
+    await adapter.retryWrite(adapter.pendingWrites.value[0].target)
+    assert.equal(calls.length, 2)
+    assert.equal(calls[1].url, calls[0].url)
+    assert.deepEqual(calls[1].headers, calls[0].headers)
+    assert.equal(calls[1].headers['If-Match'], '"rel_a:1"')
+    assert.equal(saved[0].state, 'COMMITTED')
+    assert.equal(adapter.pendingWrites.value.length, 0)
+    adapter.dispose()
+  })
+})

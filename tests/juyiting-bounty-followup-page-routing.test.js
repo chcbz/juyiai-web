@@ -18,10 +18,10 @@ const handler = name => {
 }
 describe('ordinary JuyiHall request routing', () => {
   it('sends drawing, editing and other requests through the same discussion handler', async () => {
-    const draft = ref(''); const calls = []
-    const send = new Function('voiceReplyCorrelation', 'hallVoice', 'playSend', 'typedDeliberationEnabled', 'typedDeliberation', 'draft', 'setDraft', 'showToast', 'sendHallMessage', 'typedAssignmentRevision', 'bountyAssignmentContext', 'conversationTask', 'hallIdentityScope', 'apiStore', 'conversationId', 'bountyInteractionTargetId', 'chatContext', 'refreshCurrentConversationTask', `const manualSendPending = { value: false }; return (${handler('handleSendHallMessage')})`)(
+    const draft = ref(''); const calls = []; const draftRevision = ref(0); let accept = null
+    const send = new Function('voiceReplyCorrelation', 'hallVoice', 'playSend', 'typedDeliberationEnabled', 'typedDeliberation', 'draft', 'setDraft', 'showToast', 'sendHallMessage', 'typedAssignmentRevision', 'bountyAssignmentContext', 'conversationTask', 'hallIdentityScope', 'apiStore', 'conversationId', 'bountyInteractionTargetId', 'chatContext', 'refreshCurrentConversationTask', 'draftRevision', `const manualSendPending = { value: false }; return (${handler('handleSendHallMessage')})`)(
       { close: () => {} }, { cancel: () => {} }, () => {}, ref(true),
-      { submit: async payload => { calls.push(payload); return true }, error: ref('') }, draft, value => { draft.value = value }, () => {}, () => { throw new Error('unexpected legacy send') }, () => '1', { loading: ref(false), error: ref(''), refresh: async () => true }, ref({ id: '417' }), ref('owner'), { authorizationGeneration: 1 }, ref('7'), () => 'wuyong', ref({}), async () => true)
+      { submit: async payload => { calls.push(payload); return accept ? new Promise(resolve => { accept.resolve = resolve }) : true }, error: ref('') }, draft, value => { draft.value = value }, () => {}, () => { throw new Error('unexpected legacy send') }, () => '1', { loading: ref(false), error: ref(''), refresh: async () => true }, ref({ id: '417' }), ref('owner'), { authorizationGeneration: 1 }, ref('7'), () => 'wuyong', ref({}), async () => true, draftRevision)
     const source = { kind: 'TASK_LINKED_WORKSPACE_VERSION', fileId: 'f', version: '1', purpose: 'INPUT', assetId: null, assetRevision: null }
     for (const content of ['画一只鸟', '把上一张改成蓝色', '整理这份文档']) {
       draft.value = content
@@ -30,6 +30,12 @@ describe('ordinary JuyiHall request routing', () => {
       expect(draft.value).to.equal('')
     }
     expect(calls).to.have.length(3)
+    accept = {}; draft.value = '发送这一条'
+    const sending = send({ sourceSelectors: [] })
+    await new Promise(resolve => setImmediate(resolve))
+    draft.value = '等待期间写的新稿'; draftRevision.value++
+    accept.resolve(true); await sending
+    expect(draft.value).to.equal('等待期间写的新稿')
   })
   it('has no separate image generation, preview-consent or proposal-confirmation handler', () => {
     for (const name of ['useHallBountyFollowup', 'handleFollowupGenerate', 'handleFollowupEdit', 'handleTypedProposal', 'confirmFollowup']) expect(source).not.to.include(name)

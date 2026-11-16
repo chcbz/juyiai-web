@@ -7,6 +7,7 @@
       subtitle="厅前公议"
       title="厅前公议"
       v-bind="props"
+      @restore-discussion-context="$emit('restore-discussion-context', $event)"
       @update:draft="$emit('update:draft', $event)"
       @cancel-deliberation="$emit('cancel-deliberation', $event)"
       @clear-target="$emit('clear-target', $event)"

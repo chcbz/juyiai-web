@@ -14,8 +14,10 @@ export const discussionPanelProps = {
   durableCancelTarget: { type: Object, default: null },
   replyCancellationState: { type: Object, default: null },
   conversationId: { type: String, default: '' },
+  identityScope: { type: String, default: '' },
   identityEpoch: { type: [Number, String], default: 0 },
   draft: { type: String, default: '' },
+  discussionContext: { type: Object, default: () => ({ mentionAgentIds: [], outgoingMetadata: { inputRefs: [] } }) },
   eventStreamRecovering: { type: Boolean, default: false },
   isAwaitingReply: { type: Boolean, default: false },
   isStreaming: { type: Boolean, default: false },
@@ -53,5 +55,6 @@ export const discussionPanelEmits = [
   'select-conversation',
   'send-message',
   'update:draft',
+  'restore-discussion-context',
   'voice-apply'
 ]

@@ -1,219 +1,263 @@
 <template>
-  <div ref="hallRootRef" class="juyi-page" tabindex="-1" :style="hallViewportStyle" :class="{ 'is-wechat-restoring': wechatReturnPending, 'is-immersive-map': isImmersiveMap, 'is-panel-open': isPanelSessionActive, 'is-virtual-landscape': isVirtualLandscape, 'has-workbench-dock': showWorkbenchDock && (Boolean(activePanel) || !renderedPanel), 'is-keyboard-active': hallKeyboardActive, [`experience-${experienceMode}`]: true, [`home-${homeMode}`]: true }">
-    <div v-if="wechatReturnPending" class="wechat-return-status" role="status" aria-live="polite">正在返回原页面…</div>
-    <aside v-show="isOverviewHome" class="hall-workbench-sidebar" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null" aria-label="工作台侧栏">
-      <button class="workbench-brand" type="button" @click="openWorkbenchPage('overview')"><span class="workbench-seal">聚</span><span>聚义<small>一起，把事情办成。</small></span></button>
-      <p class="workbench-nav-caption">我的工作空间</p>
-      <nav class="workbench-side-nav" aria-label="工作台主导航">
-        <button v-for="tab in workbenchPrimaryTabs" :key="tab.panel" type="button" :data-workbench-tab="tab.panel" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)"><var-icon :name="tab.icon" /><span>{{ tab.label }}</span></button>
-      </nav>
-      <div class="workbench-sidebar-bottom">
-        <button class="workbench-map-entry" type="button" @click="openWorkbenchMap"><var-icon name="map-marker-outline" /><span>厅中实景<small>去梁山走一走</small></span><var-icon name="chevron-right" /></button>
-        <nav class="workbench-side-nav workbench-side-utility" aria-label="工作台辅助导航">
-          <button type="button" @click="openHelp($event.currentTarget)"><var-icon name="help-circle-outline" /><span>使用帮助</span></button>
-        </nav>
-        <button class="workbench-sidebar-account" type="button" :disabled="accountEntryDisabled" aria-label="个人中心" @click="openProfile"><img v-if="accountAvatar" :src="accountAvatar" alt="" /><var-icon v-else name="account-circle-outline" aria-hidden="true" /><span>{{ accountDisplayName }}<small>个人中心</small></span><var-icon name="chevron-right" aria-hidden="true" /></button>
-      </div>
-    </aside>
-    <header v-show="!isImmersiveMap" class="hall-app-header" :inert="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? 'true' : null">
-      <nav v-if="isOverviewHome" class="workbench-breadcrumb" aria-label="当前位置"><button type="button" @click="openWorkbenchPage('overview')">我的工作空间</button><var-icon name="chevron-right" aria-hidden="true" /><strong>{{ workbenchCurrentLabel }}</strong></nav>
-      <button v-else class="hall-brand" type="button" @click="setHomeMode('overview')"><span class="hall-seal">聚</span><span>聚义<small>梁山好汉 · 共成其事</small></span></button>
-      <nav class="hall-main-nav" aria-label="聚义主导航">
-        <button v-for="tab in workbenchMobileTabs" :key="tab.panel" type="button" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)">{{ tab.label }}</button>
-      </nav>
-      <div class="hall-header-tools">
-        <button type="button" @click="openPanel('agents', { root: isOverviewHome })">好汉</button>
-        <button class="workbench-message-action hall-tool" type="button" aria-label="查看消息" @click="openPanel('messages', { root: isOverviewHome })" title="查看消息"><var-icon name="bell-outline" aria-hidden="true" /></button>
-        <button class="workbench-create-action" type="button" @click="openDefaultRequirementCreate()"><span>提出需求</span></button>
-        <button class="workbench-account-action hall-tool" type="button" :disabled="accountEntryDisabled" aria-label="个人中心" @click="openProfile" title="个人中心"><var-icon name="account-circle-outline" aria-hidden="true" /></button>
-        <button class="workbench-mobile-more" type="button" aria-label="全部入口" :aria-expanded="workbenchMenuOpen" @click="workbenchMenuOpen = !workbenchMenuOpen"><var-icon name="menu" /></button>
-      </div>
-      <nav v-if="workbenchMenuOpen && isOverviewHome" class="workbench-more-menu" aria-label="全部入口">
-        <button v-for="tab in workbenchPrimaryTabs" :key="tab.panel" type="button" @click="openWorkbenchPage(tab.panel, $event)"><var-icon :name="tab.icon" aria-hidden="true" /><span>{{ tab.label }}</span></button>
-        <button type="button" @click="openWorkbenchMap"><var-icon name="map-marker-outline" aria-hidden="true" /><span>厅中实景</span></button>
-        <button type="button" :disabled="accountEntryDisabled" @click="workbenchMenuOpen = false; openProfile()"><var-icon name="account-circle-outline" aria-hidden="true" /><span>个人中心</span></button>
-        <button type="button" @click="workbenchMenuOpen = false; openHelp($event.currentTarget)"><var-icon name="help-circle-outline" aria-hidden="true" /><span>使用帮助</span></button>
-      </nav>
-    </header>
-    <div v-show="!isImmersiveMap" class="hall-mode-toolbar" :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive ? 'true' : null">
-      <div class="hall-mode-switch" aria-label="聚义视图"><button type="button" :aria-pressed="homeMode === 'map'" @click="setHomeMode('map')">厅中实景</button><button type="button" :aria-pressed="homeMode === 'overview'" @click="setHomeMode('overview')">办事概览</button></div>
-      <span class="hall-mode-hint">地图入口与办事入口，通向同一件事</span>
-      <div class="hall-scene-tools">
-        <button type="button" @click="openPanel('library')">典籍阁</button>
-        <button v-if="homeMode === 'map' && experienceMode === 'landscape-map'" type="button" aria-label="缩小地图" @click="hallStageRef?.zoom(-0.12)">−</button>
-        <button v-if="homeMode === 'map' && experienceMode === 'landscape-map'" type="button" aria-label="放大地图" @click="hallStageRef?.zoom(0.12)">+</button>
-        <button v-if="homeMode === 'map' && experienceMode === 'landscape-map'" type="button" @click="hallStageRef?.resetCamera()">全景</button>
-        <button class="hall-sound-action" type="button" :aria-pressed="soundEnabled" @click="toggleHallSound">{{ soundEnabled ? '关闭声音' : '开启声音' }}</button>
-        <button class="hall-help-action" type="button" @click="emit('open-onboarding', $event.currentTarget)">怎么开始？</button>
-      </div>
-    </div>
-    <nav v-show="showWorkbenchDock && (Boolean(activePanel) || !renderedPanel)" class="workbench-mobile-nav" aria-label="移动端导航" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null">
-      <button v-for="tab in workbenchMobileTabs" :key="tab.panel" type="button" :data-workbench-tab="tab.panel" :aria-label="tab.label" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)"><var-icon :name="tab.icon" /><span>{{ tab.label }}</span></button>
-    </nav>
-    <HallPortraitHome
-      ref="portraitHomeRef"
-      unified-shell
-      v-show="!experienceReady || experienceMode === 'portrait-command' || isOverviewHome"
-      :home-mode="homeMode"
-      :compact="isLowHeightPanel"
-      :live-preview-enabled="true"
-      :account-avatar="accountAvatar"
-      :account-display-name="accountDisplayName"
-      :account-entry-disabled="accountEntryDisabled"
-      :live-preview-state="previewPresentationState"
-      :live-preview-error="previewSceneError"
-      :live-preview-map-width="previewSceneBounds.width"
-      :live-preview-map-height="previewSceneBounds.height"
-      :agents="agents"
-      :map-agents="mapAgents"
-      :operable-agents="operableRosterAgents"
-      :orientation-hint="orientationHint"
-      :orientation-request-pending="orientationRequestPending"
-      :selected-agent="selectedAgent"
-      :selected-task="selectedTask"
-      :can-start-agent-conversation="canStartAgentConversation"
-      :task-detail-open="portraitTaskDetailOpen"
-      :status-class="statusClass"
-      :task-state-class="taskStateClass"
-      :task-status-text="taskStatusText"
-      :tasks="tasks"
-      :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null"
-      :aria-hidden="isPanelSessionActive || voiceInteractionLocked ? 'true' : null"
-      @set-home-mode="setHomeMode"
-      @quick-action="handlePortraitQuickAction"
-      @open-profile="openProfile"
-      @open-workspace="openBabaoBox"
-      @open-onboarding="emit('open-onboarding', $event)"
-      @request-landscape="requestPortraitLandscape"
-      @cancel-orientation="requestPortrait"
-      @retry-live-preview="retryLivePreview"
-      @live-preview-visibility-change="handlePreviewVisibility"
-      @select-agent="handlePortraitAgentSelect"
-      @start-agent-conversation="handleStartAgentConversation"
-      @open-task="handlePortraitTaskOpen"
-      @close-task-detail="closePortraitTaskDetail"
-      @open-task-board="handlePortraitTaskBoard"
-      @discuss-task="handlePortraitTaskDiscussion"
+  <div
+    ref="hallRootRef"
+    class="juyi-page"
+    tabindex="-1"
+    :style="hallViewportStyle"
+    :class="{ 'is-immersive-map': isImmersiveMap, 'is-panel-open': isPanelSessionActive, 'is-virtual-landscape': isVirtualLandscape, 'has-workbench-dock': showWorkbenchDock && (Boolean(activePanel) || !renderedPanel), 'is-keyboard-active': hallKeyboardActive, [`experience-${experienceMode}`]: true, [`home-${homeMode}`]: true }"
+  >
+    <section
+      v-if="returnBlocking"
+      class="page-return-entry"
+      role="status"
+      aria-live="polite"
     >
-      <template #overview>
-        <HallOverview
-          :refresh-key="hallReadRevision"
-          :enabled="Boolean(hallIdentityScope)"
-          :identity-scope="hallIdentityScope"
-          :identity-epoch="apiStore.authorizationGeneration"
-          :agents="operableRosterAgents"
-          :quick-pending="requirementCreateBusy"
-          :quick-message="requirementCreateState.error || ''"
-          @quick-request="handleQuickRequest"
-          @set-home-mode="setHomeMode"
-          @open-board="openPanel('tasks')"
-          @open-workspace="openBabaoBox"
-          @open-agents="openPanel('agents')"
-          @start-chat="startContextConversation"
-          @start-draft="openDefaultRequirementCreate()"
-          @open-item="openOverviewItem"
-          @open-task="openOverviewTask"
-        />
+      <p>{{ pageReturn.error.value || '正在读取原页面…' }}</p>
+      <template v-if="pageReturn.status.value === 'conflict'">
+        <button type="button" @click="pageReturn.useRestored()">采用恢复稿</button>
+        <button type="button" @click="pageReturn.keepCurrent()">保留当前稿</button>
       </template>
-    </HallPortraitHome>
-
-    <div ref="landscapeTargetRef" v-show="experienceMode === 'landscape-map' && !isOverviewHome" class="hall-live-landscape-target"></div>
-    <Teleport :to="stageTarget" :disabled="!stageTarget">
-    <HallStage
-      v-if="stageMounted"
-      ref="hallStageRef"
-      :unified-shell="!isImmersiveMap"
-      v-show="experienceReady"
-      :read-only-preview="experienceMode === 'portrait-command' || isOverviewHome"
+      <button v-else-if="pageReturn.status.value === 'error'" type="button" @click="pageReturn.retry()">重试读取</button>
+      <button type="button" @click="leaveReturn()">暂不恢复，回首页</button>
+    </section>
+    <section v-if="pageReturn.status.value === 'readonly'" class="page-return-notice" role="status">
+      <p>原现场已保存，当前议事不可编辑。不会自动关联或发送。</p>
+      <pre>{{ pageReturn.record.value?.checkpoint?.draft ?? pageReturn.record.value?.snapshot.draft }}</pre>
+      <button type="button" @click="leaveReturn()">回首页</button>
+    </section>
+    <details v-if="homeActivated && pageReturn.pending.value.length" class="page-return-notice">
+      <summary>未恢复现场（{{ pageReturn.pending.value.length }}）</summary>
+      <button
+        v-for="item in pageReturn.pending.value"
+        :key="item.requestId"
+        type="button"
+        @click="pageReturn.start(item.requestId)"
+      >{{ item.target.kind === 'home' ? '需求草稿' : '议事 ' + item.target.conversationId }} · {{ new Date(item.createdAt).toLocaleString() }}</button>
+    </details>
+    <template v-if="homeActivated">
+      <aside v-show="isOverviewHome" class="hall-workbench-sidebar" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null" aria-label="工作台侧栏">
+        <button class="workbench-brand" type="button" @click="openWorkbenchPage('overview')"><span class="workbench-seal">聚</span><span>聚义<small>一起，把事情办成。</small></span></button>
+        <p class="workbench-nav-caption">我的工作空间</p>
+        <nav class="workbench-side-nav" aria-label="工作台主导航">
+          <button v-for="tab in workbenchPrimaryTabs" :key="tab.panel" type="button" :data-workbench-tab="tab.panel" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)"><var-icon :name="tab.icon" /><span>{{ tab.label }}</span></button>
+        </nav>
+        <div class="workbench-sidebar-bottom">
+          <button class="workbench-map-entry" type="button" @click="openWorkbenchMap"><var-icon name="map-marker-outline" /><span>厅中实景<small>去梁山走一走</small></span><var-icon name="chevron-right" /></button>
+          <nav class="workbench-side-nav workbench-side-utility" aria-label="工作台辅助导航">
+            <button type="button" @click="openHelp($event.currentTarget)"><var-icon name="help-circle-outline" /><span>使用帮助</span></button>
+          </nav>
+          <button class="workbench-sidebar-account" type="button" :disabled="accountEntryDisabled" aria-label="个人中心" @click="openProfile"><img v-if="accountAvatar" :src="accountAvatar" alt="" /><var-icon v-else name="account-circle-outline" aria-hidden="true" /><span>{{ accountDisplayName }}<small>个人中心</small></span><var-icon name="chevron-right" aria-hidden="true" /></button>
+      </div>
+      </aside>
+      <header v-show="!isImmersiveMap" class="hall-app-header" :inert="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? 'true' : null">
+        <nav v-if="isOverviewHome" class="workbench-breadcrumb" aria-label="当前位置"><button type="button" @click="openWorkbenchPage('overview')">我的工作空间</button><var-icon name="chevron-right" aria-hidden="true" /><strong>{{ workbenchCurrentLabel }}</strong></nav>
+        <button v-else class="hall-brand" type="button" @click="setHomeMode('overview')"><span class="hall-seal">聚</span><span>聚义<small>梁山好汉 · 共成其事</small></span></button>
+        <nav class="hall-main-nav" aria-label="聚义主导航">
+          <button v-for="tab in workbenchMobileTabs" :key="tab.panel" type="button" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)">{{ tab.label }}</button>
+        </nav>
+        <div class="hall-header-tools">
+          <button type="button" @click="openPanel('agents', { root: isOverviewHome })">好汉</button>
+          <button class="workbench-message-action hall-tool" type="button" aria-label="查看消息" @click="openPanel('messages', { root: isOverviewHome })" title="查看消息"><var-icon name="bell-outline" aria-hidden="true" /></button>
+          <button class="workbench-create-action" type="button" @click="openDefaultRequirementCreate()"><span>提出需求</span></button>
+          <button class="workbench-account-action hall-tool" type="button" :disabled="accountEntryDisabled" aria-label="个人中心" @click="openProfile" title="个人中心"><var-icon name="account-circle-outline" aria-hidden="true" /></button>
+          <button class="workbench-mobile-more" type="button" aria-label="全部入口" :aria-expanded="workbenchMenuOpen" @click="workbenchMenuOpen = !workbenchMenuOpen"><var-icon name="menu" /></button>
+      </div>
+        <nav v-if="workbenchMenuOpen && isOverviewHome" class="workbench-more-menu" aria-label="全部入口">
+          <button v-for="tab in workbenchPrimaryTabs" :key="tab.panel" type="button" @click="openWorkbenchPage(tab.panel, $event)"><var-icon :name="tab.icon" aria-hidden="true" /><span>{{ tab.label }}</span></button>
+          <button type="button" @click="openWorkbenchMap"><var-icon name="map-marker-outline" aria-hidden="true" /><span>厅中实景</span></button>
+          <button type="button" :disabled="accountEntryDisabled" @click="workbenchMenuOpen = false; openProfile()"><var-icon name="account-circle-outline" aria-hidden="true" /><span>个人中心</span></button>
+          <button type="button" @click="workbenchMenuOpen = false; openHelp($event.currentTarget)"><var-icon name="help-circle-outline" aria-hidden="true" /><span>使用帮助</span></button>
+        </nav>
+      </header>
+      <div v-show="!isImmersiveMap" class="hall-mode-toolbar" :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive ? 'true' : null">
+        <div class="hall-mode-switch" aria-label="聚义视图"><button type="button" :aria-pressed="homeMode === 'map'" @click="setHomeMode('map')">厅中实景</button><button type="button" :aria-pressed="homeMode === 'overview'" @click="setHomeMode('overview')">办事概览</button></div>
+        <span class="hall-mode-hint">地图入口与办事入口，通向同一件事</span>
+        <div class="hall-scene-tools">
+          <button type="button" @click="openPanel('library')">典籍阁</button>
+          <button v-if="homeMode === 'map' && experienceMode === 'landscape-map'" type="button" aria-label="缩小地图" @click="hallStageRef?.zoom(-0.12)">−</button>
+          <button v-if="homeMode === 'map' && experienceMode === 'landscape-map'" type="button" aria-label="放大地图" @click="hallStageRef?.zoom(0.12)">+</button>
+          <button v-if="homeMode === 'map' && experienceMode === 'landscape-map'" type="button" @click="hallStageRef?.resetCamera()">全景</button>
+          <button class="hall-sound-action" type="button" :aria-pressed="soundEnabled" @click="toggleHallSound">{{ soundEnabled ? '关闭声音' : '开启声音' }}</button>
+          <button class="hall-help-action" type="button" @click="emit('open-onboarding', $event.currentTarget)">怎么开始？</button>
+      </div>
+      </div>
+      <nav v-show="showWorkbenchDock && (Boolean(activePanel) || !renderedPanel)" class="workbench-mobile-nav" aria-label="移动端导航" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null">
+        <button v-for="tab in workbenchMobileTabs" :key="tab.panel" type="button" :data-workbench-tab="tab.panel" :aria-label="tab.label" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)"><var-icon :name="tab.icon" /><span>{{ tab.label }}</span></button>
+      </nav>
+      <HallPortraitHome
+        ref="portraitHomeRef"
+        unified-shell
+        v-show="!experienceReady || experienceMode === 'portrait-command' || isOverviewHome"
+      :home-mode="homeMode"
+        :compact="isLowHeightPanel"
+        :live-preview-enabled="true"
       :account-avatar="accountAvatar"
       :account-display-name="accountDisplayName"
       :account-entry-disabled="accountEntryDisabled"
-      :preview-visible="stageDrawVisible"
-      :agent-bubbles="agentBubbles"
-      :agent-key="agentKey"
-      :agent-style="sceneAgentStyle"
-      :hidden-agent-count="hiddenAgentCount"
-      :experience-mode="experienceMode"
-      :home-mode="homeMode"
-      :interaction-locked="isPanelSessionActive || voiceInteractionLocked"
-      :is-mobile-coarse="isMobileCoarse"
-      :inert="isPanelSessionActive ? '' : null"
-      :aria-hidden="isPanelSessionActive ? 'true' : null"
-      :landscape-entry-target="landscapeEntryTarget"
-      :map-resume-snapshot="mapResumeSnapshot"
+        :live-preview-state="previewPresentationState"
+        :live-preview-error="previewSceneError"
+        :live-preview-map-width="previewSceneBounds.width"
+        :live-preview-map-height="previewSceneBounds.height"
+        :agents="agents"
+        :map-agents="mapAgents"
+        :operable-agents="operableRosterAgents"
       :orientation-hint="orientationHint"
       :orientation-request-pending="orientationRequestPending"
-      :portrait-name="portraitName"
-      :portrait-short-name="portraitShortName"
-      :portrait-style="portraitStyle"
-      :role-class="roleClass"
-      :simulation-enabled="simulationEnabled"
-      :scene-agents="sceneAgents"
-      :scene-hotspots="sceneHotspots"
       :selected-agent="selectedAgent"
-      :sound-enabled="soundEnabled"
+        :selected-task="selectedTask"
+        :can-start-agent-conversation="canStartAgentConversation"
+        :task-detail-open="portraitTaskDetailOpen"
       :status-class="statusClass"
-      :status-text="statusText"
+        :task-state-class="taskStateClass"
+        :task-status-text="taskStatusText"
       :tasks="tasks"
-      :virtual-landscape="isVirtualLandscape"
-      :tasks-total="tasks.length"
-      :visible-agents="visibleAgents"
-      @landscape-target-consumed="handleLandscapeTargetConsumed"
-      @map-snapshot="handleMapSnapshot"
-      @map-snapshot-clear="clearMapResumeSnapshot"
+        :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null"
+        :aria-hidden="isPanelSessionActive || voiceInteractionLocked ? 'true' : null"
+      @set-home-mode="setHomeMode"
+        @quick-action="handlePortraitQuickAction"
       @open-profile="openProfile"
       @open-workspace="openBabaoBox"
-      @new-conversation="handleNewHallConversation"
-      @open-panel="handleStagePanelOpen"
-      @set-home-mode="setHomeMode"
-      @request-landscape="requestLandscape"
-      @request-portrait="requestPortrait"
       @open-onboarding="emit('open-onboarding', $event)"
-      @select-agent="selectAgent"
-      @simulation-phase-events="handleSimulationPhaseEvents"
-      @simulation-ready="handleSimulationReady"
-      @simulation-reset="resetSimulationLifecycle"
-      @scene-mode-change="handleSceneModeChange"
-      @scene-state-change="handlePreviewSceneState"
-      @scene-error="handlePreviewSceneError"
-      @scene-bounds-change="handlePreviewSceneBounds"
-      @toggle-sound="toggleHallSound"
+        @request-landscape="requestPortraitLandscape"
+        @cancel-orientation="requestPortrait"
+        @retry-live-preview="retryLivePreview"
+        @live-preview-visibility-change="handlePreviewVisibility"
+        @select-agent="handlePortraitAgentSelect"
+        @start-agent-conversation="handleStartAgentConversation"
+        @open-task="handlePortraitTaskOpen"
+        @close-task-detail="closePortraitTaskDetail"
+        @open-task-board="handlePortraitTaskBoard"
+        @discuss-task="handlePortraitTaskDiscussion"
     >
-
-      <HallVoiceHud v-if="effectiveSceneMode === 'landscape' && !activePanel" :voice="hallVoice" @apply="applyVoiceTranscript" />
-
-      <div v-if="selectedAgent" class="quick-bar">
-        <transition name="agent-card">
-          <SelectedAgentCard
-            :ability-text="abilityText"
-            :agent="selectedAgent"
-            :locked="voiceInteractionLocked"
-            :portrait-name="portraitName"
-            :portrait-style="portraitStyle"
-            :status-text="statusText"
-            @close-card="closeSelectedAgentCard"
+        <template #overview>
+          <HallOverview
+            :refresh-key="hallReadRevision"
+            :enabled="Boolean(hallIdentityScope)"
+            :lists-enabled="homeListsActive"
+            :identity-scope="hallIdentityScope"
+            :identity-epoch="apiStore.authorizationGeneration"
+            :agents="operableRosterAgents"
+            :quick-pending="requirementCreateBusy"
+            :quick-message="requirementCreateState.error || ''"
+            @quick-request="handleQuickRequest"
+            @set-home-mode="setHomeMode"
+            @open-board="openPanel('tasks')"
+            @open-workspace="openBabaoBox"
             @open-agents="openPanel('agents')"
+            @start-chat="startContextConversation"
+            @start-draft="openDefaultRequirementCreate()"
+            @open-item="openOverviewItem"
+            @open-task="openOverviewTask"
           />
-        </transition>
-      </div>
-    </HallStage>
-    </Teleport>
+        </template>
+      </HallPortraitHome>
 
-    <footer v-if="homeMode === 'map' && !isImmersiveMap" class="hall-map-actions" :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive ? 'true' : null">
-      <button class="hall-primary" type="button" @click="openDefaultRequirementCreate()">提出需求</button>
-      <button type="button" :aria-label="conversationEntryLabel" @click="startContextConversation">{{ conversationEntryLabel }}</button>
-      <span>不必先懂所有功能，就能开始办事</span>
-      <button class="hall-continue" type="button" @click="setHomeMode('overview')">接着上次办</button>
-    </footer>
+      <div ref="landscapeTargetRef" v-show="experienceMode === 'landscape-map' && !isOverviewHome" class="hall-live-landscape-target"></div>
+      <Teleport :to="stageTarget" :disabled="!stageTarget">
+        <HallStage
+          v-if="stageMounted"
+          ref="hallStageRef"
+          :unified-shell="!isImmersiveMap"
+          v-show="experienceReady"
+          :read-only-preview="experienceMode === 'portrait-command' || isOverviewHome"
+          :account-avatar="accountAvatar"
+          :account-display-name="accountDisplayName"
+          :account-entry-disabled="accountEntryDisabled"
+          :preview-visible="stageDrawVisible"
+          :agent-bubbles="agentBubbles"
+          :agent-key="agentKey"
+          :agent-style="sceneAgentStyle"
+          :hidden-agent-count="hiddenAgentCount"
+          :experience-mode="experienceMode"
+          :home-mode="homeMode"
+          :interaction-locked="isPanelSessionActive || voiceInteractionLocked"
+          :is-mobile-coarse="isMobileCoarse"
+          :inert="isPanelSessionActive ? '' : null"
+          :aria-hidden="isPanelSessionActive ? 'true' : null"
+          :landscape-entry-target="landscapeEntryTarget"
+          :map-resume-snapshot="mapResumeSnapshot"
+          :orientation-hint="orientationHint"
+          :orientation-request-pending="orientationRequestPending"
+          :portrait-name="portraitName"
+          :portrait-short-name="portraitShortName"
+          :portrait-style="portraitStyle"
+          :role-class="roleClass"
+          :simulation-enabled="simulationEnabled"
+          :scene-agents="sceneAgents"
+          :scene-hotspots="sceneHotspots"
+          :selected-agent="selectedAgent"
+          :sound-enabled="soundEnabled"
+          :status-class="statusClass"
+          :status-text="statusText"
+          :tasks="tasks"
+          :virtual-landscape="isVirtualLandscape"
+          :tasks-total="tasks.length"
+          :visible-agents="visibleAgents"
+          @landscape-target-consumed="handleLandscapeTargetConsumed"
+          @map-snapshot="handleMapSnapshot"
+          @map-snapshot-clear="clearMapResumeSnapshot"
+          @open-profile="openProfile"
+          @open-workspace="openBabaoBox"
+          @new-conversation="handleNewHallConversation"
+          @open-panel="handleStagePanelOpen"
+          @set-home-mode="setHomeMode"
+          @request-landscape="requestLandscape"
+          @request-portrait="requestPortrait"
+          @open-onboarding="emit('open-onboarding', $event)"
+          @select-agent="selectAgent"
+          @simulation-phase-events="handleSimulationPhaseEvents"
+          @simulation-ready="handleSimulationReady"
+          @simulation-reset="resetSimulationLifecycle"
+          @scene-mode-change="handleSceneModeChange"
+          @scene-state-change="handlePreviewSceneState"
+          @scene-error="handlePreviewSceneError"
+          @scene-bounds-change="handlePreviewSceneBounds"
+          @toggle-sound="toggleHallSound"
+        >
 
-    <HallVoiceHud
-      v-if="experienceMode === 'portrait-command' && voiceInteractionLocked && !activePanel"
-      :voice="hallVoice"
-      @apply="applyVoiceTranscript"
-    />
+          <HallVoiceHud v-if="effectiveSceneMode === 'landscape' && !activePanel" :voice="hallVoice" @apply="applyVoiceTranscript" />
 
+          <div v-if="selectedAgent" class="quick-bar">
+            <transition name="agent-card">
+              <SelectedAgentCard
+                :ability-text="abilityText"
+                :agent="selectedAgent"
+                :locked="voiceInteractionLocked"
+                :portrait-name="portraitName"
+                :portrait-style="portraitStyle"
+                :status-text="statusText"
+                @close-card="closeSelectedAgentCard"
+                @open-agents="openPanel('agents')"
+              />
+            </transition>
+          </div>
+        </HallStage>
+      </Teleport>
+
+      <footer v-if="homeMode === 'map' && !isImmersiveMap" class="hall-map-actions" :inert="isPanelSessionActive || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive ? 'true' : null">
+        <button class="hall-primary" type="button" @click="openDefaultRequirementCreate()">提出需求</button>
+        <button type="button" :aria-label="conversationEntryLabel" @click="startContextConversation">{{ conversationEntryLabel }}</button>
+        <span>不必先懂所有功能，就能开始办事</span>
+        <button class="hall-continue" type="button" @click="setHomeMode('overview')">接着上次办</button>
+      </footer>
+
+      <HallVoiceHud
+        v-if="experienceMode === 'portrait-command' && voiceInteractionLocked && !activePanel"
+        :voice="hallVoice"
+        @apply="applyVoiceTranscript"
+      />
+
+    </template>
     <transition name="panel" @after-leave="handlePanelAfterLeave">
-      <div v-if="activePanel" v-show="!helpReplayVisible" :key="panelSessionGeneration" class="panel-overlay" :class="{ 'is-full-window': panelLayout === 'full-window', 'is-agent-overlay': renderedPanel === 'agents', 'is-low-height': isLowHeightPanel, 'is-chat-overlay': renderedPanel === 'chat', 'is-compact-chat-overlay': renderedPanel === 'chat' && isCompactChat, 'theme-workbench': isOverviewHome, 'is-workbench-panel': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel), 'is-workbench-page': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) }" :data-panel-generation="panelSessionGeneration" @pointerdown.self="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : closePanel()">
+      <div
+        v-if="activePanel && pageReturn.status.value !== 'loading'"
+        v-show="!helpReplayVisible"
+        :key="panelSessionGeneration"
+        class="panel-overlay"
+        :class="{ 'is-full-window': panelLayout === 'full-window', 'is-agent-overlay': renderedPanel === 'agents', 'is-low-height': isLowHeightPanel, 'is-chat-overlay': renderedPanel === 'chat', 'is-compact-chat-overlay': renderedPanel === 'chat' && isCompactChat, 'theme-workbench': isOverviewHome, 'is-workbench-panel': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel), 'is-workbench-page': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) }"
+        :data-panel-generation="panelSessionGeneration"
+        @pointerdown.self="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : closePanel()"
+      >
         <section
           ref="panelRef"
           class="floating-panel"
@@ -653,14 +697,17 @@
           <PublicDiscussionPanel
             v-if="panelFrames.includes('chat') && chatMode === 'public'"
             v-show="renderedPanel === 'chat'"
+            :identity-scope="hallIdentityScope"
             :inert="renderedPanel !== 'chat' ? '' : null"
             :aria-hidden="renderedPanel !== 'chat' ? 'true' : null"
             :draft="draft"
+            :discussion-context="{ mentionAgentIds: chatMentionAgentIds, outgoingMetadata }"
             :active-request="activeRequest"
             :active-turns="activeTurns"
             :capability-state="capabilityState"
             :deliberation-v2-enabled="multimediaDeliberationUiEnabled"
             :voice="hallVoice"
+            @restore-discussion-context="restoreDiscussionContext"
             @update:draft="setDraft"
             @voice-apply="applyVoiceTranscript"
             :agents="chatMentionAgents"
@@ -737,11 +784,13 @@
             :typed-recovery-available="typedDeliberation.recoveryAvailable.value"
             :typed-inspection-status="typedDeliberation.inspectionStatus.value"
             :draft="draft"
+            :discussion-context="{ mentionAgentIds: chatMentionAgentIds, outgoingMetadata }"
             :voice="hallVoice"
             :agents="chatMentionAgents"
             :event-stream-recovering="eventStreamRecovering"
             :is-awaiting-reply="isAwaitingReply || manualSendPending"
             :is-streaming="isStreaming"
+            @restore-discussion-context="restoreDiscussionContext"
             :messages="messages"
             :message-windows="messageWindows"
             :message-window-loading="messageWindowLoading"
@@ -802,10 +851,13 @@
           <PrivateDiscussionPanel
             v-if="panelFrames.includes('chat') && chatMode === 'private'"
             v-show="renderedPanel === 'chat'"
+            :identity-scope="hallIdentityScope"
             :inert="renderedPanel !== 'chat' ? '' : null"
             :aria-hidden="renderedPanel !== 'chat' ? 'true' : null"
             :draft="draft"
+            :discussion-context="{ mentionAgentIds: chatMentionAgentIds, outgoingMetadata }"
             :voice="hallVoice"
+            @restore-discussion-context="restoreDiscussionContext"
             @update:draft="setDraft"
             @voice-apply="applyVoiceTranscript"
             :agents="chatMentionAgents"
@@ -925,7 +977,7 @@ import { saveOutputBlob } from '@/utils/outputDownload'
 import OutputPreview from '@/components/outputs/OutputPreview.vue'
 import { isTerminalMatter } from '@/composables/juyiting/useHallOrdinaryCancellation'
 import HallOverview from '@/components/juyiting/HallOverview.vue'
-import { readWechatImport, activateWechatImport, hasWechatImportReturn } from '../../utils/miniProgramMaterialBridge.js'
+import { useHallPageReturn } from '../../composables/juyiting/useHallPageReturn.js'
 import HallMinePage from '@/components/juyiting/HallMinePage.vue'
 import HallHelpCenter from '@/components/juyiting/HallHelpCenter.vue'
 import HallDraftEditor from '@/components/juyiting/HallDraftEditor.vue'
@@ -1010,7 +1062,7 @@ import { resolveAccountDisplayName } from '@/utils/displayName'
 import { createHydratedIdentityScope, hasHydratedIdentity } from '@/utils/identityScope'
 import { juyitingGame } from '@/game/index.js'
 
-const emit = defineEmits(['open-onboarding', 'onboarding-auth-ready'])
+const emit = defineEmits(['open-onboarding', 'onboarding-auth-ready', 'return-active'])
 const props = defineProps({ onboardingVisible: { type: Boolean, default: false } })
 
 const globalStore = useGlobalStore()
@@ -1071,7 +1123,12 @@ let hostedPointWaitTimer = null
 const toast = ref('')
 const panelWhitelist = new Set(['agents', 'catalog', 'tasks', 'workspace', 'treasure', 'chat', 'library', 'messages', 'mine', 'help', 'item', 'formalDraft', 'draft'])
 // Decide before the first render, including before token/profile hydration.
-const wechatReturnPending = ref(hasWechatImportReturn(window))
+const pageReturn = useHallPageReturn({ owner: () => hallIdentityScope.value, epoch: () => apiStore.authorizationGeneration,
+  prepareTarget: (record, current) => restoreReturnTarget(record, current) })
+const homeActivated = ref(!pageReturn.explicit)
+const homeListsActive = ref(!pageReturn.explicit)
+const returnBlocking = pageReturn.busy
+watch(pageReturn.held, value => emit('return-active', value), { immediate: true })
 const activePanel = ref('')
 const renderedPanel = ref('')
 const panelSessionGeneration = ref(0)
@@ -1262,7 +1319,7 @@ const previewPresentationState = computed(() => (
   previewSceneState.value === 'ready' ? previewDrawActivation.value.state : previewSceneState.value
 ))
 const permitStageMount = () => {
-  if (!isOverviewHome.value && stageTarget.value && experienceReady.value && (experienceMode.value === 'landscape-map' || previewVisible.value)) {
+  if (homeActivated.value && homeListsActive.value && !isOverviewHome.value && stageTarget.value && experienceReady.value && (experienceMode.value === 'landscape-map' || previewVisible.value)) {
     stageHasMounted.value = true
   }
 }
@@ -1274,7 +1331,7 @@ const handlePreviewVisibility = visible => {
 // embedded WebViews. Returning from the overview is an explicit confirmation
 // that the portrait map is visible, so restore its draw gate immediately.
 watch(homeMode, mode => {
-  if (mode !== 'map') return
+  if (!homeActivated.value || !homeListsActive.value || mode !== 'map') return
   portraitPreviewVisible.value = true
   permitStageMount()
 })
@@ -1477,7 +1534,7 @@ const {
 })
 
 const startBackendSceneState = async () => {
-  if (backendSceneStarted) return
+  if (!homeActivated.value || !homeListsActive.value || backendSceneStarted) return
   backendSceneStarted = true
   try {
     await hallBackendSceneState.start()
@@ -1724,6 +1781,7 @@ const captureWorkbenchReturnTarget = panel => {
 const openPanel = (panel, options = {}) => {
   if (panelDisposed || voiceInteractionLocked.value || !panelWhitelist.has(panel)) return false
   if (panel !== activePanel.value && guardPanelLeave(() => openPanel(panel, options))) return false
+  if (!options.restore && pageReturn.held.value) pageReturn.leave()
   const openingFromClosed = !activePanel.value
   const replaceAgentSelection = options.consumeAgentSelection === true && panel === 'chat' && activePanel.value === 'agents'
   const frames = replaceAgentSelection ? panelFrames.value.slice(0, -1) : panelFrames.value
@@ -2116,6 +2174,8 @@ const closePanel = () => {
   if (panelDisposed || voiceInteractionLocked.value || !activePanel.value) return false
   if (guardPanelLeave(closePanel)) return false
   cancelPanelChatLoad()
+  if (pageReturn.held.value) pageReturn.leave()
+  void activateHome()
   panelClosingGeneration.value = panelSessionGeneration.value
   activePanel.value = ''
   playTap()
@@ -2397,6 +2457,8 @@ const {
   stopHallReplyPolling,
   stopHallReplyStreaming
 } = useHallConversation({
+  onDraftChange: (text, context) => pageReturn.saveDraft(text, { kind: 'chat', owner: hallIdentityScope.value, mode: context.mode,
+    conversationId: context.conversationId, taskId: context.taskId, agentId: context.mode === 'private' ? context.targetAgentId : null }),
   identityScope: hallIdentityScope,
   apiStore,
   chatContext,
@@ -3033,8 +3095,9 @@ const handleSendHallMessage = async (typedInput = {}) => {
           return false
         }
       }
+      const sendingRevision = draftRevision.value
       const accepted = await typedDeliberation.submit({ content: draft.value, sourceSelectors, materialScope: typedInput?.materialScope || 'TASK_DEFAULT' })
-      if (accepted) setDraft('')
+      if (accepted && sendingRevision === draftRevision.value) setDraft('')
       else if (typedDeliberation.error.value) showToast(typedDeliberation.error.value)
       return accepted
     }
@@ -3054,6 +3117,14 @@ const handleTypedResume = async () => {
   const resumed = await typedDeliberation.resumeUnknown()
   if (!resumed && typedDeliberation.error.value) showToast(typedDeliberation.error.value)
   return resumed
+}
+const restoreDiscussionContext = context => {
+  const ids = context?.mentionAgentIds || []
+  const agent = ids.length ? chatMentionAgents.value.find(item => item.agentId === ids[0]) : null
+  if (ids.some(id => !chatMentionAgents.value.some(item => item.agentId === id))) throw new Error('原点名好汉暂不可用，未自动替换。')
+  setMentionAgent(agent)
+  chatMentionAgentIds.value = [...ids]
+  outgoingMetadata.value = context?.outgoingMetadata || {}
 }
 const handleMentionAgent = (agent) => {
   if (!chatMentionAgents.value.some(item => item.agentId === agent?.agentId)) {
@@ -3170,48 +3241,63 @@ const handleUnbindPersona = async (persona) => {
   }
 }
 
-const restoreWechatSource = async () => {
-  const identity = hallIdentityScope.value, epoch = apiStore.authorizationGeneration
-  const record = readWechatImport(window, identity)
-  if (!record) return
-  const source = record.source
-  const current = () => !panelDisposed && identity === hallIdentityScope.value && epoch === apiStore.authorizationGeneration
-  try {
-    if (source.kind === 'home') {
-      if (!openWorkbenchPage('overview')) throw new Error('无法返回原需求页，请刷新重试。')
-    } else {
-      if (!source.conversationId || !['bounty', 'private', 'public'].includes(source.mode)) throw new Error('原议事上下文无效，未创建新会话。')
-      let task = null
-      if (source.taskId) {
-        selectedTask.value = { id: source.taskId }
-        if (!await loadTaskDetail(selectedTask.value) || !current() || selectedTask.value?.id !== source.taskId) throw new Error('原事项暂不可读取，请刷新重试。')
-        task = selectedTask.value
-      }
-      if (!current()) return
-      if (source.mode === 'bounty') {
-        if (!task || !await continueBountyModification(task, source)) throw new Error('无法返回原议事，未创建替代会话。')
-      } else {
-        if (source.mode === 'private') {
-          const agent = operableRosterAgents.value.find(item => item.agentId === source.agentId)
-          if (!agent || !enterPrivateConversation(agent, { task })) throw new Error('原好汉或密议不可用，请核对权限。')
-        } else resetToPublic()
-        // Exact-source restoration owns history/content reads; never also load the latest thread.
-        if (!openPanel('chat', { restore: true })) throw new Error('无法打开议事，请重试。')
-        await loadHallConversationHistory({ force: true })
-        while (current() && !conversationHistory.value.some(item => item.id === source.conversationId) && conversationHistoryHasMore.value && !conversationHistoryError.value) {
-          const count = conversationHistory.value.length
-          await loadMoreHallConversationHistory()
-          if (conversationHistory.value.length === count) break
-        }
-        if (!current()) return
-        if (!await selectHallConversation(source.conversationId)) throw new Error('原议事暂不可读取，未创建新会话。')
-      }
-      if (!current() || conversationId.value !== source.conversationId) return
-      setDraft(source.draft)
-    }
+let homeActivation = null
+let homeActivationIdentity = ''
+const activateHome = async () => {
+  homeActivated.value = true; homeListsActive.value = true
+  const identity = `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`
+  if (!hallIdentityScope.value || homeActivationIdentity === identity) return
+  if (homeActivation) return homeActivation
+  homeActivation = (async () => {
     await nextTick()
-    if (current()) activateWechatImport(window, record.requestId)
-  } catch (error) { if (current()) showToast(error.message || '返回原页面失败，请刷新重试；草稿仍保留。') }
+    permitStageMount()
+    await refreshHall({ silent: true })
+    if (identity !== `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}` || panelDisposed) return
+    if (mapError.value) throw new Error(mapError.value)
+    homeActivationIdentity = identity
+    startDialogueBubbles()
+  })().catch(error => showToast(error.message || '首页读取失败，请重试。')).finally(() => { homeActivation = null })
+  return homeActivation
+}
+watch(() => pageReturn.status.value, status => { if (status === 'finished' && pageReturn.record.value?.target.kind === 'home') void activateHome() })
+const leaveReturn = () => { pageReturn.leave(); if (activePanel.value) closePanel(); void activateHome() }
+const restoreReturnTarget = async (record, current) => {
+  cancelPanelChatLoad()
+  const source = record.target
+  if (source.kind === 'home') {
+    homeActivated.value = true
+    setHomeMode('overview')
+    if (activePanel.value) closePanel()
+    return
+  }
+  const loaded = await Promise.all([loadRosterAgents(), loadPersonaCatalog()])
+  if (!current()) return
+  if (!loaded.every(Boolean)) throw new Error('原议事需要的好汉资料未读取完整，请重试。')
+  let task = null
+  if (source.taskId) {
+    selectedTask.value = { id: source.taskId }
+    if (!await loadTaskDetail(selectedTask.value) || !current() || selectedTask.value?.id !== source.taskId) throw new Error('原事项暂不可读取。')
+    task = selectedTask.value
+  }
+  if (!current()) return
+  if (source.mode === 'bounty') enterBountyDiscussion(task)
+  else if (source.mode === 'private') {
+    const agent = operableRosterAgents.value.find(item => item.agentId === source.agentId)
+    if (!agent || !enterPrivateConversation(agent, { task })) throw new Error('原好汉或密议暂不可用，请核对权限。')
+  } else resetToPublic()
+  await nextTick()
+  if (!current()) return
+  await loadHallConversationHistory({ force: true })
+  while (current() && !conversationHistory.value.some(item => item.id === source.conversationId) && conversationHistoryHasMore.value && !conversationHistoryError.value) {
+    const count = conversationHistory.value.length
+    await loadMoreHallConversationHistory()
+    if (conversationHistory.value.length === count) break
+  }
+  if (!current()) return
+  if (!await selectHallConversation(source.conversationId)) throw new Error('原议事暂不可读取，未创建替代会话。')
+  if (!current()) return
+  // Mount only the fully selected mode and exact conversation, never a transient public panel.
+  if (!openPanel('chat', { restore: true })) throw new Error('无法打开原议事。')
 }
 
 onMounted(async () => {
@@ -3229,23 +3315,25 @@ onMounted(async () => {
     // would otherwise race the redirect and turn authentication into a fetch error.
     const initializationGeneration = apiStore.authorizationGeneration
     const initializationIsCurrent = () => !panelDisposed && initializationGeneration === apiStore.authorizationGeneration
-    if (!await apiStore.token() || !initializationIsCurrent()) return
+    if (!await apiStore.token() || !initializationIsCurrent()) {
+      if (pageReturn.explicit) pageReturn.report(new Error('登录未完成或身份已变化，未恢复原现场。'))
+      return
+    }
     // A valid restored bearer token can survive while only the unverified local ID
     // cache remains. Hydrate the server profile before identity-scoped state opens.
     if (!hasHydratedIdentity(globalStore.user)) {
       try { await apiStore.getUserInfo() } catch (error) { log.warn('hall identity hydration failed:', error) }
     }
-    if (!initializationIsCurrent()) return
+    if (!initializationIsCurrent()) { if (pageReturn.explicit) pageReturn.report(new Error('登录身份已变化，请重新读取原现场。')); return }
     if (hasHydratedIdentity(globalStore.user)) emit('onboarding-auth-ready', initializationGeneration)
-    permitStageMount()
-    await refreshHall({ silent: true })
-    if (initializationIsCurrent()) await restoreWechatSource()
-    startDialogueBubbles()
+    pageReturn.refreshPending()
+    if (pageReturn.explicit) await pageReturn.start()
+    else await activateHome()
   } finally {
     // Include child picker activation in the gate; failures/auth changes must not
     // leave an invisible hall or a permanent loading screen.
     await nextTick()
-    wechatReturnPending.value = false
+    // Return errors remain explicit and dismissible; do not silently initialize home.
   }
 })
 
@@ -3286,9 +3374,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.juyi-page.is-wechat-restoring { overflow: hidden; height: 100dvh; }
-.juyi-page.is-wechat-restoring > :not(.wechat-return-status) { visibility: hidden !important; pointer-events: none !important; }
-.wechat-return-status { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 24px; background: #fffefa; color: #645a50; font-size: 15px; }
+.page-return-entry { position: fixed; inset: 0; z-index: 1500; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #f5f4f0; color: #242e2b; padding: 24px; }
+.page-return-entry button, .page-return-notice button { padding: 10px 16px; min-height: 44px; border: 1px solid #ccd2c5; border-radius: 8px; background: #fffefa; color: #923f30; }
+.page-return-notice { position: relative; z-index: 1300; background: #fffefa; padding: 12px; }
+.page-return-notice pre { white-space: pre-wrap; }
+</style>
+
+<style scoped>
 
 .terminal-task-history { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 12px; }
 .terminal-history-actions {

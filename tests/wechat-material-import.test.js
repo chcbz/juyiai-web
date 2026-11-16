@@ -1,8 +1,10 @@
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
 import { expect } from 'chai'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createMiniRuntimeLoader } from './helpers/miniProgramRuntime.js'
-import { requestWechatMaterials, readWechatImport, hasWechatImportReturn, activateWechatImport, isWechatImportActive, clearWechatImport } from '../src/utils/miniProgramMaterialBridge.js'
+import { requestWechatMaterials, readWechatImport, hasWechatImportReturn, clearWechatImport } from '../src/utils/miniProgramMaterialBridge.js'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { mount, flushPromises } from '@vue/test-utils'
 import * as Vue from 'vue'
@@ -65,7 +67,7 @@ describe('WeChat material H5 handoff', () => {
     const { host } = createHost()
     expect(hasWechatImportReturn(host)).to.equal(false)
     await request(host)
-    expect(hasWechatImportReturn(host)).to.equal(true)
+    expect(hasWechatImportReturn(host)).to.equal(false)
     expect(readWechatImport(host, 'other-owner')).to.equal(null)
     host.__wxjs_environment = ''
     expect(hasWechatImportReturn(host)).to.equal(false)
@@ -96,12 +98,12 @@ describe('WeChat material H5 handoff', () => {
     expect(JSON.stringify(host.localStorage)).not.to.include('test-token')
     callback(host); expect(readWechatImport(host, 'owner-b')).to.equal(null)
     expect(readWechatImport(host, 'owner-a').source.draft).to.equal('未发送目标')
-    clearWechatImport(host, id); expect(host.location.href).not.to.include('wechatImport'); expect(Object.keys(host.localStorage)).to.have.length(0)
+    clearWechatImport(host, id); expect(host.location.href).not.to.include('wechatImport'); expect(Object.keys(host.localStorage).filter(key => !key.includes('draft:'))).to.have.length(0)
   })
-  it('system-back recovers only same-owner pending mini-program snapshots, without confirmed new refs', async () => {
+  it('system-back without explicit ID never guesses a pending snapshot', async () => {
     const { host } = createHost(); await request(host)
-    expect(readWechatImport(host, 'owner-a').status).to.equal('unconfirmed')
-    expect(readWechatImport(host, 'owner-a').references).to.deep.equal([])
+    expect(readWechatImport(host, 'owner-a')).to.equal(null)
+    expect(returnState.createPageReturnStore(host).list('owner-a')).to.have.length(1)
     host.__wxjs_environment = ''; expect(readWechatImport(host, 'owner-a')).to.equal(null)
   })
   it('rejects numeric versions, excessive results, repeated query and expired records', async () => {
@@ -123,10 +125,10 @@ describe('WeChat material H5 handoff', () => {
     try { await request(host, { isCurrent: () => false }) } catch (cause) { error = cause }
     expect(error.name).to.equal('AbortError'); expect(messages).to.have.length(0)
   })
-  it('drops abandoned handoff on navigation failure but leaves the caller live', async () => {
+  it('preserves PREPARED handoff on navigation failure and leaves the caller live', async () => {
     const { host } = createHost(); host.wx.miniProgram.redirectTo = options => options.fail()
     let error; try { await request(host) } catch (cause) { error = cause }
-    expect(error.message).to.include('未能打开'); expect(Object.keys(host.localStorage)).to.have.length(0)
+    expect(error.message).to.include('未能打开'); expect(returnState.createPageReturnStore(host).read(id, 'owner-a').phase).to.equal('PREPARED')
   })
   it('clears only its namespace on logout', () => {
     localStorage.setItem('cyf:wechat-import:' + id, '{}'); localStorage.setItem('unrelated-draft', 'keep')
@@ -241,7 +243,7 @@ const compile = (name, deps) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, name) => `var ${name} = deps.${name}`)
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', script)(Vue, deps)
+  return new Function('Vue', 'deps', script)(Vue, { ...pageReturn, ...returnState, ...deps })
 }
 const workspace = () => ({ items: Vue.ref([]), listState: Vue.ref('empty'), nextCursor: Vue.ref(null), detail: Vue.ref(null), preview: Vue.ref({ kind: 'none' }), pendingWrites: Vue.ref([]), loading: Vue.ref(false), error: Vue.ref(''), actionState: Vue.ref('idle'), writeNotice: Vue.ref(''),
   refresh: async () => true, closeDetail() {}, dispose() {}, select: async fileId => ({ file: { fileId, displayName: fileId + '.txt', state: 'ACTIVE' }, versions: [{ fileId, version: '1', contentMimeType: 'text/plain' }] }) })
@@ -249,13 +251,14 @@ const workspace = () => ({ items: Vue.ref([]), listState: Vue.ref('empty'), next
 describe('actual Vue material and composer controls', () => {
   it('ACL-reads fixed versions, restores original selection/text and stages new refs until Complete', async () => {
     const { host } = createHost(); await request(host); callback(host, [{ fileId: 'pws_new', version: '1' }])
-    const state = { ...workspace(), wechatSupported: true, readWechatImport: owner => readWechatImport(host, owner), isWechatImportActive, clearWechatImport: value => clearWechatImport(host, value) }
+    const state = { ...workspace(), wechatSupported: true, readWechatImport: owner => readWechatImport(host, owner), clearWechatImport: value => clearWechatImport(host, value) }
     const Picker = compile('HallMaterialPicker', { usePersonalWorkspace: () => state, validMaterialVersion })
-    const wrapper = mount(Picker, { attachTo: document.body, props: { identityScope: 'owner-a', wechatContext: { kind: 'home', owner: 'owner-a', draft: '' } } })
+    const receiver = { picker: Vue.shallowRef(null), candidate: { hydrating: false }, save() {}, finish() {} }
+    const wrapper = mount(Picker, { attachTo: document.body, props: { identityScope: 'owner-a', wechatContext: { kind: 'home', owner: 'owner-a', draft: '' } }, global: { provide: { [pageReturn.hallReturnReceiverKey]: receiver } } })
     try {
-      activateWechatImport(window, id); await settle()
-      expect(wrapper.emitted('restore-wechat-draft')).to.deep.equal([['未发送目标']]); expect(wrapper.emitted('import-materials')).to.equal(undefined)
-      expect(wrapper.emitted('update:modelValue')[0][0].map(file => file.fileId)).to.deep.equal(['pws_existing'])
+      await receiver.picker.value.restore({ committedSelection: [reference], stagedSelection: [reference, { fileId: 'pws_new', version: '1' }] }); await settle()
+      expect(wrapper.emitted('restore-wechat-draft')).to.equal(undefined); expect(wrapper.emitted('import-materials')).to.equal(undefined)
+      expect(wrapper.emitted('update:modelValue')).to.equal(undefined)
       expect(document.querySelector('.quick-material-confirm').textContent).to.include('2')
       expect(document.querySelectorAll('.quick-material-selection-row input')).to.have.length(3)
       expect(document.querySelector('.quick-material-selection-row input').accept).to.equal('')
@@ -266,11 +269,12 @@ describe('actual Vue material and composer controls', () => {
   })
   it('shows retryable read failure without silently adopting unauthorized versions', async () => {
     const { host } = createHost(); await request(host); callback(host)
-    const state = { ...workspace(), readWechatImport: owner => readWechatImport(host, owner), isWechatImportActive, clearWechatImport: value => clearWechatImport(host, value), select: async () => null }
-    const wrapper = mount(compile('HallMaterialPicker', { usePersonalWorkspace: () => state, validMaterialVersion }), { attachTo: document.body, props: { identityScope: 'owner-a', wechatContext: { kind: 'home', owner: 'owner-a', draft: '' } } })
+    const state = { ...workspace(), readWechatImport: owner => readWechatImport(host, owner), clearWechatImport: value => clearWechatImport(host, value), select: async () => null }
+    const receiver = { picker: Vue.shallowRef(null), candidate: { hydrating: false }, save() {}, finish() {} }
+    const wrapper = mount(compile('HallMaterialPicker', { usePersonalWorkspace: () => state, validMaterialVersion }), { attachTo: document.body, props: { identityScope: 'owner-a', wechatContext: { kind: 'home', owner: 'owner-a', draft: '' } }, global: { provide: { [pageReturn.hallReturnReceiverKey]: receiver } } })
     try {
-      activateWechatImport(window, id); await settle(); expect(wrapper.emitted('update:modelValue')).to.equal(undefined)
-      expect(wrapper.emitted('restore-wechat-draft')).to.deep.equal([['未发送目标']])
+      await receiver.picker.value.restore({ committedSelection: [reference], stagedSelection: [reference] }); await settle(); expect(wrapper.emitted('update:modelValue')).to.equal(undefined)
+      expect(wrapper.emitted('restore-wechat-draft')).to.equal(undefined)
       expect(document.querySelector('.quick-material-confirm').disabled).to.equal(true)
       expect(document.querySelector('.quick-material-upload-status').textContent).to.include('暂不可读取'); expect(readWechatImport(host, 'owner-a')).not.to.equal(null)
     } finally { wrapper.unmount(); clearWechatImport(host, id) }

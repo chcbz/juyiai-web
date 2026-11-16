@@ -54,17 +54,20 @@
     d.insertAdjacentHTML('beforeend', `<section class="material-import-panel" aria-label="${source.title}离线演示"><header><h3>${source.title}</h3>${control('取消', 'cancel')}</header><p class="material-import-note">${source.note}</p><div class="material-import-files">${source.files.map(f => `<label class="material-import-file">${f.type === 'image' ? `<img src="${f.url}" alt="${esc(f.name)}示意">` : '<span class="material-import-file-icon" aria-hidden="true">文</span>'}<span><strong>${esc(f.name)}</strong><small>${f.size}</small></span><input type="checkbox" data-material-fixture="${f.key}" aria-label="选择 ${esc(f.name)}" ${chosen.includes(f.key) ? 'checked' : ''} ${busy ? 'disabled' : ''}></label>`).join('')}</div><p class="material-import-status" role="status">${esc(picker.importStatus || (chosen.length ? `已选 ${chosen.length} 份，上传后加入当前暂选。` : '请先选择资料。'))}</p><footer><small>仅示例文件 · 不会真实上传</small><div>${control('模拟上传失败', 'failure', busy || !chosen.length ? 'disabled' : '')}${control(busy ? '正在模拟上传…' : `上传并选中（${chosen.length}）`, 'upload', `class="mmd-primary" ${busy || !chosen.length ? 'disabled' : ''}`)}</div></footer></section>`);
   }
   function showReturnState(done) {
-    const status = document.createElement('div');
-    status.className = 'wechat-return-status';
-    status.setAttribute('role', 'status');
-    status.textContent = '正在返回原页面…';
-    document.body.append(status);
-    const siblings = Array.from(document.body.children).filter(node => node !== status && !['SCRIPT', 'LINK'].includes(node.tagName));
-    const previous = siblings.map(node => [node, node.inert]);
-    previous.forEach(([node]) => { node.inert = true; });
-    setTimeout(() => {
-      try { done(); } finally { status.remove(); previous.forEach(([node, inert]) => { node.inert = inert; }); }
-    }, 350);
+    const mode = new URLSearchParams(location.search).get('returnDemo') || 'ready';
+    const view = document.createElement('dialog');
+    view.className = 'wechat-return-status';
+    view.setAttribute('aria-label', '返回原页面离线演示');
+    const messages = { ready: '正在恢复原议事与资料…', error: '原议事暂不可读取，未创建替代会话。', conflict: '当前草稿与离开前不同，请选择保留哪一份。', unknown: '部分结果未确认，不会自动上传或关联。', pending: '有未恢复现场，请主动选择恢复。' };
+    const text = document.createElement('p'); text.textContent = messages[mode] || messages.ready; view.append(text);
+    document.body.append(view); view.showModal();
+    const previous = Array.from(document.body.children).filter(node => node !== view && !['SCRIPT', 'LINK'].includes(node.tagName)).map(node => [node, node.inert, node.style.visibility]);
+    previous.forEach(([node]) => { node.inert = true; node.style.visibility = 'hidden'; });
+    const close = restore => { view.close(); view.remove(); previous.forEach(([node, inert, visibility]) => { node.inert = inert; node.style.visibility = visibility; }); if (restore) done(); };
+    const button = (label, action) => { const el = document.createElement('button'); el.type = 'button'; el.textContent = label; el.onclick = action; view.append(el); };
+    if (mode === 'ready') { queueMicrotask(() => close(true)); return; }
+    button(mode === 'conflict' ? '采用恢复稿' : mode === 'pending' ? '恢复原现场' : '重试读取', () => close(true));
+    button(mode === 'conflict' ? '保留当前稿' : mode === 'unknown' ? '暂存离开' : '暂不恢复', () => close(false));
   }
   function cancelImport() {
     picker.uploading = false;

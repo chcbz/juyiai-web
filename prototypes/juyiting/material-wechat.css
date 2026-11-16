@@ -53,3 +53,6 @@ body[data-ui-revision] .composer-material-actions [data-composer-wechat] { min-w
 }
 
 .wechat-return-status { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; background:#fffefa; color:#645a50; font-size:15px; padding:24px; }
+
+.wechat-return-status { flex-direction: column; gap: 16px; background: #fffefa; }
+.wechat-return-status button { padding: 10px 20px; border: 1px solid #ccd2c5; border-radius: 8px; background: #fffefa; color: #923f30; }

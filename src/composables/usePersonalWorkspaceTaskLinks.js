@@ -49,8 +49,8 @@ const errorMessage = error => {
  * JWT-scoped task material directory. taskId is only a resource selector: authorization
  * remains exclusively server-side, and this adapter never derives it from a route or Agent.
  */
-export function usePersonalWorkspaceTaskLinks ({ api = createApi('/agent'), taskId = null, identityEpoch = 0 } = {}) {
-  const writes = usePersonalWorkspaceWriteIntent()
+export function usePersonalWorkspaceTaskLinks ({ api = createApi('/agent'), taskId = null, identityEpoch = 0, persistence = null } = {}) {
+  const writes = usePersonalWorkspaceWriteIntent({ persistence, parentKind: 'task' })
   const writeNotice = ref('')
   const links = ref([])
   const nextCursor = ref(null)
@@ -194,7 +194,27 @@ export function usePersonalWorkspaceTaskLinks ({ api = createApi('/agent'), task
     }
     const context = contextKey.value
     error.value = ''; writeNotice.value = ''
-    try { return await writes.retry(target) } catch (cause) {
+    try {
+      const intent = persistence?.enabled?.() && persistence.read().find(item => item.parentKind === 'task' && JSON.stringify([item.parentId, item.fileId]) === target && !['COMMITTED', 'REJECTED'].includes(item.state))
+      if (!intent) return await writes.retry(target)
+      // Rebuild only the fixed adapter operations; storage never contains executable URLs/closures.
+      if (!ID(intent.parentId) || !ID(intent.fileId) || !VERSION(intent.version) || !['INPUT', 'REFERENCE'].includes(intent.role) ||
+          !['CREATE', 'DELETE'].includes(intent.action) || (intent.action === 'DELETE' && (!ID(intent.relationId) || typeof intent.ifMatch !== 'string'))) throw new Error('原操作记录不完整，未重试。')
+      const removing = intent.action === 'DELETE'
+      return await writes.run({ target, input: removing ? ['DELETE', intent.relationId, intent.ifMatch] : ['CREATE', intent.version, intent.role], descriptor: intent, label: removing ? '移除资料' : '添加资料',
+        execute: async key => {
+          const { data } = await request({
+            url: `/tasks/${encodeURIComponent(intent.parentId)}/file-links` + (removing ? '/' + encodeURIComponent(intent.relationId) : ''),
+            method: removing ? 'DELETE' : 'POST',
+            ...(removing ? { headers: { 'Idempotency-Key': key, 'If-Match': intent.ifMatch } } : { data: { fileId: intent.fileId, version: intent.version, role: intent.role }, headers: { 'Idempotency-Key': key } })
+          }, { generation, contextKey: context })
+          const link = removing ? data?.link : data
+          if (!(removing ? validDetach(data, intent.parentId) : validLink(data, intent.parentId)) || link.fileId !== intent.fileId || link.version !== intent.version || link.role !== intent.role || removing && link.relationId !== intent.relationId) throw new Error('原操作结果尚未确认。')
+          return data
+        },
+        committed: data => { if (context === contextKey.value && !disposed) { replace(removing ? data.link : data); actionState.value = 'ready' } }
+      })
+    } catch (cause) {
       if (context === contextKey.value && !disposed) { error.value = errorMessage(cause); actionState.value = 'error' }
       return null
     }
@@ -211,6 +231,7 @@ export function usePersonalWorkspaceTaskLinks ({ api = createApi('/agent'), task
     try {
       return await writes.run({
         target: JSON.stringify([selectedTaskId, fileId]), input: ['CREATE', version, role], label: '添加资料',
+        descriptor: { parentKind: 'task', parentId: selectedTaskId, action: 'CREATE', fileId, version, role, relationId: null, ifMatch: null },
         execute: async (key, replay) => {
           const { data } = await request({
             url: `/tasks/${encodeURIComponent(selectedTaskId)}/file-links`, method: 'POST',
@@ -249,6 +270,7 @@ export function usePersonalWorkspaceTaskLinks ({ api = createApi('/agent'), task
     try {
       return await writes.run({
         target: JSON.stringify([selectedTaskId, original.fileId]), input: ['DELETE', original.relationId, ifMatch], label: '移除资料',
+        descriptor: { parentKind: 'task', parentId: selectedTaskId, action: 'DELETE', fileId: original.fileId, version: original.version, role: original.role, relationId: original.relationId, ifMatch },
         execute: async (key, replay) => {
           const { data } = await request({
             url: `/tasks/${encodeURIComponent(selectedTaskId)}/file-links/${encodeURIComponent(original.relationId)}`,

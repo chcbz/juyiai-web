@@ -1863,3 +1863,17 @@ describe('Hall request readback scheduling lifecycle', () => {
     expect(reads).to.have.length(2)
   })
 })
+
+describe('page return draft ownership', () => {
+  it('reports real edits and clearing synchronously, but not scope initialization', () => {
+    const edits = [], chatContext = ref({ mode: 'public', conversationScopeType: 'public', conversationScopeKey: 'public' })
+    const conversation = useHallConversation({ apiStore: { token: async () => null }, chatApi: {}, chatContext, chatMode: ref('public'), globalStore: { getJiacn: 'owner', user: {} }, log: { warn() {}, error() {} }, openPanel() {}, outgoingMetadata: ref({}), portraitShortName: () => '', selectedAgent: ref(null), selectedTask: ref(null), showToast() {}, onDraftChange: (draft, context) => edits.push({ draft, context }) })
+    try {
+      conversation.setDraft('正文'); expect(edits.at(-1).draft).to.equal('正文')
+      conversation.setDraft(''); expect(edits.at(-1).draft).to.equal('')
+      const count = edits.length
+      chatContext.value = { mode: 'private', conversationScopeType: 'private', conversationScopeKey: 'agent:a' }
+      expect(edits).to.have.length(count)
+    } finally { conversation.disposeHallConversation() }
+  })
+})

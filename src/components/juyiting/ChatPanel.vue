@@ -344,12 +344,12 @@
           :identity-epoch="identityEpoch"
           :wechat-context="wechatContext"
           :wechat-disabled="materialWriteUnresolved || materialUploadPending || pendingMaterials.length > 0 || Boolean(voice?.voiceInteractionLocked) || isStreaming || isAwaitingReply"
+          :confirm-selection="completeMaterials"
           @restore-wechat-draft="emit('update:draft', $event)"
           @restore-wechat-context="restoreWechatMaterialContext"
           :identity-scope="`${identityScope}\u0000${taskId}\u0000${conversationId}`"
           :enabled="hasMaterialScope && !serverTaskCompleted"
           :disabled="materialSelectionBusy || materialActionBusy || conversationBusy || serverTaskCompleted"
-          @update:model-value="completeMaterials"
           @import-materials="attachMaterials"
           @upload-busy="materialUploadBusy = $event"
           @upload-pending="materialUploadPending = $event"
@@ -398,6 +398,8 @@
 </template>
 
 <script setup>
+import { useHallReturnReceiver } from '../../composables/juyiting/useHallPageReturn.js'
+import { returnSnapshot } from '../../utils/pageReturnState.js'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import HallMessageParts from './HallMessageParts.vue'
 import HallMessageWindow from './HallMessageWindow.vue'
@@ -440,6 +442,7 @@ const props = defineProps({
   discussionVariant: { type: String, default: 'public' },
   matterReadOnly: { type: Boolean, default: false },
   draft: { type: String, default: '' },
+  discussionContext: { type: Object, default: () => ({ mentionAgentIds: [], outgoingMetadata: { inputRefs: [] } }) },
   emptyText: { type: String, default: '还没有议事记录，可以先提问。' },
   eventStreamRecovering: { type: Boolean, default: false },
   isAwaitingReply: { type: Boolean, default: false },
@@ -489,6 +492,7 @@ const emit = defineEmits([
   'select-conversation',
   'send-message',
   'update:draft',
+  'restore-discussion-context',
   'voice-apply',
   'typed-reply',
   'accept-output',
@@ -555,14 +559,17 @@ watch(textOutputPreview, async item => {
 })
 watch(() => `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`, () => { textOutputPreview.value = null }, { flush: 'sync' })
 
+let returnReceiver = null
+const materialReady = ref(false)
+const persistence = { enabled: () => returnReceiver?.intents.enabled() || false, read: () => returnReceiver?.intents.read() || [], save: value => returnReceiver?.intents.save(value) }
 const workspace = usePersonalWorkspace({ identityEpoch: materialIdentityKey })
 const conversationMaterialLinks = usePersonalWorkspaceConversationLinks({
   conversationId: () => props.conversationId,
-  identityEpoch: materialIdentityKey
+  identityEpoch: materialIdentityKey, persistence
 })
 const taskMaterialLinks = usePersonalWorkspaceTaskLinks({
   taskId,
-  identityEpoch: materialIdentityKey
+  identityEpoch: materialIdentityKey, persistence
 })
 const materialNames = ref({})
 const pendingMaterials = ref([])
@@ -593,12 +600,13 @@ const previewMaterial = link => materialPickerRef.value?.preview?.({ ...link, di
 const wechatContext = computed(() => ({ kind: 'chat', owner: props.identityScope, mode: props.discussionVariant,
   taskId: taskId.value, conversationId: props.conversationId, agentId: props.selectedAgent?.agentId || '', draft: props.draft,
   typedMaterialScope: typedMaterialScope.value, typedSourceIds: [...typedSelectedSourceIds.value],
-  draftMaterialScope: draftMaterialScope.value, draftSourceIds: [...draftSourceIds.value] }))
+  draftMaterialScope: draftMaterialScope.value, draftSourceIds: [...draftSourceIds.value], discussionContext: props.discussionContext }))
 const restoreWechatMaterialContext = source => {
   if (serverTaskCompleted.value || source.owner !== props.identityScope || source.conversationId !== props.conversationId || source.taskId !== taskId.value) return
   const allowedScopes = ['TASK_DEFAULT', 'EXPLICIT', 'NONE']
   if (allowedScopes.includes(source.typedMaterialScope)) typedMaterialScope.value = source.typedMaterialScope
   if (allowedScopes.includes(source.draftMaterialScope)) draftMaterialScope.value = source.draftMaterialScope
+  emit('restore-discussion-context', source.discussionContext)
   const ids = values => new Set(Array.isArray(values) ? values.filter(value => typeof value === 'string') : [])
   typedSelectedSourceIds.value = ids(source.typedSourceIds)
   draftSourceIds.value = ids(source.draftSourceIds)
@@ -638,6 +646,12 @@ const refreshMaterialReferences = () => {
   const request = { key: operationKey, promise: null }
   request.promise = (async () => {
     const [, loaded] = await Promise.all([workspace.refresh({ state: 'ACTIVE' }), directory.load()])
+    const cursors = new Set()
+    while (loaded && directory.nextCursor.value) {
+      const cursor = directory.nextCursor.value
+      if (cursors.has(cursor) || !await directory.loadMore()) return false
+      cursors.add(cursor)
+    }
     if (!loaded || operationKey !== `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`) return false
     await resolveMaterialNames(operationKey)
     return operationKey === `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`
@@ -659,40 +673,54 @@ const toggleMaterialPicker = async () => {
     await materialPickerRef.value?.open?.()
   } finally { if (generation === materialSelectionGeneration) materialPickerLoading.value = false }
 }
-const completeMaterials = materials => {
-  if (serverTaskCompleted.value || materialSelectionBusy.value || !hasMaterialScope.value) return
+const completeMaterials = async (materials, baseline = pickerMaterials.value) => {
+  if (serverTaskCompleted.value || materialSelectionBusy.value || !hasMaterialScope.value) return 'stale'
   typedMaterialScope.value = draftMaterialScope.value
   typedSelectedSourceIds.value = new Set(draftSourceIds.value)
-  void attachMaterials(materials, true)
+  return attachMaterials(materials, true, baseline)
 }
-const attachMaterials = async (materials, reconcile = false) => {
-  if (serverTaskCompleted.value || materialSelectionBusy.value || !hasMaterialScope.value) return
+const attachMaterials = async (materials, reconcile = false, baseline = []) => {
+  if (serverTaskCompleted.value || materialSelectionBusy.value || !hasMaterialScope.value) return 'stale'
   const directory = selectedMaterialDirectory.value
-  pendingMaterials.value = materials.map(material => ({ ...material }))
+  const operationKey = `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`
   const generation = ++materialSelectionGeneration
+  const current = () => generation === materialSelectionGeneration && operationKey === `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}` && !serverTaskCompleted.value
+  pendingMaterials.value = materials.map(material => ({ ...material }))
   materialSelectionBusy.value = true
   try {
-    for (const material of materials) {
-      if (generation !== materialSelectionGeneration || serverTaskCompleted.value) return
-      const existing = activeMaterialLinks.value.find(link => link.fileId === material.fileId && link.version === material.version)
+    // Complete directory before computing absence; a failed page is never an empty page.
+    if (!await directory.load() || !current()) return 'failed'
+    const cursors = new Set()
+    while (directory.nextCursor.value) {
+      const cursor = directory.nextCursor.value
+      if (cursors.has(cursor) || !await directory.loadMore() || !current()) return 'failed'
+      cursors.add(cursor)
+    }
+    if (directory.pendingWrites.value.length) return 'unknown'
+    const key = item => JSON.stringify([item.fileId, item.version])
+    const before = new Set(baseline.map(key)), selected = new Set(materials.map(key))
+    const additions = reconcile ? materials.filter(item => !before.has(key(item))) : materials
+    for (const material of additions) {
+      if (!current()) return 'stale'
+      const existing = activeMaterialLinks.value.find(link => key(link) === key(material))
       const link = existing || await directory.attach({ fileId: material.fileId, version: material.version, role: 'REFERENCE' })
-      if (generation !== materialSelectionGeneration || serverTaskCompleted.value) return
-      if (!link || link.state !== 'ACTIVE') return // Keep failed/unattempted selections and the existing write recovery intent.
+      if (!current()) return 'stale'
+      if (!link || link.state !== 'ACTIVE') return directory.pendingWrites.value.length ? 'unknown' : 'failed'
       materialNames.value = { ...materialNames.value, [material.fileId]: material.displayName }
       if (!existing && props.typedEnabled && typedMaterialScope.value === 'EXPLICIT') typedSelectedSourceIds.value = new Set([...typedSelectedSourceIds.value, `${link.fileId}\u0000${link.version}`])
-      pendingMaterials.value = pendingMaterials.value.filter(item => item.fileId !== material.fileId || item.version !== material.version)
     }
     if (reconcile) {
-      const selected = new Set(materials.map(material => `${material.fileId}:${material.version}`))
-      for (const link of [...activeMaterialLinks.value]) {
-        if (generation !== materialSelectionGeneration || serverTaskCompleted.value) return
-        if (!selected.has(`${link.fileId}:${link.version}`)) {
-          const removed = await directory.detach(link)
-          if (!removed) return
-        }
+      // Only B-S belongs to this edit; never remove another writer's concurrent additions.
+      for (const original of baseline.filter(item => !selected.has(key(item)))) {
+        if (!current()) return 'stale'
+        const link = activeMaterialLinks.value.find(item => key(item) === key(original))
+        if (link && !await directory.detach(link)) return directory.pendingWrites.value.length ? 'unknown' : 'failed'
       }
     }
-  } finally { if (generation === materialSelectionGeneration) materialSelectionBusy.value = false }
+    if (!current()) return 'stale'
+    pendingMaterials.value = []
+    return 'confirmed'
+  } finally { if (current()) materialSelectionBusy.value = false }
 }
 const removeMaterialReference = async link => {
   if (!link || serverTaskCompleted.value || materialSelectionBusy.value || materialActionBusy.value || props.conversationBusy || materialUploadBusy.value) return
@@ -777,8 +805,22 @@ watch(() => `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conv
   typedMaterialScope.value = 'TASK_DEFAULT'
   draftMaterialScope.value = 'TASK_DEFAULT'
   draftSourceIds.value = new Set()
-  if (hasMaterialScope.value && !serverTaskCompleted.value) void refreshMaterialReferences()
+  materialReady.value = serverTaskCompleted.value
+  if (hasMaterialScope.value && !serverTaskCompleted.value) {
+    const key = `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`
+    void refreshMaterialReferences().finally(() => { if (key === `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`) materialReady.value = true })
+  }
 }, { flush: 'sync', immediate: true })
+returnReceiver = useHallReturnReceiver({
+  context: () => wechatContext.value,
+  scene: () => returnSnapshot(wechatContext.value, `${props.identityScope}\u0000${taskId.value}\u0000${props.conversationId}`, pickerMaterials.value, pickerMaterials.value),
+  apply: scene => {
+    emit('update:draft', scene.draft)
+    restoreWechatMaterialContext({ ...wechatContext.value, ...scene.materialContext, discussionContext: scene.discussionContext })
+  },
+  ready: () => materialReady.value && !!props.identityScope && !!props.conversationId,
+  readOnly: () => serverTaskCompleted.value || props.conversationBusy || props.isStreaming || props.isAwaitingReply
+})
 watch(serverTaskCompleted, (terminal, previous) => {
   if (!terminal) return
   materialPickerOpen.value = false

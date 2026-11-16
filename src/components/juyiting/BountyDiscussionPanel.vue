@@ -18,6 +18,7 @@
       :output-candidates="messageOutputs"
       :output-review-enabled="deliberationV2Enabled && !taskCompleted"
       :output-review-busy="reviewBusy || Boolean(outputGallery?.loading)"
+      @restore-discussion-context="$emit('restore-discussion-context', $event)"
       @update:draft="$emit('update:draft', $event)"
       @accept-output="$emit('accept-output', $event)"
       @cancel-deliberation="$emit('cancel-deliberation', $event)"

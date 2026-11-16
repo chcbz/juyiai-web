@@ -1,4 +1,6 @@
-import { readWechatImport, activateWechatImport, hasWechatImportReturn } from '../src/utils/miniProgramMaterialBridge.js'
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
+import { randomUUID } from 'node:crypto'
 import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
 import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
 import * as historyWindowHelpers from '../src/composables/juyiting/hallHistoryWindow.js'
@@ -137,6 +139,7 @@ const loadSfc = (relativePath, runtimeAgentApi = { post: async () => { throw new
   }).content
 
   const scriptBody = script
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+(useHallPageReturn|pageReturnState)\.js['"];?\s*$/gm, (_, names) => `var { ${names} } = arguments[14]`)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+hallAssigneeRecommendation.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[11]`)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+hallDiscussionTurns.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[10]`)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]@\/composables\/juyiting\/hallAssigneeCandidates\.js['"];?\s*$/gm, (_line, names) => `var { ${names} } = arguments[9]`)
@@ -191,7 +194,7 @@ const loadSfc = (relativePath, runtimeAgentApi = { post: async () => { throw new
   const unresolvedImports = scriptBody.match(/^import\s.+$/gm)
   if (unresolvedImports?.length) throw new SyntaxError(`Unsupported SFC imports in ${relativePath}: ${unresolvedImports.join(', ')}`)
 
-  return new Function('Vue', 'HallChatComposer', 'juyitingGame', 'classifyViewportResize', 'wenAmount', 'chatPanelDependencies', 'ordinaryCancellation', 'runtimeAgentApi', scriptBody)(Vue, HallChatComposer, hallGameMock, classifyViewportResizeMock, wenAmount, chatPanelDependencies, ordinaryCancellation, runtimeAgentApi, taskPresentation, assigneeCandidates, discussionTurnHelpers, recommendationHelpers, HallMessageWindow, historyWindowHelpers)
+  return new Function('Vue', 'HallChatComposer', 'juyitingGame', 'classifyViewportResize', 'wenAmount', 'chatPanelDependencies', 'ordinaryCancellation', 'runtimeAgentApi', scriptBody)(Vue, HallChatComposer, hallGameMock, classifyViewportResizeMock, wenAmount, chatPanelDependencies, ordinaryCancellation, runtimeAgentApi, taskPresentation, assigneeCandidates, discussionTurnHelpers, recommendationHelpers, HallMessageWindow, historyWindowHelpers, { ...pageReturn, ...returnState })
 }
 
 const stubs = {
@@ -2870,7 +2873,7 @@ describe('O04 shared panel session contract', () => {
     // Assert both fences on the same overlay, independent of intervening help-replay attributes.
     const overlay = source.match(/<div\b[^>]*class="panel-overlay"[^>]*>/)?.[0]
     expect(overlay).to.be.a('string')
-    expect(overlay).to.include('v-if="activePanel"')
+    expect(overlay).to.include('v-if="activePanel && pageReturn.status.value')
     expect(overlay).to.include(':key="panelSessionGeneration"')
     expect(source).to.include(':data-panel-generation="panelSessionGeneration"')
     expect(source).to.include(':interaction-locked="isPanelSessionActive || voiceInteractionLocked"')
@@ -2920,7 +2923,7 @@ const loadActualJuyiHall = (mocks) => {
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
   .replace('export default', 'return')
-  const component = new Function('Vue', 'mocks', body)(Vue, { readWechatImport, activateWechatImport, hasWechatImportReturn, useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
+  const component = new Function('Vue', 'mocks', body)(Vue, { ...pageReturn, ...returnState, useHallTerminalTextHistory, HallMessageWindow, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, ...assigneeCandidates, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
   const renderBody = template.code
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace('export function render', 'return function render')
@@ -3044,6 +3047,7 @@ describe('JuyiHall restored-identity initialization', () => {
     try {
       await flushPromises()
       const state = wrapper.vm.$.setupState
+      await flushPromises()
       expect(order[0]).to.equal('profile')
       expect(order).to.include('agents')
       expect(state.hallIdentityScope).to.equal('0\u0000client-a\u00005')
@@ -4307,181 +4311,94 @@ describe('discussion retest task status and scroll', () => {
   })
 })
 
-describe('JuyiHall WeChat import source restoration', () => {
-  const settleReturn = async wrapper => {
-    for (let pass = 0; pass < 30 && wrapper.vm.$.setupState.wechatReturnPending; pass++) await flushPromises()
-    await Vue.nextTick()
-  }
 
-  const fixture = async (variant, { selectable = true, holdTask = null, slowHistory = false, startup = false, holdAuth = null, holdHistory = null, returnHint = true } = {}) => {
+describe('JuyiHall direct page-return', () => {
+  const make = async (modeName, orientation, options = {}) => {
+    const mounts = { library: 0, archive: 0, portrait: 0, stage: 0, panels: [] }
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
-    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
-    const api = { authorizationGeneration: 1, oauthClientId: 'client-a', token: async () => { if (holdAuth) return await holdAuth; return startup ? 'test-token' : null } }
-    const global = { ...mocks.useGlobalStore(), user: { id: 'owner-a', tenantId: 'tenant-a' } }
+    const mocks = createActualHallMocks({ mode: Vue.ref(orientation), mounts, counters })
+    const global = Vue.reactive({ user: { id: 5, tenantId: '0' }, getUserId: 5, getOpenid: '', setTitle() {}, setShowBack() {}, setShowAppBar() {}, setShowMore() {} })
+    const auth = deferred()
+    const api = Vue.reactive({ authorizationGeneration: 1, oauthClientId: 'client-a', token: () => auth.promise })
+    const owner = '0\u0000client-a\u00005'
+    const storage = { getItem(k) { return this[k] ?? null }, setItem(k, v) { this[k] = String(v) }, removeItem(k) { delete this[k] } }
+    const host = { localStorage: storage, crypto: { randomUUID }, location: { href: 'https://kit.chaoyoufan.cn/juyiting' }, history: { replaceState(_a, _b, url) { host.location.href = url } } }
+    const store = returnState.createPageReturnStore(host)
+    const context = { kind: 'chat', owner, mode: modeName, conversationId: 'original-thread', taskId: options.task || (modeName === 'bounty' ? 'original-task' : ''), agentId: modeName === 'private' ? 'agent-o04' : '', draft: '原议事草稿' }
+    const record = store.prepare({ source: context, scope: owner, selected: [], staged: [] })
+    if (!options.pendingOnly) { const url = new URL(host.location.href); url.searchParams.set('wechatImport', record.requestId); url.searchParams.set('wechatFiles', '[]'); url.searchParams.set('wechatState', 'cancelled'); host.location.href = url.href }
+    mocks.useHallPageReturn = args => pageReturn.useHallPageReturn({ ...args, host })
     mocks.useGlobalStore = () => global; mocks.useApiStore = () => api
-    const source = { kind: variant === 'home' ? 'home' : 'chat', owner: 'tenant-a\u0000client-a\u0000owner-a', mode: variant, taskId: variant === 'bounty' ? 'task-wechat' : '',
-      conversationId: 'saved-conversation', agentId: variant === 'private' ? 'agent-o04' : '', draft: '返回后仍未发送的原草稿' }
-    const record = { requestId: '69f021ba-5fc0-4b54-9f40-1467aa7ab26d', source }
-    const activated = [], selected = [], newConversations = [], sends = []
-    mocks.hasWechatImportReturn = () => returnHint
-    mocks.readWechatImport = (_host, owner) => owner === source.owner ? record : null
-    mocks.activateWechatImport = (_host, requestId) => activated.push(requestId)
-    const originalData = mocks.useHallData
-    mocks.useHallData = options => {
-      const data = originalData(options)
-      data.agents.value = [{ agentId: 'agent-o04', name: '测试好汉', boundToMe: true, canOperate: true }]
-      data.loadTaskDetail = async task => {
-        if (holdTask) await holdTask
-        options.selectedTask.value = { id: task.id, taskVersion: '1', title: '原事项', status: 'running', assignedAgentId: 'agent-o04', assignedAgentIds: ['agent-o04'] }
-        return true
+    mocks.useHallChatContext = (await import('../src/composables/juyiting/useHallChatContext.js')).useHallChatContext
+    mocks.HallStage = { setup() { Vue.onMounted(() => mounts.stage++); return () => Vue.h('section', { class: 'map-probe' }) } }
+    counters.refs.draft.value = ''; counters.refs.conversationId.value = ''
+    const baseData = mocks.useHallData, baseConversation = mocks.useHallConversation
+    mocks.useHallData = args => { const data = baseData(args); data.operableRosterAgents.value = [{ agentId: 'agent-o04', boundToMe: true, canOperate: true }]; data.agents.value = [...data.operableRosterAgents.value]; return { ...data, loadRosterAgents: async () => true, loadPersonaCatalog: async () => true,
+      loadTaskDetail: async () => { if (options.taskWait) await options.taskWait.promise; return true } } }
+    mocks.useHallConversation = args => { const conversation = baseConversation(args); return { ...conversation,
+      loadHallConversationHistory: async () => { counters.history = (counters.history || 0) + 1; if (options.historyWait) await options.historyWait.promise; conversation.conversationHistory.value = [{ id: 'original-thread' }] },
+      selectHallConversation: async id => { (counters.selected ||= []).push(id); if (options.missing) return false; counters.refs.conversationId.value = id; return true },
+      sendHallMessage: async () => { counters.sent = true }, newHallConversation: () => { counters.created = true } } }
+    for (const [name, variant] of [['PublicDiscussionPanel', 'public'], ['PrivateDiscussionPanel', 'private'], ['BountyDiscussionPanel', 'bounty']]) mocks[name] = {
+      props: ['identityScope', 'conversationId', 'selectedTask', 'selectedAgent', 'draft'], emits: ['update:draft'],
+      setup(props, { emit }) {
+        Vue.onMounted(() => mounts.panels.push(variant))
+        pageReturn.useHallReturnReceiver({ context: () => ({ ...context, owner: props.identityScope, conversationId: props.conversationId }),
+          scene: () => ({ draft: props.draft || '', committedSelection: [], stagedSelection: [] }),
+          apply: scene => emit('update:draft', scene.draft) })
+        return () => Vue.h('section', { class: 'return-panel-probe' }, props.draft)
       }
-      return data
-    }
-    mocks.useHallChatContext = useHallChatContext
-    const originalConversation = mocks.useHallConversation
-    mocks.useHallConversation = options => {
-      const conversation = originalConversation(options)
-      conversation.conversationId.value = ''
-      conversation.conversationHistory = Vue.ref([])
-      conversation.loadHallConversationHistory = async () => {
-        if (holdHistory) await holdHistory
-        if (slowHistory) await new Promise(resolve => setTimeout(resolve, 10))
-        conversation.conversationHistory.value = [{ id: 'saved-conversation' }]
-      }
-      // Model the competing default-panel latest load: real selection rejects a busy load.
-      if (slowHistory) conversation.loadHallMessages = async () => {
-        counters.loads.messages++
-        conversation.isConversationBusy.value = true
-        conversation.conversationId.value = 'unrelated-latest-conversation'
-      }
-      conversation.selectHallConversation = async value => { selected.push(value); if (!selectable || conversation.isConversationBusy.value) return false; conversation.conversationId.value = value; return true }
-      conversation.newHallConversation = () => newConversations.push(true)
-      conversation.sendHallMessage = () => sends.push(true)
-      return conversation
     }
     const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
-    const initialGate = wrapper.classes().includes('is-wechat-restoring') && wrapper.find('.wechat-return-status').exists()
-    await flushPromises()
-    return { wrapper, counters, api, source, activated, selected, newConversations, sends, initialGate }
+    const settle = async () => { for (let n = 0; n < 12; n++) { await flushPromises(); await Vue.nextTick() } }
+    return { wrapper, auth, api, counters, mounts, settle, state: wrapper.vm.$.setupState, host, store, record }
   }
-  for (const variant of ['home', 'public', 'private', 'bounty']) {
-    it(`masks the first frame and slow authentication, then reveals the original ${variant} page`, async () => {
-      let resolveAuth
-      const holdAuth = new Promise(done => { resolveAuth = done })
-      const f = await fixture(variant, { startup: true, holdAuth })
+  for (const orientation of ['portrait-command', 'landscape-map']) for (const variant of ['public', 'private', 'bounty']) {
+    it(`restores exact ${variant} in ${orientation} without mounting home or loading latest`, async () => {
+      const f = await make(variant, orientation)
       try {
-        expect(f.initialGate).to.equal(true)
-        expect(f.wrapper.classes()).to.include('is-wechat-restoring')
-        expect(f.wrapper.get('.wechat-return-status').text()).to.equal('正在返回原页面…')
-        expect(f.activated).to.have.length(0)
-        resolveAuth('test-token'); await settleReturn(f.wrapper)
-        expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
-        expect(f.wrapper.find('.wechat-return-status').exists()).to.equal(false)
-        expect(f.activated).to.have.length(1)
-        if (variant !== 'home') expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
-        expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
-      } finally { resolveAuth(null); f.wrapper.unmount() }
-    })
-  }
-  it('keeps the homepage hidden until slow exact-conversation history is restored', async () => {
-    let resolveHistory
-    const holdHistory = new Promise(done => { resolveHistory = done })
-    const f = await fixture('public', { startup: true, holdHistory })
-    try {
-      expect(f.wrapper.classes()).to.include('is-wechat-restoring')
-      expect(f.activated).to.have.length(0)
-      resolveHistory(); await settleReturn(f.wrapper)
-      expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
-      expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
-      expect(f.activated).to.have.length(1)
-    } finally { resolveHistory(); f.wrapper.unmount() }
-  })
-  it('releases the gate and shows the existing failure when the source is inaccessible', async () => {
-    const f = await fixture('public', { startup: true, selectable: false })
-    try {
-      await settleReturn(f.wrapper)
-      expect(f.initialGate).to.equal(true)
-      expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
-      expect(f.wrapper.vm.$.setupState.toast).to.include('原议事暂不可读取')
-      expect(f.activated).to.have.length(0); expect(f.newConversations).to.have.length(0)
-    } finally { f.wrapper.unmount() }
-  })
-  it('releases the gate on auth cancellation and does not add a gate to ordinary startup', async () => {
-    for (const returnHint of [true, false]) {
-      const f = await fixture('public', { returnHint })
-      try {
-        expect(f.initialGate).to.equal(returnHint)
-        expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
-        expect(f.activated).to.have.length(0)
-      } finally { f.wrapper.unmount() }
-    }
-  })
-  it('releases the gate without restoring a source after identity changes during auth', async () => {
-    let resolveAuth
-    const holdAuth = new Promise(done => { resolveAuth = done })
-    const f = await fixture('public', { startup: true, holdAuth })
-    try {
-      f.api.authorizationGeneration++
-      resolveAuth('test-token'); await settleReturn(f.wrapper)
-      expect(f.wrapper.classes()).not.to.include('is-wechat-restoring')
-      expect(f.activated).to.have.length(0); expect(f.selected).to.have.length(0)
-    } finally { resolveAuth(null); f.wrapper.unmount() }
-  })
-  for (const variant of ['public', 'private', 'bounty']) {
-    it(`returns to the exact authorized ${variant} conversation before restoring draft, never creates or sends`, async () => {
-      const f = await fixture(variant)
-      try {
-        await f.wrapper.vm.$.setupState.restoreWechatSource(); await Vue.nextTick()
-        expect(f.selected).to.deep.equal(['saved-conversation'])
-        expect(f.counters.refs.draft.value).to.equal(f.source.draft)
-        expect(f.activated).to.have.length(1)
-        expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+        expect(f.mounts.portrait + f.mounts.stage).to.equal(0)
+        expect(f.counters.loads.agents).to.equal(0)
+        f.auth.resolve('token'); await f.settle()
+        expect(f.state.pageReturn.error.value).to.equal('')
+        expect(f.state.pageReturn.status.value).to.equal('ready')
+        expect(f.mounts.portrait + f.mounts.stage).to.equal(0)
+        expect(f.mounts.panels).to.deep.equal([variant])
+        expect(f.counters.selected).to.deep.equal(['original-thread'])
+        expect(f.counters.refs.draft.value).to.equal('原议事草稿')
+        expect(f.counters.loads).to.deep.equal({ agents: 0, tasks: 0, messages: 0 })
+        expect(f.counters.sent || f.counters.created).not.to.equal(true)
       } finally { f.wrapper.unmount() }
     })
   }
-  for (const variant of ['public', 'private', 'bounty']) {
-    it(`restores ${variant} directly without racing a default latest load while history is slow`, async () => {
-      const f = await fixture(variant, { slowHistory: true })
-      try {
-        await f.wrapper.vm.$.setupState.restoreWechatSource(); await Vue.nextTick()
-        expect(f.counters.loads.messages, 'must not request the latest conversation on exact return').to.equal(0)
-        expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
-        expect(f.counters.refs.draft.value).to.equal(f.source.draft)
-        expect(f.activated).to.have.length(1)
-        expect(f.wrapper.vm.$.setupState.toast).to.equal('')
-        expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
-      } finally { f.wrapper.unmount() }
-    })
-  }
-  it('cancels an already queued default chat load before exact-source recovery', async () => {
-    const f = await fixture('public', { slowHistory: true })
+  it('keeps slow exact history neutral and exits unreadable original without creating a replacement', async () => {
+    const historyWait = deferred(), f = await make('public', 'portrait-command', { historyWait, missing: true })
     try {
-      f.wrapper.vm.$.setupState.openPanel('chat')
-      await f.wrapper.vm.$.setupState.restoreWechatSource(); await Vue.nextTick()
-      expect(f.counters.loads.messages).to.equal(0)
-      expect(f.counters.refs.conversationId.value).to.equal('saved-conversation')
-      expect(f.activated).to.have.length(1)
-      expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
+      f.auth.resolve('token'); await f.settle()
+      expect(f.state.pageReturn.status.value).to.equal('loading')
+      expect(f.mounts.panels).to.deep.equal([])
+      expect(f.mounts.portrait).to.equal(0)
+      historyWait.resolve(); await f.settle()
+      expect(f.state.pageReturn.status.value).to.equal('error')
+      expect(f.counters.created).not.to.equal(true)
+      f.state.leaveReturn(); await f.settle()
+      expect(f.mounts.portrait).to.equal(1)
+      expect(f.counters.loads.agents).to.equal(1)
     } finally { f.wrapper.unmount() }
   })
-  it('does not attach a draft to a replacement conversation when the original is inaccessible', async () => {
-    const f = await fixture('public', { selectable: false })
-    try {
-      const before = f.counters.refs.draft.value
-      await f.wrapper.vm.$.setupState.restoreWechatSource()
-      expect(f.counters.refs.draft.value).to.equal(before)
-      expect(f.activated).to.have.length(0); expect(f.newConversations).to.have.length(0); expect(f.sends).to.have.length(0)
-    } finally { f.wrapper.unmount() }
+  it('does not automatically resume pending records on ordinary startup', async () => {
+    const f = await make('public', 'portrait-command', { pendingOnly: true })
+    try { f.auth.resolve('token'); await f.settle(); expect(f.mounts.portrait).to.equal(1); expect(f.counters.selected).to.equal(undefined); expect(f.state.pageReturn.pending.value).to.have.length(1) }
+    finally { f.wrapper.unmount() }
   })
-  it('ignores late source recovery after authorization generation changes', async () => {
-    let resolve
-    const holdTask = new Promise(done => { resolve = done })
-    const f = await fixture('bounty', { holdTask })
-    try {
-      const pending = f.wrapper.vm.$.setupState.restoreWechatSource()
-      f.api.authorizationGeneration++
-      resolve(); await pending
-      expect(f.activated).to.have.length(0); expect(f.selected).to.have.length(0); expect(f.sends).to.have.length(0)
-    } finally { f.wrapper.unmount() }
+  it('opens home only once on closing a cold restored chat', async () => {
+    const f = await make('public', 'portrait-command')
+    try { f.auth.resolve('token'); await f.settle(); f.state.closePanel(); await f.settle(); expect(f.mounts.portrait).to.equal(1); expect(f.counters.loads.agents).to.equal(1) }
+    finally { f.wrapper.unmount() }
+  })
+  it('does not apply late task restore after identity changes', async () => {
+    const taskWait = deferred(), f = await make('bounty', 'portrait-command', { taskWait })
+    try { f.auth.resolve('token'); await f.settle(); f.api.authorizationGeneration++; taskWait.resolve(); await f.settle(); expect(f.counters.selected).to.equal(undefined); expect(f.mounts.panels).to.deep.equal([]) }
+    finally { f.wrapper.unmount() }
   })
 })

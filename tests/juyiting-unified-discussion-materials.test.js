@@ -1,3 +1,5 @@
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
 import * as taskPresentation from '../src/composables/juyiting/hallTaskPresentation.js'
 import { expect } from 'chai'
 import { readFileSync } from 'node:fs'
@@ -14,7 +16,7 @@ const compile = (name, deps) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, name) => `var ${name} = deps.${name}`)
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, deps)
+  return new Function('Vue', 'deps', code)(Vue, { ...pageReturn, ...returnState, ...deps })
 }
 const receipt = (id = 'photo') => ({ file: { fileId: id, displayName: `${id}.png`, state: 'ACTIVE' }, version: { fileId: id, version: '1', contentMimeType: 'image/png' }, operation: { state: 'COMMITTED' } })
 const settle = async () => { await flushPromises(); await Vue.nextTick() }
@@ -273,6 +275,24 @@ describe('task-only source scope stays explicit', () => {
       expect(wrapper.emitted('send-message')[0][0]).to.deep.equal({ sourceSelectors: [], materialScope: 'EXPLICIT' })
       expect(task.links.value).to.have.length(1)
       expect(task.calls).to.have.length(0)
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('differential selection preserves concurrent work', () => {
+  for (const variant of ['private', 'bounty']) it(`${variant}: removes only original B-S, not a concurrent addition`, async () => {
+    const { wrapper, task, conversation, state } = panel(variant)
+    const selected = variant === 'bounty' ? task : conversation
+    selected.links.value = [{ fileId: 'old', version: '1', role: 'REFERENCE', relationId: 'old-link', state: 'ACTIVE' }]
+    state.items.value.push({ fileId: 'old', latestVersion: '1', displayName: 'old', state: 'ACTIVE' })
+    try {
+      await settle(); await wrapper.get('.composer-add-materials').trigger('click'); await settle()
+      selected.links.value.push({ fileId: 'concurrent', version: '1', role: 'REFERENCE', relationId: 'other-link', state: 'ACTIVE' })
+      document.querySelector('.quick-material-count').click(); await settle()
+      document.querySelector('.quick-material-draft li button').click(); await settle()
+      document.querySelector('.quick-material-confirm').click(); await settle()
+      expect(selected.calls).to.deep.equal([['detach', 'old']])
+      expect(selected.links.value.map(link => link.fileId)).to.deep.equal(['concurrent'])
     } finally { wrapper.unmount() }
   })
 })

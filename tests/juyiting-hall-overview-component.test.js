@@ -1,3 +1,5 @@
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
 import { taskStatusText } from '../src/constants/juyiting.js'
 import { expect } from 'chai'
 import { beforeEach, describe, it } from 'mocha'
@@ -34,8 +36,9 @@ const loadMaterialPicker = (workspace, save) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]\.\.\/\.\.\/constants\/juyiting\.js['"];?\s*$/gm, 'var { taskStatusText } = deps')
     .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section class=\"pdf-preview-test-slot\" />', props: ['blob'] }")
     .replace(/^import\s+RichDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var RichDocumentPreview = { name: 'RichDocumentPreview', template: '<section />', props: ['text', 'kind', 'title'] }")
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, { taskStatusText, validMaterialVersion, usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save })
+  return new Function('Vue', 'deps', code)(Vue, { ...pageReturn, ...returnState, taskStatusText, validMaterialVersion, usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save })
 }
 const load = (api, workspace = emptyWorkspace(), save = () => {}) => {
   const filename = fileURLToPath(new URL('../src/components/juyiting/HallOverview.vue', import.meta.url))
@@ -48,8 +51,9 @@ const load = (api, workspace = emptyWorkspace(), save = () => {}) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]\.\.\/\.\.\/composables\/juyiting\/materialVersion\.js['"];?\s*$/gm, 'var { validMaterialVersion } = deps')
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]\.\.\/\.\.\/constants\/juyiting\.js['"];?\s*$/gm, 'var { taskStatusText } = deps')
     .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section class=\"pdf-preview-test-slot\" />', props: ['blob'] }")
+    .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, { taskStatusText, validMaterialVersion, HallMaterialPicker: loadMaterialPicker(workspace, save), canOpenHallItem, HALL_SOURCES, useHallOverview: options => useHallOverview({ ...options, api }), usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save })
+  return new Function('Vue', 'deps', code)(Vue, { ...pageReturn, ...returnState, taskStatusText, validMaterialVersion, HallMaterialPicker: loadMaterialPicker(workspace, save), canOpenHallItem, HALL_SOURCES, useHallOverview: options => useHallOverview({ ...options, api }), usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save })
 }
 const summary = (sourceType, sourceId, nextAction) => ({ ref: { sourceType, sourceId }, title: sourceId,
   phase: sourceType === 'TASK' ? 'UNKNOWN' : null, status: { code: sourceType === 'TASK' ? 'open' : 'QUEUED', evidenceSource: 'PERSISTED', observedAt: 100 }, targetAgent: null, nextAction, allowedActions: [nextAction], updatedAt: 100 })

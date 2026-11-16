@@ -61,7 +61,8 @@ export const useHallConversation = ({
   onRequestCatalogHint = null,
   onTypedOutcome = null,
   identityScope = null,
-  replyCancellationStorage = null
+  replyCancellationStorage = null,
+  onDraftChange = null
 }) => {
   const messages = ref([])
   const conversationId = ref('')
@@ -82,7 +83,7 @@ export const useHallConversation = ({
   const saveThreadDraft = () => { threadDrafts.set(threadDraftKey(conversationId.value), { text: draft.value, metadata: { ...(outgoingMetadata?.value || {}) } }) }
   const restoreThreadDraft = id => {
     const saved = threadDrafts.get(threadDraftKey(id))
-    setDraft(saved?.text || '')
+    setDraft(saved?.text || '', { initializing: true })
     if (outgoingMetadata) outgoingMetadata.value = { ...(saved?.metadata || {}) }
   }
   const stopDraftAdoptionWatch = watch(conversationId, (nextId, previousId) => {
@@ -343,9 +344,10 @@ export const useHallConversation = ({
     return reason
   }
 
-  const setDraft = (value = '') => {
+  const setDraft = (value = '', { initializing = false } = {}) => {
     draft.value = String(value || '')
     draftRevision.value += 1
+    if (!initializing) onDraftChange?.(draft.value, { ...chatContext?.value, conversationId: conversationId.value })
   }
 
   const clearDraft = () => {
@@ -895,7 +897,7 @@ export const useHallConversation = ({
     conversationId.value = ''
     scopeDrafts.clear()
     threadDrafts.clear()
-    setDraft('')
+    setDraft('', { initializing: true })
     if (outgoingMetadata) outgoingMetadata.value = {}
     messages.value = []
     isStreaming.value = false
@@ -910,7 +912,7 @@ export const useHallConversation = ({
       threadDrafts.set(`${previousScope}\u0000${conversationId.value || ''}`, { text: draft.value, metadata: { ...(outgoingMetadata?.value || {}) } })
       scopeDrafts.set(previousScope, { text: draft.value, metadata: { ...(outgoingMetadata?.value || {}) } })
       const restored = scopeDrafts.get(nextScope)
-      setDraft(restored?.text || '')
+      setDraft(restored?.text || '', { initializing: true })
       if (outgoingMetadata) outgoingMetadata.value = { ...(restored?.metadata || {}) }
       invalidateConversationLoads()
       invalidateConversationHistoryLoads()
