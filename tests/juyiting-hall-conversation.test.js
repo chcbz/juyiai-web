@@ -1880,12 +1880,50 @@ describe('page return draft ownership', () => {
 
 
 describe('PRIVATE native send intent', () => {
-  const makePrivate = chatApi => useHallConversation({
-    apiStore: { token: async () => '' }, chatApi,
+  const makePrivate = (chatApi, token = '') => useHallConversation({
+    apiStore: { token: async () => token }, chatApi,
     chatContext: ref({ conversationScopeType: 'private', conversationScopeKey: 'agent:a', mode: 'private', targetAgentIds: ['a'], targetAgentId: 'a', participantAgentIds: ['a'] }),
     chatMode: ref('private'), globalStore: { getJiacn: 'owner', user: {} },
     log: { warn() {}, error() {} }, openPanel() {}, outgoingMetadata: ref({}),
     portraitShortName: agent => agent?.agentId || '', selectedAgent: ref({ agentId: 'a' }), selectedTask: ref(null), showToast() {}
+  })
+  it('reads the exact terminal request on replayed native output without step details or another send', async () => {
+    const originalFetch = global.fetch
+    let controller, streamRequestId, reads = 0
+    const gate = deferred()
+    global.fetch = async (_url, options) => {
+      streamRequestId = new Headers(options.headers).get('X-Request-Id')
+      return new Response(new ReadableStream({ start (value) { controller = value } }), {
+        headers: { 'Content-Type': 'text/event-stream', 'X-Request-Id': streamRequestId }
+      })
+    }
+    const view = { requestId: 'request-native', requestRevision: '1', conversationId: '1002', conversationGeneration: '1', stateVersion: '2', state: 'RESULT_COMMITTED',
+      turns: [{ turnId: 'turn-native', requestId: 'request-native', requestRevision: '1', conversationId: '1002', conversationGeneration: '1', stateVersion: '1', lastDeltaSeq: '0', state: 'FINAL_PERSISTED' }] }
+    const conversation = makePrivate({
+      list: async (_path, _body, options) => options.onSuccess({ items: [{ id: '1002', conversationType: 'juyiting', conversationScopeType: 'private', conversationScopeKey: 'agent:a' }] }),
+      get: async (path, _params, options) => {
+        if (path === '/conversation/messages') { options.onSuccess({ items: [], hasMore: false, nextCursor: null }); return }
+        if (path === '/requests/request-native') { reads++; await gate.promise; return view }
+        return getHallCapabilities(path)
+      },
+      create: async () => { throw new Error('readback must not send') }
+    }, 'fixture-token')
+    try {
+      await conversation.loadHallMessages()
+      for (let i = 0; i < 20 && !controller; i++) await Promise.resolve()
+      conversation.activeRequest.value = { requestId: 'request-native', state: 'RUNNING' }
+      conversation.activeTurns.value = [{ turnId: 'turn-native', requestId: 'request-native', state: 'RECEIVED', stateVersion: '0' }]
+      const frame = { type: 'agent_message', conversationId: '1002', requestId: 'request-native', executionId: 'exec-native', messageId: '991', agentId: 'a', senderType: 'agent', content: 'done', eventSequence: '1', eventVersion: '1' }
+      controller.enqueue(new TextEncoder().encode(conversationFrame(frame, '1', streamRequestId)))
+      for (let i = 0; i < 40; i++) await Promise.resolve()
+      expect(reads).to.equal(1)
+      expect(conversation.activeRequest.value.state).to.equal('RUNNING')
+      gate.resolve()
+      for (let i = 0; i < 40; i++) await Promise.resolve()
+      expect(conversation.activeRequest.value.state).to.equal('RESULT_COMMITTED')
+      expect(conversation.isAwaitingReply.value).to.equal(false)
+      expect(conversation.isConversationBusy.value).to.equal(false)
+    } finally { gate.resolve(); conversation.disposeHallConversation(); controller?.close(); global.fetch = originalFetch }
   })
   it('freezes original null and exact materials before awaiting capabilities or receiving a conversation ID', async () => {
     const gate = deferred(), payloads = []

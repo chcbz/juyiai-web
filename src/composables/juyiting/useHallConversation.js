@@ -568,7 +568,7 @@ export const useHallConversation = ({
     // Restored executions have no bootstrap receipt or CHAT turn checkpoint.
     // Share the same media hint readback, rather than scheduling a second GET.
     const executionEvent = event.requestId === activeRequest.value?.requestId && event.conversationId === conversationId.value &&
-      activeRequest.value?.steps?.some(step => step.kind === 'EXECUTE')
+      (typedId(event.executionId) || activeRequest.value?.steps?.some(step => step.kind === 'EXECUTE'))
     if ((bootstrapEvent || executionEvent) && ((event.type === 'agent_message' && ['final', 'duplicate', 'part'].includes(result.type)) ||
         (event.type === 'part.ready' && ['part', 'duplicate_part'].includes(result.type)))) {
       // A media event is a readback hint, never authority to mark execution/task completed.
