@@ -5,8 +5,22 @@
         type="button"
         class="quick-material-open hall-tool"
         :disabled="disabled || !enabled"
+        aria-label="添加资料（可选）"
+        title="添加资料（可选）"
         @click="openQuickMaterialPicker"
-       aria-label="添加资料（可选）" title="添加资料（可选）"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 16 16 5"/></svg></button>
+      ><svg
+        class="hall-control-icon"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      ><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 16 16 5" /></svg></button>
       <slot></slot>
     </div>
     <ul v-if="selectedMaterials.length && !dialogOnly" class="quick-material-summary" aria-label="已选资料">
@@ -16,10 +30,44 @@
         <button
           type="button"
           :disabled="disabled"
+          class="hall-tool"
+          aria-label="预览所选资料"
+          title="预览所选资料"
+          @click="previewSelectedMaterial(material)"
+        ><svg
+          class="hall-control-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          focusable="false"
+        ><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg></button>
+        <button
           v-if="!readOnly"
+          type="button"
+          :disabled="disabled"
           :aria-label="`移除 ${material.displayName} v${material.version}`"
+          class="hall-tool"
+          :title="`移除 ${material.displayName} v${material.version}`"
           @click="removeSelectedMaterial(material)"
-         class="hall-tool" :title="`移除 ${material.displayName} v${material.version}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        ><svg
+          class="hall-control-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          focusable="false"
+        ><path d="m6 6 12 12M18 6 6 18" /></svg></button>
       </li>
     </ul>
     <div v-if="directUpload && (uploading || uploadUnresolved || uploadMessage)" class="quick-material-import-status" role="status">
@@ -42,7 +90,25 @@
         @keydown="handlePickerKeydown"
       >
         <header>
-          <button type="button" class="quick-material-back hall-tool" @click="backFromPicker" aria-label="返回资料列表" title="返回资料列表"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
+          <button
+            type="button"
+            class="quick-material-back hall-tool"
+            aria-label="返回资料列表"
+            title="返回资料列表"
+            @click="backFromPicker"
+          ><svg
+            class="hall-control-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          ><path d="m15 5-7 7 7 7" /></svg></button>
           <div><h3 id="hall-material-picker-title">选择资料</h3><p>选择或上传资料，点击“完成”带入当前需求或议事。</p></div>
         </header>
         <section v-if="returnReceiver?.coordinator?.error.value" class="quick-material-context" role="alert">
@@ -64,7 +130,12 @@
                 :aria-pressed="pickerFileId === file.fileId" :disabled="confirming || uploading" @click="selectQuickMaterialFile(file.fileId)"
               ><span><strong>{{ file.displayName }}</strong><small>最新 v{{ file.latestVersion }}</small></span><span v-if="draftMaterials.some(item => item.fileId === file.fileId)" class="quick-material-added">已添加</span><span v-else class="quick-material-chevron" aria-hidden="true">›</span></button>
             </div>
-            <button v-if="workspace.nextCursor.value" type="button" :disabled="workspace.loading.value" @click="loadMoreQuickMaterials">加载更多</button>
+            <button
+              v-if="workspace.nextCursor.value"
+              type="button"
+              :disabled="workspace.loading.value"
+              @click="loadMoreQuickMaterials"
+            >加载更多</button>
           </section>
           <section class="quick-material-detail-pane" aria-label="固定版本与预览">
             <div v-if="pickerDetail" class="quick-material-fields">
@@ -72,22 +143,37 @@
 
             </div>
             <p v-if="workspace.error.value" class="quick-request-error" role="alert">{{ workspace.error.value }}</p>
-            <section id="hall-material-preview" class="quick-material-preview" aria-label="资料预览" :aria-busy="workspace.actionState?.value === 'loading-preview'">
+            <section
+              id="hall-material-preview"
+              class="quick-material-preview"
+              aria-label="资料预览"
+              :aria-busy="workspace.actionState?.value === 'loading-preview'"
+            >
               <p v-if="!pickerDetail" class="quick-material-empty">选择左侧资料，在这里查看完整预览。</p>
               <p v-else-if="workspace.actionState?.value === 'loading-preview'" role="status">正在读取固定版本预览…</p>
               <template v-else>
-                <div v-if="materialPreview.kind === 'parts'" class="quick-material-pagination">
-                  <button type="button" :disabled="materialPreview.selectedIndex === 0" @click="workspace.selectPreviewPart(materialPreview.selectedIndex - 1)" class="hall-tool" aria-label="上一页" title="上一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
-                  <span>第 {{ materialPreview.selectedIndex + 1 }} / {{ materialPreview.parts.length }} 页</span>
-                  <button type="button" :disabled="materialPreview.selectedIndex >= materialPreview.parts.length - 1" @click="workspace.selectPreviewPart(materialPreview.selectedIndex + 1)" class="hall-tool" aria-label="下一页" title="下一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>
-                </div>
-                <RichDocumentPreview v-if="materialPreviewPart?.kind === 'document'" :text="materialPreviewPart.text" :kind="materialPreviewPart.documentKind" :title="pickerDetail?.file.displayName" />
-                <PdfDocumentPreview v-else-if="materialPreviewPart?.kind === 'pdf'" :blob="materialPreviewPart.blob" />
-                <img v-else-if="materialPreviewPart?.kind === 'image'" :src="materialPreviewPart.url" alt="资料预览" />
-                <audio v-else-if="materialPreviewPart?.kind === 'audio'" :src="materialPreviewPart.url" controls preload="none" aria-label="音频预览"></audio>
-                <pre v-else-if="materialPreviewPart?.kind === 'text'" v-text="materialPreviewPart.text"></pre>
+                <FilePreview v-if="materialPreview.kind === 'file' && (!isMobile || mobilePreviewOpen || selectedPreview)" :source="materialPreview.source" />
                 <p v-if="materialPreview.message" role="status">{{ materialPreview.message }}</p>
-                <button v-if="pickerDetail && materialPreview.kind === 'error'" type="button" @click="previewQuickMaterial" class="hall-tool" aria-label="重试预览" title="重试预览"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button>
+                <button
+                  v-if="pickerDetail && materialPreview.kind === 'error'"
+                  type="button"
+                  class="hall-tool"
+                  aria-label="重试预览"
+                  title="重试预览"
+                  @click="previewQuickMaterial"
+                ><svg
+                  class="hall-control-icon"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                  focusable="false"
+                ><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2" /></svg></button>
               </template>
             </section>
             <div v-if="pickerDetail" class="quick-material-version-actions">
@@ -110,7 +196,13 @@
         </div>
         <footer>
           <div class="quick-material-selection-row">
-            <button type="button" class="quick-material-count" :aria-expanded="selectionExpanded" aria-controls="quick-material-staged" @click="selectionExpanded = !selectionExpanded">已选 {{ draftMaterials.length }} 份资料 {{ selectionExpanded ? '⌄' : '⌃' }}</button>
+            <button
+              type="button"
+              class="quick-material-count"
+              :aria-expanded="selectionExpanded"
+              aria-controls="quick-material-staged"
+              @click="selectionExpanded = !selectionExpanded"
+            >已选 {{ draftMaterials.length }} 份资料 {{ selectionExpanded ? '⌄' : '⌃' }}</button>
             <label
               class="quick-material-upload hall-tool"
               title="上传资料"
@@ -215,27 +307,72 @@
         </footer>
       </dialog>
 
-      <dialog v-if="selectedPreview" ref="selectedPreviewDialog" class="quick-material-standalone" aria-labelledby="selected-material-title" @cancel.prevent="closeSelectedPreview" @click="event => { if (event.target === selectedPreviewDialog) closeSelectedPreview() }">
-        <header><h3 id="selected-material-title">{{ selectedPreview.displayName }}</h3><button type="button" class="quick-material-close" aria-label="关闭预览" @click="closeSelectedPreview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
+      <dialog
+        v-if="selectedPreview"
+        ref="selectedPreviewDialog"
+        class="quick-material-standalone"
+        aria-labelledby="selected-material-title"
+        @cancel.prevent="closeSelectedPreview"
+        @click="event => { if (event.target === selectedPreviewDialog) closeSelectedPreview() }"
+      >
+        <header><h3 id="selected-material-title">{{ selectedPreview.displayName }}</h3><button
+          type="button"
+          class="quick-material-close"
+          aria-label="关闭预览"
+          @click="closeSelectedPreview"
+        ><svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        ><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
         <section class="quick-material-preview" aria-label="资料预览" :aria-busy="workspace.actionState?.value === 'loading-preview'">
-          <div v-if="workspace.error.value" role="alert"><p>{{ workspace.error.value }}</p><button type="button" @click="previewSelectedMaterial(selectedPreview)" class="hall-tool" aria-label="重试预览" title="重试预览"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button></div>
+          <div v-if="workspace.error.value" role="alert"><p>{{ workspace.error.value }}</p><button
+            type="button"
+            class="hall-tool"
+            aria-label="重试预览"
+            title="重试预览"
+            @click="previewSelectedMaterial(selectedPreview)"
+          ><svg
+            class="hall-control-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          ><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2" /></svg></button></div>
           <p v-else-if="!pickerDetail || workspace.actionState?.value === 'loading-preview'" role="status">正在读取固定版本预览…</p>
-              <template v-else>
-                <div v-if="materialPreview.kind === 'parts'" class="quick-material-pagination">
-                  <button type="button" :disabled="materialPreview.selectedIndex === 0" @click="workspace.selectPreviewPart(materialPreview.selectedIndex - 1)" class="hall-tool" aria-label="上一页" title="上一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
-                  <span>第 {{ materialPreview.selectedIndex + 1 }} / {{ materialPreview.parts.length }} 页</span>
-                  <button type="button" :disabled="materialPreview.selectedIndex >= materialPreview.parts.length - 1" @click="workspace.selectPreviewPart(materialPreview.selectedIndex + 1)" class="hall-tool" aria-label="下一页" title="下一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>
-                </div>
-                <RichDocumentPreview v-if="materialPreviewPart?.kind === 'document'" :text="materialPreviewPart.text" :kind="materialPreviewPart.documentKind" :title="pickerDetail?.file.displayName" />
-                <PdfDocumentPreview v-else-if="materialPreviewPart?.kind === 'pdf'" :blob="materialPreviewPart.blob" />
-            <img v-else-if="materialPreviewPart?.kind === 'image'" :src="materialPreviewPart.url" alt="资料预览" />
-                <audio v-else-if="materialPreviewPart?.kind === 'audio'" :src="materialPreviewPart.url" controls preload="none" aria-label="音频预览"></audio>
-                <pre v-else-if="materialPreviewPart?.kind === 'text'" v-text="materialPreviewPart.text"></pre>
-                <p v-if="materialPreview.message" role="status">{{ materialPreview.message }}</p>
-                <button v-if="pickerDetail && materialPreview.kind === 'error'" type="button" @click="previewQuickMaterial" class="hall-tool" aria-label="重试预览" title="重试预览"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button>
-              </template>
+          <template v-else>
+            <FilePreview v-if="materialPreview.kind === 'file' && (!isMobile || mobilePreviewOpen || selectedPreview)" :source="materialPreview.source" />
+            <p v-if="materialPreview.message" role="status">{{ materialPreview.message }}</p>
+            <button
+              v-if="pickerDetail && materialPreview.kind === 'error'"
+              type="button"
+              class="hall-tool"
+              aria-label="重试预览"
+              title="重试预览"
+              @click="previewQuickMaterial"
+            ><svg
+              class="hall-control-icon"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            ><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2" /></svg></button>
+          </template>
         </section>
-        <footer><button type="button" class="quick-material-download hall-tool" :aria-busy="previewDownloading" :disabled="!pickerVersion || previewDownloading" @click="downloadSelectedMaterial" aria-label="下载文件" title="下载文件"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></button></footer>
       </dialog>
     </Teleport>
   </section>
@@ -244,11 +381,10 @@
 <script setup>
 import { hallReturnReceiverKey } from '../../composables/juyiting/useHallPageReturn.js'
 import { returnRefs, returnTarget, returnTargetKey } from '../../utils/pageReturnState.js'
-import PdfDocumentPreview from '../workspace/PdfDocumentPreview.vue'
-import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
+import FilePreview from '../preview/FilePreview.vue'
 import { validMaterialVersion } from '../../composables/juyiting/materialVersion.js'
 import { inject, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { usePersonalWorkspace, savePersonalWorkspaceBlob } from '@/composables/usePersonalWorkspace'
+import { usePersonalWorkspace } from '@/composables/usePersonalWorkspace'
 
 const props = defineProps({
   confirmSelection: { type: Function, default: null },
@@ -274,7 +410,6 @@ const materialPickerOpen = ref(false)
 const pickerDialog = ref(null)
 const selectedPreview = ref(null)
 const selectedPreviewDialog = ref(null)
-const previewDownloading = ref(false)
 let previewReturnFocus = null
 const mobileQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 720px)') : null
 const isMobile = ref(mobileQuery?.matches === true)
@@ -403,7 +538,7 @@ const pickerDetail = computed(() => {
   return versions.length ? { ...detail, versions } : null
 })
 const materialKey = material => `${material.fileId}:${material.version}`
-const resetMaterialPicker = () => { uploading.value = false; previewDownloading.value = false; selectionExpanded.value = false; uploadMessage.value = ''; mobilePreviewOpen.value = false; pickerGeneration += 1; pickerFileId.value = ''; pickerVersion.value = null; workspace.closeDetail() }
+const resetMaterialPicker = () => { uploading.value = false; selectionExpanded.value = false; uploadMessage.value = ''; mobilePreviewOpen.value = false; pickerGeneration += 1; pickerFileId.value = ''; pickerVersion.value = null; workspace.closeDetail() }
 const openQuickMaterialPicker = async returnFocus => {
   if (pickerPaused.value) { pickerPaused.value = false; materialPickerOpen.value = true; await resumeWechatMaterials(); return }
   if (props.readOnly || !props.enabled || !props.identityScope || props.disabled || uploading.value) return
@@ -467,8 +602,6 @@ const selectQuickMaterialFile = async (fileId, fixedVersion = null) => {
 }
 // Product selections carry no image-specific purpose or execution authority.
 const materialPreview = computed(() => workspace.preview?.value || { kind: 'none' })
-const materialPreviewPart = computed(() => materialPreview.value.kind === 'parts'
-  ? materialPreview.value.parts[materialPreview.value.selectedIndex] : materialPreview.value)
 const previewQuickMaterial = () => workspace.previewVersion(pickerVersion.value)
 watch(pickerVersion, () => workspace.revokePreview?.(), { flush: 'sync' })
 const closeSelectedPreview = () => {
@@ -489,19 +622,6 @@ const previewSelectedMaterial = async material => {
   resetMaterialPicker()
   selectedPreview.value = { ...material }
   await selectQuickMaterialFile(material.fileId, material.version)
-}
-const downloadSelectedMaterial = async () => {
-  if (!selectedPreview.value || !pickerVersion.value || previewDownloading.value) return
-  const identity = materialIdentityKey.value, generation = pickerGeneration
-  const version = pickerVersion.value, fileId = selectedPreview.value.fileId
-  const isCurrent = () => !!selectedPreview.value && selectedPreview.value.fileId === fileId && version === pickerVersion.value && identity === materialIdentityKey.value && generation === pickerGeneration
-  previewDownloading.value = true
-  try {
-    const result = await workspace.download(version)
-    if (result && isCurrent()) await savePersonalWorkspaceBlob({ ...result, isCurrent })
-  } catch (error) {
-    if (isCurrent() && error?.name !== 'AbortError') workspace.error.value = error?.message || '下载未完成，请重试。'
-  } finally { if (isCurrent()) previewDownloading.value = false }
 }
 const stageQuickMaterial = () => {
   if (confirming.value) return

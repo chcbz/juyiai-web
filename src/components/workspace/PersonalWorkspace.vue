@@ -1,5 +1,5 @@
 <template>
-  <main ref="workspaceRoot" class="personal-workspace" :class="{ 'is-hall-treasure': embedded, 'is-compact-hall': embedded && compact, 'is-progress-view': activeModal === 'delivery' && showDeliveryProgress }">
+  <main ref="workspaceRoot" class="personal-workspace" :class="{ 'is-hall-treasure': embedded, 'is-compact-hall': embedded && compact }">
     <header v-if="!embedded" class="workspace-header">
       <div><p class="workspace-eyebrow">聚义 · 内堂收纳</p><h1>百宝箱</h1><p>打开一件事，再专心办完它。</p></div>
       <p class="workspace-header-note">资料只在你明确提交时，才会授权给所选 Agent。</p>
@@ -37,17 +37,18 @@
           <div class="treasure-preview-tools treasure-version-tools"><label><span class="treasure-version-label">版本</span><select v-model="selectedVersion" @change="preview(selectedVersion)"><option v-for="version in workspace.detail.value.versions" :key="version.version" :value="version.version">v{{ version.version }} · {{ version.originalFilename }}</option></select></label><button type="button" @click="download(selectedVersion)" class="hall-tool" :aria-label="`下载 v${selectedVersion}`" :title="`下载 v${selectedVersion}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></button></div>
           <template v-if="workspace.hasMoreVersions.value"><button type="button" :disabled="workspace.versionsState.value === 'loading'" @click="workspace.loadMoreVersions">{{ workspace.versionsState.value === 'loading' ? '正在读取历史版本…' : '读取更早版本' }}</button></template><p v-if="workspace.versionsError.value" role="alert">{{ workspace.versionsError.value }}</p>
           <p class="treasure-note">当前查看版本 {{ selectedVersion }}；上传新版本不会替换已提交事项中的资料。</p>
-          <p v-if="workspace.preview.value.message && ['parts', 'text', 'audio', 'image', 'pdf'].includes(workspace.preview.value.kind)" class="treasure-note" role="status">{{ workspace.preview.value.message }}</p>
           <section class="treasure-preview" aria-label="文件预览" aria-live="polite">
             <p v-if="workspace.actionState.value === 'loading-preview'">正在读取预览…</p>
-            <template v-else-if="workspace.preview.value.kind === 'parts'"><div class="treasure-preview-tools"><button type="button" :disabled="workspace.preview.value.selectedIndex === 0" @click="workspace.selectPreviewPart(workspace.preview.value.selectedIndex - 1)" class="hall-tool" aria-label="上一页" title="上一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button><span>第 {{ workspace.preview.value.selectedIndex + 1 }} / {{ workspace.preview.value.parts.length }} 页</span><button type="button" :disabled="workspace.preview.value.selectedIndex >= workspace.preview.value.parts.length - 1" @click="workspace.selectPreviewPart(workspace.preview.value.selectedIndex + 1)" class="hall-tool" aria-label="下一页" title="下一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div><PdfDocumentPreview v-if="selectedPreviewPart?.kind === 'pdf'" :blob="selectedPreviewPart.blob" /><audio v-else-if="selectedPreviewPart?.kind === 'audio'" :src="selectedPreviewPart.url" v-bind="{ controls: true, preload: 'none', 'aria-label': '文件固定版本音频预览' }"></audio><pre v-else-if="selectedPreviewPart?.kind === 'text'" v-text="selectedPreviewPart.text"></pre><img v-else-if="selectedPreviewPart?.kind === 'image'" :src="selectedPreviewPart.url" alt="文件固定版本预览" /></template>
-            <RichDocumentPreview
-              v-else-if="workspace.preview.value.kind === 'document'"
-              :text="workspace.preview.value.text"
-              :kind="workspace.preview.value.documentKind"
-              :title="workspace.detail.value?.file?.displayName"
-            /><PdfDocumentPreview v-else-if="workspace.preview.value.kind === 'pdf'" :blob="workspace.preview.value.blob" /><audio v-else-if="workspace.preview.value.kind === 'audio'" :src="workspace.preview.value.url" v-bind="{ controls: true, preload: 'none', 'aria-label': '文件固定版本音频预览' }"></audio><pre v-else-if="workspace.preview.value.kind === 'text'" v-text="workspace.preview.value.text"></pre><img v-else-if="workspace.preview.value.kind === 'image'" :src="workspace.preview.value.url" alt="文件固定版本预览" /><p v-else>{{ workspace.preview.value.message || '可下载查看完整文件。' }}</p>
+            <FilePreview v-else-if="workspace.preview.value.kind === 'file'" :source="workspace.preview.value.source" />
+            <p v-else>{{ workspace.preview.value.message || '请选择固定版本预览。' }}</p>
           </section>
+          <details v-if="workspace.detail.value.file.state === 'ACTIVE'" class="treasure-form" @toggle="loadProcessingAgents">
+            <summary>在密议中处理此资料</summary>
+        <label><span>已有好汉</span><select :value="execution.selectedAgentId.value" :disabled="execution.rosterState.value === 'loading'" @change="selectExecutionAgent($event.target.value)"><option value="">请选择自家好汉</option><option v-for="agent in execution.agents.value" :key="agent.agentId" :value="agent.agentId">{{ agent.name }}</option></select></label>
+        <p v-if="execution.rosterError.value" class="workspace-error" role="alert">{{ execution.rosterError.value }}</p>
+            <label><span>处理说明</span><textarea v-model="executionInstruction" maxlength="4000" placeholder="说明需要怎样处理此版本。"></textarea></label>
+            <button type="button" :disabled="!canCreateExecution || !selectedExecutionVersion" @click="openProcessingConversation(executionInstruction, [{ fileId: workspace.detail.value.file.fileId, version: selectedVersion }])">在密议中处理</button>
+          </details>
           <div class="treasure-actions"><button v-if="workspace.detail.value.file.state === 'ACTIVE'" class="treasure-primary" type="button" @click="useForDraft">用此资料提需求</button><button v-else type="button" @click="treasureView = 'manage'">恢复文件</button></div>
         </template>
         <section v-else class="treasure-management">
@@ -69,13 +70,13 @@
         aria-labelledby="babao-box-title"
       >
         <p class="section-kicker">第一层 · 箱面</p><h2 id="babao-box-title">这一箱，先办哪一件？</h2>
-        <p class="modal-copy">百宝箱只保留入口；资料、交付和文件详情在下一层分别打开。</p>
+        <p class="modal-copy">百宝箱只保留入口；资料、密议处理和文件详情在下一层分别打开。</p>
         <div class="box-actions">
           <button type="button" @click="openModal('library')"><span>资料柜</span><small>{{ workspace.items.value.length ? `已读入 ${workspace.items.value.length} 份资料` : '查看、收纳和取用资料' }}</small></button>
-          <button type="button" @click="openModal('delivery')"><span>交付台</span><small>不上传资料，也可直接发起交付</small></button>
+          <button type="button" @click="openModal('delivery')"><span>密议处理</span><small>选择好汉并带入处理说明</small></button>
           <button type="button" :disabled="!workspace.items.value.length" @click="openRecentFile"><span>继续办事</span><small>取出最近一份资料，进入办事笺</small></button>
         </div>
-        <div class="box-footnote"><span>待交办资料 {{ executionMaterials.length }} 份</span><span>最近执行：{{ recentExecutionText }}</span></div>
+        <div class="box-footnote"><span>已选资料 {{ executionMaterials.length }} 份</span><span>最近执行：{{ recentExecutionText }}</span></div>
       </section>
 
       <section
@@ -121,42 +122,21 @@
       </section>
 
       <section v-if="!embedded && activeModal === 'delivery'" class="babao-modal child-modal delivery-modal" aria-labelledby="workspace-generation-title">
-        <div class="modal-heading"><div><p class="section-kicker">第二层 · 交付台</p><h2 id="workspace-generation-title">{{ showDeliveryProgress ? '交付进度' : '直接生成交付件' }}</h2><p>{{ showDeliveryProgress ? '查看本次交付进度。' : '选择好汉，说明想要的成果。' }}</p></div><button type="button" class="quiet-action" @click="backToBox">返回箱面</button></div>
-        <section v-if="showDeliveryProgress" class="execution-status delivery-receipt" aria-live="polite"><p class="receipt-title">交付进度</p><template v-if="execution.receipt.value"><dl class="file-details"><div><dt>执行状态</dt><dd>{{ executionStateText(execution.receipt.value.state) }}</dd></div><div><dt>执行好汉</dt><dd>{{ execution.selectedExecutionAgent.value?.name || '执行好汉' }}</dd></div></dl><p v-if="execution.receipt.value.state === 'QUEUED'" class="workspace-note">已提交，正在等待结果。</p></template><p v-else class="workspace-note">{{ execution.executionState.value === 'creating' ? '正在提交…' : '提交结果待确认，请查询进度，勿重复提交。' }}</p><div class="actions"><button type="button" @click="refreshExecution" class="hall-tool" aria-label="刷新进度" title="刷新进度"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button><button type="button" :disabled="execution.execution.value?.state !== 'QUEUED'" @click="revokeExecutionInputs">撤销尚未开始的输入授权</button><button
-          type="button"
-          class="quiet-action"
-          :disabled="cannotPrepareNewExecution"
-          @click="prepareNewExecution"
-        >另起一项新交付（不重试当前）</button></div></section><p v-if="execution.completionNotice.value" class="execution-notice" role="status">{{ execution.completionNotice.value }}</p><p v-if="execution.error.value" class="workspace-error" role="alert">{{ execution.error.value }}</p>
-        <template v-if="!showDeliveryProgress"><ol class="composer-steps"><li>选 Agent</li><li>定交付类型</li><li>写需求并生成</li></ol>
-          <p v-if="execution.capabilityState.value === 'loading'" class="workspace-note">正在读取可执行交付类型…</p><p v-else-if="execution.capabilityError.value" class="workspace-error" role="alert">{{ execution.capabilityError.value }}</p>
-          <template v-else-if="execution.allowedMimeTypes.value.length"><label><span>已有 Agent</span><select :value="execution.selectedAgentId.value" :disabled="execution.rosterState.value === 'loading'" @change="selectExecutionAgent($event.target.value)"><option value="">请选择已有 Agent</option><option v-for="agent in execution.agents.value" :key="agent.agentId" :value="agent.agentId">{{ agent.name }}{{ agent.status ? `（${agent.status}）` : '' }}</option></select></label><label><span>交付类型</span><select v-model="generationMime"><option v-for="mime in execution.allowedMimeTypes.value" :key="mime" :value="mime">{{ deliveryTypeText(mime) }}</option></select></label><label><span>需求说明</span><textarea v-model="generationInstruction" maxlength="4000" placeholder="例如：生成一份面向客户的项目介绍 PPT，包含目标、方案和时间表。"></textarea></label><p class="workspace-note consent-note">提交会将本轮需求交给所选 Agent 及其配置的 Provider；资料可能外发并产生费用，费用未知。</p><div class="actions"><button type="button" :disabled="!canCreateGeneration" @click="createGeneration">生成交付件</button><button
-            type="button"
-            class="quiet-action hall-tool"
-            :disabled="execution.capabilityState.value === 'loading'"
-            @click="loadExecutionCapabilities"
-           aria-label="刷新能力" title="刷新能力"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button></div></template>
-          <p v-else class="workspace-note">当前没有已确认开放的直接生成类型，不会用演示内容代替。</p></template>
-        <details class="execution-history" aria-label="交付记录"><summary>最近执行</summary><div class="history-content"><div class="history-heading"><span>交付记录</span><button
-          type="button"
-          class="quiet-action hall-tool"
-          :disabled="execution.historyState.value === 'loading'"
-          @click="execution.loadHistory({ adopt: false })"
-         aria-label="刷新记录" title="刷新记录"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button></div><p v-if="execution.historyState.value === 'loading'" class="workspace-note" role="status">正在读取记录…</p><p v-else-if="execution.historyState.value === 'error'" class="workspace-error" role="alert">{{ execution.historyError.value }}</p><p v-else-if="execution.historyState.value === 'empty'" class="workspace-note">暂无交付记录。</p><div v-else-if="execution.historyState.value === 'ready'" class="history-list"><button
-          v-for="item in execution.history.value"
-          :key="item.executionId"
-          type="button"
-          class="history-row"
-          :disabled="historySelectionBlocked"
-          :class="{ active: execution.receipt.value?.executionId === item.executionId }"
-          @click="chooseHistoryExecution(item.executionId)"
-        ><span><strong>{{ executionStateText(item.state) }}</strong><small>{{ execution.selectedExecutionAgent.value?.agentId === item.targetAgentId ? execution.selectedExecutionAgent.value?.name : '执行好汉' }}</small></span></button></div><button
-          v-if="execution.historyNextCursor.value"
-          type="button"
-          class="load-more quiet-action"
-          :disabled="execution.historyState.value === 'loading'"
-          @click="loadMoreExecutionHistory"
-        >加载更早记录</button></div></details>
+        <div class="modal-heading"><h2 id="workspace-generation-title">在密议中处理</h2><button type="button" @click="backToBox">返回箱面</button></div>
+        <label><span>已有好汉</span><select :value="execution.selectedAgentId.value" :disabled="execution.rosterState.value === 'loading'" @change="selectExecutionAgent($event.target.value)"><option value="">请选择自家好汉</option><option v-for="agent in execution.agents.value" :key="agent.agentId" :value="agent.agentId">{{ agent.name }}</option></select></label>
+        <p v-if="execution.rosterError.value" class="workspace-error" role="alert">{{ execution.rosterError.value }}</p>
+        <label><span>处理说明</span><textarea v-model="generationInstruction" maxlength="4000" placeholder="说明需要怎样处理，可不选资料。"></textarea></label>
+        <p>只带入密议，不自动发送。文件由会话持有，需要时再保存到个人资料。</p>
+        <button type="button" :disabled="!canCreateGeneration" @click="openProcessingConversation(generationInstruction, [])">在密议中处理</button>
+        <details class="execution-history" aria-label="历史执行记录"><summary>历史记录（只读）</summary>
+          <button type="button" :disabled="execution.historyState.value === 'loading'" @click="execution.loadHistory()">刷新记录</button>
+          <p v-if="execution.historyError.value" role="alert">{{ execution.historyError.value }}</p>
+          <p v-if="execution.historyState.value === 'empty'">暂无历史记录。</p>
+          <ul><li v-for="item in execution.history.value" :key="item.executionId"><button type="button" @click="chooseHistoryExecution(item.executionId)">{{ executionStateText(item.state) }} · {{ formatDate(item.createdAt) }}</button></li></ul>
+          <button v-if="execution.historyNextCursor.value" type="button" :disabled="execution.historyState.value === 'loading'" @click="loadMoreExecutionHistory">读取更早记录</button>
+          <p v-if="execution.execution.value">历史状态：{{ executionStateText(execution.execution.value.state) }}。仅供查阅，不恢复旧执行。</p>
+          <p v-if="execution.error.value" role="alert">{{ execution.error.value }}</p>
+        </details>
       </section>
 
       <section v-if="activeModal === 'detail' && workspace.detail.value" class="babao-modal detail-modal" aria-labelledby="workspace-detail-title">
@@ -184,28 +164,19 @@
           type="button"
           :disabled="!canAddVersionAsMaterial(version)"
           @click="addExecutionMaterial({ fileId: workspace.detail.value.file.fileId, version: version.version, displayName: workspace.detail.value.file.displayName, contentMimeType: version.contentMimeType })"
-        >{{ isExecutionMaterial(workspace.detail.value.file.fileId) ? '已选资料' : '加入资料' }}</button><button type="button" @click="preview(version.version)" class="hall-tool" :aria-label="`预览 v${version.version}`" :title="`预览 v${version.version}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button><button type="button" @click="download(version.version)" class="hall-tool" :aria-label="`下载 v${version.version}`" :title="`下载 v${version.version}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></button></div></div><p v-if="workspace.preview.value.message && ['parts', 'text', 'audio', 'image', 'pdf'].includes(workspace.preview.value.kind)" class="workspace-note" role="status">{{ workspace.preview.value.message }}</p><section class="preview" aria-live="polite"><p v-if="workspace.actionState.value === 'loading-preview'">正在读取预览…</p><template v-else-if="workspace.preview.value.kind === 'parts'"><div class="preview-navigation"><button type="button" :disabled="workspace.preview.value.selectedIndex === 0" @click="workspace.selectPreviewPart(workspace.preview.value.selectedIndex - 1)" class="hall-tool" aria-label="上一页" title="上一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button><span>第 {{ workspace.preview.value.selectedIndex + 1 }} / {{ workspace.preview.value.parts.length }} {{ selectedPreviewPart?.kind === 'text' ? '项' : '页' }}</span><button type="button" :disabled="workspace.preview.value.selectedIndex >= workspace.preview.value.parts.length - 1" @click="workspace.selectPreviewPart(workspace.preview.value.selectedIndex + 1)" class="hall-tool" aria-label="下一页" title="下一页"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div><PdfDocumentPreview v-if="selectedPreviewPart?.kind === 'pdf'" :blob="selectedPreviewPart.blob" /><audio v-else-if="selectedPreviewPart?.kind === 'audio'" :src="selectedPreviewPart.url" v-bind="{ controls: true, preload: 'none', 'aria-label': '文件固定版本音频预览' }"></audio><pre v-else-if="selectedPreviewPart?.kind === 'text'" v-text="selectedPreviewPart.text"></pre><img v-else-if="selectedPreviewPart?.kind === 'image'" :src="selectedPreviewPart.url" :alt="workspace.detail.value.file.displayName" /></template><RichDocumentPreview
-          v-else-if="workspace.preview.value.kind === 'document'"
-          :text="workspace.preview.value.text"
-          :kind="workspace.preview.value.documentKind"
-          :title="workspace.detail.value?.file?.displayName"
-        /><PdfDocumentPreview v-else-if="workspace.preview.value.kind === 'pdf'" :blob="workspace.preview.value.blob" /><audio v-else-if="workspace.preview.value.kind === 'audio'" :src="workspace.preview.value.url" v-bind="{ controls: true, preload: 'none', 'aria-label': '文件固定版本音频预览' }"></audio><pre v-else-if="workspace.preview.value.kind === 'text'" v-text="workspace.preview.value.text"></pre><img v-else-if="workspace.preview.value.kind === 'image'" :src="workspace.preview.value.url" :alt="workspace.detail.value.file.displayName" /><p v-else-if="workspace.preview.value.kind === 'unsupported'">{{ workspace.preview.value.message }}</p><p v-else-if="workspace.preview.value.kind === 'error'" class="workspace-error">{{ workspace.preview.value.message }}</p></section></section>
-        <section v-else class="detail-pane execution-pane"><p class="workspace-note">当前版本：{{ workspace.detail.value.file.displayName }} · v{{ selectedVersion }}</p><div class="material-actions"><button type="button" :disabled="!canAddSelectedMaterial" @click="addSelectedMaterial">加入执行资料</button><button
-          v-for="item in executionMaterials"
-          :key="item.fileId"
-          type="button"
-          @click="removeExecutionMaterial(item.fileId)"
-        >{{ materialLabel(item) }} ×</button></div><p v-if="!executionMaterials.length" class="workspace-note">先从“版本与预览”选择一份资料，或将当前版本加入本次执行。</p><p v-if="!canExecuteSelectedVersion" class="workspace-note">当前文件类型暂不能用于生成成果。</p><label><span>已有 Agent</span><select :value="execution.selectedAgentId.value" :disabled="execution.rosterState.value === 'loading'" @change="selectExecutionAgent($event.target.value)"><option value="">请选择已有 Agent</option><option v-for="agent in execution.agents.value" :key="agent.agentId" :value="agent.agentId">{{ agent.name }}{{ agent.status ? `（${agent.status}）` : '' }}</option></select></label><label><span>交付类型</span><select v-model="executionOutputMime"><option v-for="mime in execution.allowedMimeTypes.value" :key="mime" :value="mime">{{ deliveryTypeText(mime) }}</option></select></label><label><span>需求说明</span><textarea v-model="executionInstruction" maxlength="4000" placeholder="例如：请根据所选资料制作 PPT，并说明保留项。"></textarea></label><p v-if="execution.rosterError.value" class="workspace-error" role="alert">{{ execution.rosterError.value }}</p><div class="actions"><button type="button" :disabled="!canCreateExecution" @click="createExecution">创建私人执行</button><button
-          type="button"
-          class="quiet-action hall-tool"
-          :disabled="execution.rosterState.value === 'loading'"
-          @click="loadExecutionAgents"
-         aria-label="刷新 Agent" title="刷新 Agent"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button><button
-          v-if="execution.pending.value"
-          type="button"
-          class="quiet-action"
-          @click="prepareNewExecution"
-        >另起一项新交付（不重试当前）</button></div><section v-if="execution.receipt.value" class="execution-status"><dl class="file-details"><div><dt>执行状态</dt><dd>{{ executionStateText(execution.receipt.value.state) }}</dd></div><div><dt>执行好汉</dt><dd>{{ execution.selectedExecutionAgent.value?.name || '执行好汉' }}</dd></div></dl><p v-if="execution.receipt.value.state === 'QUEUED'" class="workspace-note">已提交，正在等待结果。</p><div class="actions"><button type="button" @click="refreshExecution" class="hall-tool" aria-label="刷新进度" title="刷新进度"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button><button type="button" :disabled="execution.execution.value?.state !== 'QUEUED'" @click="revokeExecutionInputs">撤销尚未开始的输入授权</button></div></section><p v-if="execution.completionNotice.value" class="execution-notice" role="status">{{ execution.completionNotice.value }}</p><p v-if="execution.error.value" class="workspace-error" role="alert">{{ execution.error.value }}</p></section>
+        >{{ isExecutionMaterial(workspace.detail.value.file.fileId) ? '已选资料' : '加入资料' }}</button><button type="button" @click="preview(version.version)" class="hall-tool" :aria-label="`预览 v${version.version}`" :title="`预览 v${version.version}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button><button type="button" @click="download(version.version)" class="hall-tool" :aria-label="`下载 v${version.version}`" :title="`下载 v${version.version}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg></button></div></div><section class="workspace-preview" aria-label="固定版本预览">
+          <FilePreview v-if="workspace.preview.value.kind === 'file'" :source="workspace.preview.value.source" />
+          <p v-else>{{ workspace.preview.value.message || '请选择固定版本预览。' }}</p>
+        </section></section>
+        <section v-else class="detail-pane execution-pane">
+          <p>选择固定资料，只在密议发送时授权使用。</p>
+          <button type="button" :disabled="!canAddSelectedMaterial" @click="addSelectedMaterial">加入当前版本</button>
+          <div class="material-actions"><button v-for="item in executionMaterials" :key="item.fileId" type="button" @click="removeExecutionMaterial(item.fileId)">{{ materialLabel(item) }} ×</button></div>
+        <label><span>已有好汉</span><select :value="execution.selectedAgentId.value" :disabled="execution.rosterState.value === 'loading'" @change="selectExecutionAgent($event.target.value)"><option value="">请选择自家好汉</option><option v-for="agent in execution.agents.value" :key="agent.agentId" :value="agent.agentId">{{ agent.name }}</option></select></label>
+        <p v-if="execution.rosterError.value" class="workspace-error" role="alert">{{ execution.rosterError.value }}</p>
+          <label><span>处理说明</span><textarea v-model="executionInstruction" maxlength="4000" placeholder="说明需要怎样处理所选资料。"></textarea></label>
+          <button type="button" :disabled="!canCreateExecution" @click="openProcessingConversation(executionInstruction, executionMaterials)">在密议中处理</button>
+        </section>
       </section>
     </section>
     <WorkspaceWriteRecovery :pending="workspace.pendingWrites.value" @retry="workspace.retryWrite" />
@@ -215,23 +186,21 @@
 </template>
 
 <script setup>
-import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
-import PdfDocumentPreview from './PdfDocumentPreview.vue'
+import FilePreview from '../preview/FilePreview.vue'
 import WorkspaceWriteRecovery from '@/components/personal-workspace/WorkspaceWriteRecovery.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useApiStore } from '@/stores/api'
 import { useGlobalStore } from '@/stores/global'
 import { savePersonalWorkspaceBlob, usePersonalWorkspace } from '@/composables/usePersonalWorkspace'
-import { usePersonalWorkspaceExecution } from '@/composables/usePersonalWorkspaceExecution'
+import { usePersonalWorkspaceExecutionHistory } from '@/composables/usePersonalWorkspaceExecution'
 import { workspaceByteText, validMaterialVersion } from '@/utils/personalWorkspaceProtocol'
-import { deliveryTypeText } from '@/utils/executionFormats'
 
 const { embedded, detailAllowed, compact } = defineProps({
   compact: { type: Boolean, default: false },
   embedded: { type: Boolean, default: false },
   detailAllowed: { type: Boolean, default: true }
 })
-const emit = defineEmits(['start-draft'])
+const emit = defineEmits(['start-draft', 'open-deliberation'])
 const useForDraft = () => {
   const file = workspace.detail.value?.file
   if (file?.state !== 'ACTIVE' || !selectedExecutionVersion.value) return
@@ -251,7 +220,7 @@ const executionIdentityScope = computed(() => {
   return owner && client ? [tenant, client, owner].filter(Boolean).join('\u0000') : ''
 })
 const workspace = usePersonalWorkspace({ identityEpoch })
-const execution = usePersonalWorkspaceExecution({ identityEpoch, identityScope: executionIdentityScope })
+const execution = usePersonalWorkspaceExecutionHistory({ identityEpoch, identityScope: executionIdentityScope })
 const query = ref('')
 const mediaFamily = ref('')
 const state = ref('ACTIVE')
@@ -270,21 +239,15 @@ const uploadDisplayName = ref('')
 const renameValue = ref('')
 const executionInstruction = ref('')
 const generationInstruction = ref('')
-const generationMime = ref('')
-const executionOutputMime = ref('')
 const executionMaterials = ref([])
 const selectedExecutionVersion = computed(() => workspace.detail.value?.versions?.find(version => version.version === selectedVersion.value) || null)
-const canExecuteSelectedVersion = computed(() => Boolean(selectedExecutionVersion.value?.contentMimeType && execution.inputMimeTypes.value.includes(selectedExecutionVersion.value.contentMimeType)))
-const canAddSelectedMaterial = computed(() => Boolean(workspace.detail.value?.file?.fileId && selectedExecutionVersion.value && canExecuteSelectedVersion.value && !executionMaterials.value.some(item => item.fileId === workspace.detail.value.file.fileId)))
-const canCreateExecution = computed(() => Boolean(!execution.pending.value && executionMaterials.value.length && executionOutputMime.value && execution.allowedMimeTypes.value.includes(executionOutputMime.value) && execution.selectedAgent.value && executionInstruction.value.trim()))
-const canCreateGeneration = computed(() => Boolean(!execution.pending.value && execution.generationEnabled.value && generationMime.value && execution.allowedMimeTypes.value.includes(generationMime.value) && execution.selectedAgent.value && generationInstruction.value.trim()))
-const showDeliveryProgress = computed(() => Boolean(execution.receipt.value || execution.pending.value))
-const cannotPrepareNewExecution = computed(() => Boolean(execution.unresolvedIntent.value || ['creating', 'reconciling', 'unknown'].includes(execution.executionState.value)))
-const historySelectionBlocked = computed(() => Boolean(execution.unresolvedIntent.value || ['creating', 'reconciling'].includes(execution.executionState.value)))
+const canAddSelectedMaterial = computed(() => Boolean(workspace.detail.value?.file?.state === 'ACTIVE' && selectedExecutionVersion.value && !executionMaterials.value.some(item => item.fileId === workspace.detail.value.file.fileId)))
+const canCreateExecution = computed(() => Boolean(execution.selectedAgent.value && executionInstruction.value.trim()))
+const canCreateGeneration = computed(() => Boolean(execution.selectedAgent.value && generationInstruction.value.trim()))
 const recentExecutionText = computed(() => {
   if (execution.historyState.value === 'loading' || execution.historyState.value === 'idle') return '查询中…'
   if (execution.historyState.value === 'error') return '查询失败'
-  const recent = execution.receipt.value || execution.history.value[0]
+  const recent = execution.history.value[0]
   return recent ? executionStateText(recent.state) : '暂无'
 })
 const acceptTypes = '.json,application/json,.html,.htm,.md,.markdown,text/html,text/markdown,text/x-markdown,.webp,.gif,.mp3,.ogg,.oga,.wav,.m4a,.mp4,.webm,image/webp,image/gif,audio/mpeg,audio/ogg,audio/wav,audio/mp4,audio/webm,.png,.jpg,.jpeg,.txt,.pdf,.docx,.xlsx,.pptx,image/png,image/jpeg,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation'
@@ -293,8 +256,8 @@ const byteText = workspaceByteText
 const nextVersion = computed(() => { const value = workspace.detail.value?.file.latestVersion; return validMaterialVersion(value) && BigInt(value) < 2147483647n ? String(BigInt(value) + 1n) : null })
 const formatDate = value => Number.isFinite(value) ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '时间未知'
 const familyText = value => ({ IMAGE: '图片', AUDIO: '音频', TEXT: '文本', DOCUMENT: '文档', SPREADSHEET: 'Excel 表格', PRESENTATION: 'PPT 演示', PDF: 'PDF' })[value] || '文件'
-const originText = value => ({ USER_UPLOAD: '本人上传', AGENT_DELIVERY: 'Agent 交付' })[value] || '来源待确认'
-const executionStateText = value => ({ QUEUED: '已接受，等待结果', OUTPUT_COMMITTED: '交付已归档', FAILED: '交付失败', CANCELLED: '事项已取消', INPUTS_REVOKED: '输入已撤销', UNKNOWN: '提交结果待确认' })[value] || '状态待确认'
+const originText = value => ({ USER_UPLOAD: '本人上传', AGENT_DELIVERY: 'Agent 生成' })[value] || '来源待确认'
+const executionStateText = value => ({ QUEUED: '已接受，等待结果', OUTPUT_COMMITTED: '历史结果已保存', RESULT_COMMITTED: '历史结果已提交', FAILED: '处理失败', CANCELLED: '已取消', INPUTS_REVOKED: '输入已撤销', UNKNOWN: '提交结果待确认' })[value] || '状态待确认'
 const iconFor = value => ({ IMAGE: '🖼', AUDIO: '🎵', TEXT: '📝', DOCUMENT: '📄', SPREADSHEET: '📊', PRESENTATION: '📽', PDF: '📕' })[value] || '📁'
 const currentFilters = () => ({ q: query.value.trim(), mediaFamily: mediaFamily.value, state: state.value })
 const refresh = () => workspace.refresh(currentFilters())
@@ -362,7 +325,6 @@ const appendVersion = async () => {
   const result = await workspace.appendVersion(file)
   if (result && ownsView(snapshot)) { if (versionFile.value === file) versionFile.value = null; selectedVersion.value = result.version.version; await refresh() }
 }
-const selectedPreviewPart = computed(() => workspace.preview.value?.parts?.[workspace.preview.value?.selectedIndex] || null)
 const preview = version => { selectedVersion.value = version; void workspace.previewVersion(version) }
 const download = async version => {
   const snapshot = viewSnapshot(), fileId = selectedId.value, selection = selectedVersion.value
@@ -389,25 +351,23 @@ const trash = async () => {
 }
 const restore = async () => { const snapshot = viewSnapshot(); const result = await workspace.restore(); if (result && ownsView(snapshot)) { closeDetail(); await refresh() } }
 const loadExecutionAgents = () => execution.loadAgents()
-const loadExecutionCapabilities = async () => {
-  const result = await execution.loadCapabilities()
-  if (result?.allowedMimeTypes?.length) {
-    if (!result.allowedMimeTypes.includes(generationMime.value)) generationMime.value = result.allowedMimeTypes[0]
-    if (!result.allowedMimeTypes.includes(executionOutputMime.value)) executionOutputMime.value = result.allowedMimeTypes[0]
-  }
-}
+const loadProcessingAgents = event => { if (event.target.open && ['idle', 'error'].includes(execution.rosterState.value)) void loadExecutionAgents() }
 const selectExecutionAgent = agentId => execution.selectAgent(agentId)
 const materialLabel = item => `${item.displayName || item.fileId} · v${item.version}`
 const isExecutionMaterial = fileId => executionMaterials.value.some(item => item.fileId === fileId)
-const canAddVersionAsMaterial = version => Boolean(version?.contentMimeType && execution.inputMimeTypes.value.includes(version.contentMimeType) && !isExecutionMaterial(workspace.detail.value.file.fileId))
-const addExecutionMaterial = item => { if (!item?.fileId || !validMaterialVersion(item.version) || isExecutionMaterial(item.fileId) || !execution.inputMimeTypes.value.includes(item.contentMimeType)) return; executionMaterials.value = [...executionMaterials.value, { fileId: item.fileId, version: String(item.version), displayName: item.displayName, contentMimeType: item.contentMimeType }]; if (!executionOutputMime.value) executionOutputMime.value = execution.allowedMimeTypes.value[0] || '' }
+const canAddVersionAsMaterial = version => Boolean(validMaterialVersion(version?.version) && !isExecutionMaterial(workspace.detail.value.file.fileId))
+const addExecutionMaterial = item => {
+  if (!item?.fileId || !validMaterialVersion(item.version) || isExecutionMaterial(item.fileId) || executionMaterials.value.length >= 32) return
+  executionMaterials.value = [...executionMaterials.value, { fileId: item.fileId, version: item.version, displayName: item.displayName }]
+}
 const addSelectedMaterial = () => addExecutionMaterial({ fileId: workspace.detail.value.file.fileId, version: selectedVersion.value, displayName: workspace.detail.value.file.displayName, contentMimeType: selectedExecutionVersion.value?.contentMimeType })
 const removeExecutionMaterial = fileId => { executionMaterials.value = executionMaterials.value.filter(item => item.fileId !== fileId) }
-const createExecution = () => execution.create({ inputs: executionMaterials.value.map(({ fileId, version }) => ({ fileId, version })), instruction: executionInstruction.value, outputContentMimeType: executionOutputMime.value })
-const createGeneration = () => execution.create({ instruction: generationInstruction.value, outputContentMimeType: generationMime.value })
-const refreshExecution = () => execution.refreshExecution()
-const revokeExecutionInputs = () => execution.revokeInputs()
-const prepareNewExecution = () => execution.prepareNewRequest()
+const openProcessingConversation = (instruction, inputs) => {
+  if (!execution.selectedAgent.value || !instruction.trim()) return false
+  emit('open-deliberation', { mode: 'PRIVATE', taskId: null, targetAgentId: execution.selectedAgentId.value,
+    instruction, inputs: inputs.map(({ fileId, version }) => ({ fileId, version })) })
+  return true
+}
 const chooseHistoryExecution = executionId => execution.selectHistoryExecution(executionId)
 const loadMoreExecutionHistory = () => { const cursor = execution.historyNextCursor.value; return cursor ? execution.loadHistory({ beforeCreatedAt: cursor.createdAt, beforeExecutionId: cursor.executionId, append: true, adopt: false }) : Promise.resolve([]) }
 
@@ -483,15 +443,14 @@ const back = () => {
   nextTick(() => { if (workspaceRoot.value) workspaceRoot.value.scrollTop = treasureListScroll })
   return true
 }
-watch(identityEpoch, () => { treasureView.value = 'list'; treasureTab.value = 'all'; trashUsage.value = null; uploadFile.value = null; versionFile.value = null; query.value = ''; uploadDisplayName.value = ''; renameValue.value = ''; selectedId.value = ''; activeModal.value = embedded ? 'library' : 'home' })
+watch(identityEpoch, () => { executionInstruction.value = ''; generationInstruction.value = ''; executionMaterials.value = []; treasureView.value = 'list'; treasureTab.value = 'all'; trashUsage.value = null; uploadFile.value = null; versionFile.value = null; query.value = ''; uploadDisplayName.value = ''; renameValue.value = ''; selectedId.value = ''; activeModal.value = embedded ? 'library' : 'home' })
 defineExpose({ canGoBack, back, logicalDepth, windowTitle })
 
 onMounted(() => {
   void refresh()
   if (!embedded) {
     void loadExecutionAgents()
-    void loadExecutionCapabilities()
-    void execution.recover()
+    void execution.loadHistory()
   }
 })
 onBeforeUnmount(() => { disposed = true; viewGeneration++; stopListObserver(); workspace.dispose(); execution.dispose() })

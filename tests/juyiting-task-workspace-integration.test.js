@@ -1,3 +1,4 @@
+import { useHallPageReturn } from '../src/composables/juyiting/useHallPageReturn.js'
 import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
 import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
 import { useHallAgentAbilitiesEditor } from '../src/composables/juyiting/useHallAgentAbilitiesEditor.js'
@@ -20,7 +21,7 @@ import { readFileSync } from 'fs'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { useTaskWorkspaceView } from '../src/composables/juyiting/useTaskWorkspaceView.js'
 import { useHallHomeMode } from '../src/composables/juyiting/useHallHomeMode.js'
-import { useFormalTaskExecutionScope } from '../src/composables/useFormalTaskExecutionScope.js'
+import { freezePrivateMaterialRefs } from '../src/composables/juyiting/hallPrivateMaterials.js'
 import { confirmHallLeave, hasMeaningfulHallLeaveWork } from '../src/composables/juyiting/hallAccountNavigation.js'
 import * as HallPanelHelpers from '../src/composables/juyiting/useHallPanels.js'
 import { resolveLiveMapPreviewActivation } from '../src/composables/juyiting/liveMapPreviewPolicy.js'
@@ -61,10 +62,11 @@ const loadSfc = (relativePath, child = null, board = null) => {
   return new Function('Vue', 'TaskTimeline', 'WorkItemBoard', scriptBody)(Vue, child, board)
 }
 
-const loadActualHallForIntegration = (mocks, id) => {
+const loadActualHallForIntegration = (mocks, id, exposePrefill = false) => {
   const relativePath = '../src/components/world/JuyiHall.vue'
   const filename = new URL(relativePath, import.meta.url).pathname
-  const { descriptor } = parse(readFileSync(new URL(relativePath, import.meta.url), 'utf8'), { filename })
+  const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+  const { descriptor } = parse(exposePrefill ? source.replace('</script>', '\ndefineExpose({ openMaterialDeliberation, openPanel })\n</script>') : source, { filename })
   const body = compileScript(descriptor, { id, inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, imports) => `var { ${imports} } = mocks`)
@@ -98,7 +100,7 @@ const createHallIntegrationMocks = ({ mode, LibraryPanel, TaskWorkspacePanel, wo
   }
   const taskWorkspace = workspaceState || null
   return {
-    ...HallPanelHelpers, useHallHomeMode, useFormalTaskExecutionScope, confirmHallLeave, hasMeaningfulHallLeaveWork,
+    ...HallPanelHelpers, useHallPageReturn, useHallHomeMode, freezePrivateMaterialRefs, confirmHallLeave, hasMeaningfulHallLeaveWork,
     resolveLiveMapPreviewActivation, isEconomyPreviewBuildEnabled,
     resolveAccountDisplayName: (user, fallback = '用户') => user?.nickname || user?.username || fallback,
     createHydratedIdentityScope, hasHydratedIdentity,
@@ -350,6 +352,127 @@ describe('C07 JuyiHall task workspace integration', () => {
     } finally {
       wrapper.unmount()
     }
+  })
+
+
+  const deferred = () => {
+    let resolve
+    const promise = new Promise(done => { resolve = done })
+    return { promise, resolve }
+  }
+  const prefillHarness = ({ restore, prepare } = {}) => {
+    const mode = Vue.ref('portrait-command')
+    const counters = { hallLoads: 0, sends: 0, applies: 0, prepares: 0 }
+    const mocks = createHallIntegrationMocks({ mode, counters })
+    const auth = Vue.reactive({ authorizationGeneration: 1, token: async () => false })
+    mocks.useApiStore = () => auth
+    const agent = { agentId: 'native-agent', boundToMe: true, canOperate: true, systemAgent: false }
+    const data = mocks.useHallData()
+    data.operableRosterAgents = Vue.ref([agent])
+    const context = mocks.useHallChatContext()
+    context.enterPrivateConversation = selected => {
+      context.chatMode.value = 'private'
+      context.conversationAgent.value = selected
+      context.chatContext.value = { type: 'private', targetAgentId: selected.agentId, conversationScopeKey: 'agent:' + selected.agentId }
+    }
+    mocks.useHallChatContext = () => context
+    const conversation = mocks.useHallConversation()
+    conversation.draft.value = ''
+    conversation.conversationId.value = ''
+    conversation.setDraft = value => { conversation.draft.value = value; conversation.draftRevision.value++ }
+    conversation.sendHallMessage = async () => { counters.sends++ }
+    conversation.loadHallMessages = async () => {
+      await restore?.promise
+      conversation.conversationId.value = 'restored-native-conversation'
+      return true
+    }
+    mocks.useHallConversation = () => conversation
+    const materials = Vue.ref([])
+    mocks.PrivateDiscussionPanel = Vue.defineComponent({
+      name: 'PrefillPrivatePanel',
+      setup (_props, { expose }) {
+        expose({
+          materialDraft: () => ({ scope: 'EXPLICIT', inputs: materials.value.map(item => ({ ...item })) }),
+          prepareMaterialDraft: async inputs => { counters.prepares++; await prepare?.promise; return inputs.map(item => ({ ...item })) },
+          applyMaterialDraft: inputs => { counters.applies++; materials.value = inputs; return true }
+        })
+        return () => Vue.h('section', { class: 'private-prefill-target' })
+      }
+    })
+    const Hall = loadActualHallForIntegration(mocks, 'native-prefill-lifecycle', true)
+    const wrapper = mount(Hall, { attachTo: document.body, global: { stubs: { 'var-icon': true } } })
+    const intent = { mode: 'PRIVATE', taskId: null, targetAgentId: agent.agentId, instruction: '请处理这份资料', inputs: [{ fileId: 'fixed-file', version: '2' }] }
+    return { wrapper, intent, conversation, auth, counters, materials, context }
+  }
+  const flushPrefill = async () => {
+    for (let n = 0; n < 12; n++) { await Promise.resolve(); await Vue.nextTick() }
+  }
+
+  it('waits for the actual Hall restore before local prefill and never sends automatically', async () => {
+    const restore = deferred(), h = prefillHarness({ restore })
+    try {
+      const pending = h.wrapper.vm.openMaterialDeliberation(h.intent)
+      h.intent.inputs[0].version = '99'
+      await flushPrefill()
+      expect(h.counters.prepares).to.equal(0)
+      expect(h.conversation.draft.value).to.equal('')
+      restore.resolve()
+      expect(await pending).to.equal(true)
+      expect(h.conversation.draft.value).to.equal('请处理这份资料')
+      expect(h.materials.value).to.deep.equal([{ fileId: 'fixed-file', version: '2' }])
+      expect(h.counters.sends).to.equal(0)
+    } finally { restore.resolve(); h.wrapper.unmount() }
+  })
+
+  it('preserves target text and materials when draft replacement is cancelled', async () => {
+    const h = prefillHarness(), previousConfirm = globalThis.confirm
+    h.conversation.draft.value = '原有文字'
+    h.materials.value = [{ fileId: 'old-file', version: '1' }]
+    globalThis.confirm = () => false
+    try {
+      expect(await h.wrapper.vm.openMaterialDeliberation(h.intent)).to.equal(false)
+      expect(h.conversation.draft.value).to.equal('原有文字')
+      expect(h.materials.value).to.deep.equal([{ fileId: 'old-file', version: '1' }])
+      expect(h.intent.instruction).to.equal('请处理这份资料')
+      expect(h.counters.applies).to.equal(0)
+      expect(h.counters.sends).to.equal(0)
+    } finally { globalThis.confirm = previousConfirm; h.wrapper.unmount() }
+  })
+
+  for (const change of ['identity', 'conversation', 'away-and-back']) {
+    it(`discards late local preparation after ${change} changes`, async () => {
+      const prepare = deferred(), h = prefillHarness({ prepare })
+      try {
+        const pending = h.wrapper.vm.openMaterialDeliberation(h.intent)
+        await flushPrefill()
+        expect(h.counters.prepares).to.equal(1)
+        if (change === 'identity') h.auth.authorizationGeneration++
+        else if (change === 'conversation') h.conversation.conversationId.value = 'different-conversation'
+        else {
+          expect(h.wrapper.vm.openPanel('library', { restore: true })).to.equal(true)
+          expect(h.wrapper.vm.openPanel('chat', { restore: true })).to.equal(true)
+        }
+        prepare.resolve()
+        expect(await pending).to.equal(false)
+        expect(h.conversation.draft.value).to.equal('')
+        expect(h.counters.applies).to.equal(0)
+        expect(h.counters.sends).to.equal(0)
+      } finally { prepare.resolve(); h.wrapper.unmount() }
+    })
+  }
+
+  it('lets only the newest local handoff apply when two requests share an in-flight restore', async () => {
+    const restore = deferred(), h = prefillHarness({ restore })
+    try {
+      const earlier = h.wrapper.vm.openMaterialDeliberation(h.intent)
+      const latest = h.wrapper.vm.openMaterialDeliberation({ ...h.intent, instruction: '第二份处理说明' })
+      restore.resolve()
+      expect(await earlier).to.equal(false)
+      expect(await latest).to.equal(true)
+      expect(h.conversation.draft.value).to.equal('第二份处理说明')
+      expect(h.counters.applies).to.equal(1)
+      expect(h.counters.sends).to.equal(0)
+    } finally { restore.resolve(); h.wrapper.unmount() }
   })
 
 })

@@ -30,53 +30,26 @@
       <strong>{{ previewKind(item.contentMimeType) === 'image' ? '图片' : previewKind(item.contentMimeType) === 'audio' ? '音频' : previewKind(item.contentMimeType) === 'text' ? '文本' : '文件' }}</strong>
       <p v-if="item.messageSource" class="bounty-output-text">{{ item.text }}</p>
       <span>{{ item.contentMimeType }} · {{ item.byteLength }} 字节</span>
-      <button v-if="(item.previewUrl && previewKind(item.contentMimeType) !== 'file') || richDocumentKind(item.contentMimeType) || (previewKind(item.contentMimeType) === 'text' && item.downloadUrl)" type="button" @click="loadPreview(item)">预览</button>
+      <button v-if="item.downloadUrl && filePreviewKind(item.contentMimeType, outputDownloadName(item))" type="button" @click="loadPreview(item)">预览</button>
       <button v-if="item.downloadUrl" type="button" @click="downloadOutput(item)">下载</button>
       <p v-if="itemErrors[outputItemKey(item)]" role="alert">{{ itemErrors[outputItemKey(item)] }}</p>
-      <RichDocumentPreview
-        v-if="richDocumentKind(item.contentMimeType) && Object.hasOwn(textPreviews, outputItemKey(item))"
-        :text="textPreviews[outputItemKey(item)]"
-        :kind="richDocumentKind(item.contentMimeType)"
-        title="议事成果预览"
-      />
-      <p v-else-if="textPreviews[outputItemKey(item)]" class="bounty-output-text">{{ textPreviews[outputItemKey(item)] }}</p>
-      <template v-if="previewUrls[outputItemKey(item)]">
-        <button
-          v-if="previewKind(item.contentMimeType) === 'image'"
-          class="image-preview"
-          type="button"
-          @click="expandedUrl = previewUrls[outputItemKey(item)]"
-        ><img :src="previewUrls[outputItemKey(item)]" alt="议事生成图片" /></button>
-        <audio
-          v-else-if="previewKind(item.contentMimeType) === 'audio'"
-          :src="previewUrls[outputItemKey(item)]"
-          controls
-          preload="none"
-          aria-label="议事生成音频"
-        ></audio>
-        <span v-else>此内容暂不支持在议事中预览。</span>
-      </template>
-      <button v-if="!readOnly && !effectiveTaskCompleted" type="button" class="hall-output-action primary" :disabled="reviewBusy || loading" @click="$emit('accept-output', item)">验收此版</button>
+      <FilePreview v-if="previewSources[outputItemKey(item)]" :source="previewSources[outputItemKey(item)]" expandable-image />
+      <button
+        v-if="!readOnly && !effectiveTaskCompleted"
+        type="button"
+        class="hall-output-action primary"
+        :disabled="reviewBusy || loading"
+        @click="$emit('accept-output', item)"
+      >验收此版</button>
       <small v-if="item.replaces">改稿关联：{{ item.replaces.outputId }}（原稿仍保留）</small>
       <small v-if="!readOnly && !effectiveTaskCompleted">需要调整？直接在会话中告诉 Agent。</small>
     </div>
     <p v-if="readOnly || effectiveTaskCompleted" role="status">{{ readOnly ? '历史成果仅供查看；事项状态以上方为准。' : '事项已完成，此处仅供查看成果。' }}</p>
-    <div
-      v-if="expandedUrl"
-      class="image-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="放大查看议事图片"
-      @click.self="expandedUrl = ''"
-      @keydown.esc="expandedUrl = ''"
-    >
-      <button type="button" @click="expandedUrl = ''">关闭</button><img :src="expandedUrl" alt="放大后的议事图片" />
-    </div>
   </section>
 </template>
 <script setup>
-import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
-import { richDocumentKind } from '../../utils/richDocumentPreview.js'
+import FilePreview from '../preview/FilePreview.vue'
+import { filePreviewKind } from '../../utils/filePreview.js'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createApi } from '../../composables/useHttp.js'
 import { exactOutputId, outputCatalogItems, outputItemKey, previewKind, scopedExecutionSteps, downloadMimeType, outputDownloadName, currentOutputDelivery, completedTextItem, completedExecutionDelivery } from '../../composables/juyiting/bountyOutputCatalog.js'
@@ -120,8 +93,8 @@ const catalogRequests = computed(() => Array.isArray(props.catalog) && props.cat
 const scopedSteps = computed(() => requestSnapshots.value.flatMap(request => scopedExecutionSteps(request, props.conversationId)))
 const executionDeliveries = ref([])
 const items = ref([]); const loading = ref(false); const error = ref('')
-const previewUrls = ref({}); const textPreviews = ref({}); const itemErrors = ref({})
-const expandedUrl = ref('')
+const previewSources = ref({}); const itemErrors = ref({})
+
 // Submission COMPLETED is not acceptance. Only the authoritative root marks read-only completion.
 const effectiveTaskCompleted = computed(() => props.taskCompleted)
 const deliveryProjection = computed(() => {
@@ -142,10 +115,9 @@ const patchMap = (target, key, value) => { target.value = { ...target.value, [ke
 const cleanup = () => {
   epoch++; refreshQueued = false; abort?.abort(); abort = null
   for (const controller of inFlight) controller.abort(); inFlight.clear()
-  for (const url of Object.values(previewUrls.value)) URL.revokeObjectURL(url)
-  requestSnapshots.value = []; items.value = []; executionDeliveries.value = []; previewUrls.value = {}; textPreviews.value = {}
+  requestSnapshots.value = []; items.value = []; executionDeliveries.value = []; previewSources.value = {}
   itemErrors.value = {}
-  expandedUrl.value = ''; loading.value = false; error.value = ''
+  loading.value = false; error.value = ''
 }
 const fetchRequest = async (requestId, controller) => {
   const response = await api.get(`/requests/${encodeURIComponent(requestId)}`, {}, { autoLoading: false, needAuth: true, signal: controller.signal })
@@ -205,7 +177,10 @@ const list = async () => {
     }
     if (generation !== epoch || controller.signal.aborted) return
     const current = new Map(catalog.map(item => [outputItemKey(item), item.sha256]))
-    for (const previous of items.value) if (current.get(outputItemKey(previous)) !== previous.sha256 && previewUrls.value[outputItemKey(previous)]) URL.revokeObjectURL(previewUrls.value[outputItemKey(previous)])
+    for (const previous of items.value) {
+      const key = outputItemKey(previous)
+      if (current.get(key) !== previous.sha256) { const next = { ...previewSources.value }; delete next[key]; previewSources.value = next }
+    }
     items.value = catalog; executionDeliveries.value = deliveries; error.value = ''
   } catch (cause) { if (!controller.signal.aborted && generation === epoch) error.value = cause?.message || '读取成果失败' }
   finally {
@@ -217,8 +192,11 @@ const list = async () => {
 }
 const refresh = () => { error.value = ''; if (abort) refreshQueued = true; else void list() }
 const refreshFromUser = () => { void skillResults.refresh(); emit('catalog-refresh-needed'); refresh() }
-const bytes = async (item, url, mime) => {
+const bytes = async (item, url, mime, signal) => {
   const generation = epoch; const controller = new AbortController(); inFlight.add(controller)
+  const cancel = () => controller.abort()
+  if (signal?.aborted) cancel()
+  signal?.addEventListener('abort', cancel, { once: true })
   try {
     const response = await api.execute({ url: url.replace(/^\/chat/, ''), method: 'GET', responseType: 'blob', autoLoading: false, needAuth: true, signal: controller.signal })
     if (controller.signal.aborted || generation !== epoch) return null
@@ -229,18 +207,28 @@ const bytes = async (item, url, mime) => {
     if (controller.signal.aborted || generation !== epoch) return null
     if (blob.type !== mime) throw new Error('媒体类型不匹配，已拒绝使用。')
     return blob
-  } finally { inFlight.delete(controller) }
+  } finally { signal?.removeEventListener('abort', cancel); inFlight.delete(controller) }
 }
-const loadPreview = async item => {
-  const key = outputItemKey(item); if ((!item.previewUrl && !richDocumentKind(item.contentMimeType) && !(previewKind(item.contentMimeType) === 'text' && item.downloadUrl)) || previewUrls.value[key]) return
+let previewReadGeneration = 0
+const previewSource = item => {
   const generation = epoch
-  try {
-    const documentKind = richDocumentKind(item.contentMimeType)
-    const blob = await bytes(item, documentKind ? item.downloadUrl : (item.previewUrl || item.downloadUrl), documentKind ? downloadMimeType(item.contentMimeType) : item.contentMimeType); if (!blob) return
-    if (documentKind || previewKind(item.contentMimeType) === 'text') { if (blob.size > 2 * 1024 * 1024) throw new Error('文本较大，暂不支持在议事中预览'); const text = await blob.text(); if (generation === epoch) { patchMap(textPreviews, key, text); patchMap(itemErrors, key, '') }; return }
-    if (generation === epoch && previewKind(item.contentMimeType) !== 'file') patchMap(previewUrls, key, URL.createObjectURL(blob))
-    patchMap(itemErrors, key, '')
-  } catch (cause) { if (generation === epoch) patchMap(itemErrors, key, cause?.message || '预览失败') }
+  const key = outputItemKey(item)
+  const sha256 = item.sha256
+  const isCurrent = () => generation === epoch && allItems.value.some(value => outputItemKey(value) === key && value.sha256 === sha256)
+  return {
+    key: JSON.stringify([props.identityKey, props.conversationId, generation, key, sha256, ++previewReadGeneration]),
+    filename: outputDownloadName(item), mimeType: item.contentMimeType,
+    async load ({ signal }) {
+      if (!isCurrent()) throw new DOMException('成果范围已改变', 'AbortError')
+      const blob = await bytes(item, item.downloadUrl, downloadMimeType(item.contentMimeType), signal)
+      if (!blob || !isCurrent()) throw new DOMException('成果范围已改变', 'AbortError')
+      return blob
+    }
+  }
+}
+const loadPreview = item => {
+  if (!item.downloadUrl) return
+  patchMap(previewSources, outputItemKey(item), previewSource(item))
 }
 const downloadOutput = async item => {
   const key = outputItemKey(item); const generation = epoch
@@ -269,16 +257,10 @@ watch(() => JSON.stringify([props.typedOutcomes, catalogRequests.value.map(reque
 watch(effectiveTaskCompleted, completed => {
   if (!completed && validRootRequest()) refresh()
 })
-let selectedPreviewGeneration = 0
-const previewSelected = async item => {
-  const selectedGeneration = ++selectedPreviewGeneration
+const previewSelected = item => {
   const current = allItems.value.find(value => outputItemKey(value) === outputItemKey(item) && value.sha256 === item.sha256)
   if (!current) return
-  const generation = epoch
-  if (!current.messageSource) await loadPreview(current)
-  if (generation !== epoch || selectedGeneration !== selectedPreviewGeneration) return
-  const key = outputItemKey(current)
-  emit('preview-ready', { item: current, url: previewUrls.value[key] || '', text: current.text || textPreviews.value[key] || '', error: itemErrors.value[key] || '' })
+  emit('preview-ready', { item: current, text: current.messageSource ? current.text : '', source: current.messageSource ? null : previewSource(current) })
 }
 defineExpose({ previewSelected, loading, refresh: refreshFromUser })
 const onVisibility = () => {
@@ -295,7 +277,6 @@ onBeforeUnmount(() => { document.removeEventListener('visibilitychange', onVisib
 .bounty-output img { display: block; max-width: min(100%, 400px); max-height: 360px; object-fit: contain; }
 .bounty-output audio, .bounty-output-text, .bounty-output > p { flex-basis: 100%; max-width: 100%; }
 .bounty-output-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.image-preview { flex-basis: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
 .output-gallery-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .hall-output-action { min-height: 44px; padding: 9px 14px; border: 1px solid var(--hall-brand, #923f30); border-radius: 8px; background: var(--hall-surface, #fffefa); color: var(--hall-brand, #923f30); font: inherit; font-weight: 500; cursor: pointer; }
 .hall-output-action.primary { background: var(--hall-brand, #923f30); color: #fffefa; }
@@ -303,6 +284,4 @@ onBeforeUnmount(() => { document.removeEventListener('visibilitychange', onVisib
 .hall-output-action.primary:hover:not(:disabled) { background: #793326; }
 .hall-output-action:focus-visible { outline: 3px solid #923f3080; outline-offset: 3px; }
 .hall-output-action:disabled { opacity: .55; cursor: not-allowed; }
-.image-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px; background: rgba(9, 19, 19, .9); }
-.image-overlay img { max-width: 95vw; max-height: 84vh; object-fit: contain; }
 </style>

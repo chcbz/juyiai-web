@@ -1,5 +1,9 @@
+import { useFilePreview } from '../src/composables/useFilePreview.js'
+import { usePersonalWorkspace } from '../src/composables/usePersonalWorkspace.js'
 import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
 import * as returnState from '../src/utils/pageReturnState.js'
+import { FilePreview } from './helpers/file-preview-component.js'
+import { filePreviewKind, previewMime } from '../src/utils/filePreview.js'
 import * as taskPresentation from '../src/composables/juyiting/hallTaskPresentation.js'
 import { expect } from 'chai'
 import { readFileSync } from 'node:fs'
@@ -15,8 +19,9 @@ const compile = (name, deps) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, name) => `var ${name} = deps.${name}`)
+    .replace(/^import\s+FilePreview\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, { ...pageReturn, ...returnState, ...deps })
+  return new Function('Vue', 'deps', 'FilePreview', code)(Vue, { FilePreview, filePreviewKind, previewMime, useFilePreview, ...pageReturn, ...returnState, ...deps }, FilePreview)
 }
 const receipt = (id = 'photo') => ({ file: { fileId: id, displayName: `${id}.png`, state: 'ACTIVE' }, version: { fileId: id, version: '1', contentMimeType: 'image/png' }, operation: { state: 'COMMITTED' } })
 const settle = async () => { await flushPromises(); await Vue.nextTick() }
@@ -158,7 +163,7 @@ const panel = variant => {
   }
   state.previewVersion = async () => { state.preview.value = { kind: 'unsupported', message: '测试替身不读取真实文件' } }
   const deps = { ...taskPresentation, ...turns, usePersonalWorkspace: () => state, usePersonalWorkspaceConversationLinks: () => conversation, usePersonalWorkspaceTaskLinks: () => task,
-    marked: Object.assign(x => x, { setOptions() {} }), DOMPurify: { sanitize: x => x }, HallMessageParts: stub, BountyTextSelectionArchive: stub,
+    marked: Object.assign(x => x, { setOptions() {} }), DOMPurify: { sanitize: x => x }, HallMessageParts: stub, HallMessageWindow: stub, BountyTextSelectionArchive: stub,
     HallMaterialThumbnail: stub, HallConversationHistory: stub, BountyTypedOutcomeCard: stub, WorkspaceWriteRecovery: stub, HallVoiceControls: stub }
   deps.HallChatComposer = compile('HallChatComposer', deps)
   deps.HallMaterialPicker = picker(state)
@@ -189,7 +194,8 @@ describe('same production picker and attachment semantics in every discussion', 
       expect(wrapper.get('.composer-input-area .composer-attachment-strip').attributes('tabindex')).to.equal('0')
       expect(wrapper.get('.composer-attachment-card').text()).to.include('photo.png')
       await wrapper.get('[aria-label="移除 photo.png"]').trigger('click'); await settle()
-      expect(selected.calls.at(-1)).to.deep.equal(['detach', 'photo'])
+      if (variant === 'private') expect(selected.calls.filter(call => call[0] === 'detach')).to.have.length(0)
+      else expect(selected.calls.at(-1)).to.deep.equal(['detach', 'photo'])
       expect(wrapper.find('.composer-attachment-card').exists()).to.equal(false)
       expect(wrapper.emitted('send-message')).to.equal(undefined)
       expect(wrapper.props('draft')).to.equal('原有草稿')
@@ -227,35 +233,46 @@ describe('upload recovery leaves tools reachable', () => {
 })
 
 describe('fixed-version attachment thumbnails', () => {
-  it('uses an independent workspace preview and falls back to a file icon on image failure', async () => {
-    const state = workspace(), calls = []
-    state.select = async () => ({ versions: [{ version: '1', contentMimeType: 'image/png' }] })
-    state.previewVersion = async version => { calls.push(version); state.preview.value = { kind: 'image', url: 'blob:fixture-image' } }
-    const component = compile('HallMaterialThumbnail', { usePersonalWorkspace: () => state })
-    const wrapper = mount(component, { props: { fileId: 'photo', version: '1', identityKey: 'owner/thread-a' } })
+  const mountThumbnail = (mime = 'image/png') => {
+    const calls = []
+    const version = { fileId: 'photo', version: '1', originalFilename: 'photo.png', contentMimeType: mime, byteLength: '5', sha256: 'a'.repeat(64), createdAt: 1 }
+    const api = { execute: async options => {
+      calls.push(options)
+      if (options.url.endsWith('/content')) return new Blob(['photo'], { type: mime })
+      return { file: { fileId: 'photo', sourceKind: 'UPLOAD', displayName: 'photo', mediaFamily: 'IMAGE', state: 'ACTIVE', metadataRevision: '1', latestVersion: '1', createdAt: 1, capabilities: {} }, latestVersion: version, versions: [version], relations: [], derivation: [] }
+    } }
+    const component = compile('HallMaterialThumbnail', { usePersonalWorkspace: options => usePersonalWorkspace({ ...options, api }) })
+    return { calls, wrapper: mount(component, { props: { fileId: 'photo', version: '1', identityKey: 'owner/thread-a' } }) }
+  }
+  it('reads the fixed original image and discards it immediately when identity changes', async () => {
+    const { wrapper, calls } = mountThumbnail()
     try {
       await settle()
-      expect(calls).to.deep.equal(['1'])
-      expect(wrapper.get('img').attributes('src')).to.equal('blob:fixture-image')
-      await wrapper.get('img').trigger('error')
+      expect(wrapper.find('img').exists()).to.equal(true)
+      expect(calls.filter(call => call.url.endsWith('/content')).map(call => call.url))
+        .to.deep.equal(['/personal-workspace/files/photo/versions/1/content'])
+      expect(calls.every(call => call.method === 'GET' && !call.url.includes('/preview'))).to.equal(true)
+      await wrapper.setProps({ identityKey: 'other-owner/thread-b', version: '2' })
+      await settle()
       expect(wrapper.find('img').exists()).to.equal(false)
       expect(wrapper.find('svg').exists()).to.equal(true)
+      expect(calls.filter(call => call.url.endsWith('/content'))).to.have.length(1)
     } finally { wrapper.unmount() }
   })
-  it('does not preview a stale identity lookup or silently substitute the latest version', async () => {
-    const state = workspace(), calls = []; let finish
-    state.select = () => new Promise(resolve => { finish = resolve })
-    state.previewVersion = async version => calls.push(version)
-    const component = compile('HallMaterialThumbnail', { usePersonalWorkspace: () => state })
-    const wrapper = mount(component, { props: { fileId: 'photo', version: '1', identityKey: 'owner/thread-a' } })
+  it('does not fetch Office bytes for a thumbnail', async () => {
+    const { wrapper, calls } = mountThumbnail('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     try {
-      const old = finish
-      await wrapper.setProps({ identityKey: 'other-owner/thread-b' })
-      old({ versions: [{ version: '1', contentMimeType: 'image/png' }] })
-      finish({ versions: [{ version: '2', contentMimeType: 'image/png' }] })
       await settle()
-      expect(calls).to.have.length(0)
+      expect(wrapper.find('svg').exists()).to.equal(true)
+      expect(calls.some(call => call.url.endsWith('/content'))).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+  it('falls back to its icon after image decoding fails', async () => {
+    const { wrapper } = mountThumbnail()
+    try {
+      await settle(); await wrapper.get('img').trigger('error'); await settle()
       expect(wrapper.find('img').exists()).to.equal(false)
+      expect(wrapper.find('svg').exists()).to.equal(true)
     } finally { wrapper.unmount() }
   })
 })
@@ -293,6 +310,110 @@ describe('differential selection preserves concurrent work', () => {
       document.querySelector('.quick-material-confirm').click(); await settle()
       expect(selected.calls).to.deep.equal([['detach', 'old']])
       expect(selected.links.value.map(link => link.fileId)).to.deep.equal(['concurrent'])
+    } finally { wrapper.unmount() }
+  })
+})
+
+
+describe('PRIVATE first-send material staging', () => {
+  it('selects fixed versions with no conversation/association write and forwards them on explicit send', async () => {
+    const { wrapper, state, Picker, conversation, task } = panel('private')
+    try {
+      await settle()
+      let loads = 0
+      conversation.load = async () => { loads++; return true }
+      await wrapper.setProps({ conversationId: '', selectedTask: null, selectedAgent: { agentId: 'a' } })
+      await settle()
+      await wrapper.findComponent(Picker).vm.$.exposed.importImages([{ name: 'photo.png' }]); await settle()
+      expect(loads).to.equal(0)
+      expect(conversation.calls).to.have.length(0)
+      expect(task.calls).to.have.length(0)
+      expect(wrapper.get('.composer-attachment-card').text()).to.include('photo.png')
+      expect(wrapper.emitted('send-message')).to.equal(undefined)
+      await wrapper.get('.composer-send').trigger('click')
+      expect(wrapper.emitted('send-message').at(-1)).to.deep.equal([{ materialRefs: [{ kind: 'WORKSPACE_VERSION', fileId: 'photo', version: '1' }] }])
+      state.items.value[0].latestVersion = '2'
+      expect(wrapper.emitted('update:material-refs').at(-1)[0][0].version).to.equal('1')
+      await wrapper.setProps({ selectedAgent: { agentId: 'b' } }); await settle()
+      expect(wrapper.find('.composer-attachment-card').exists()).to.equal(false)
+      expect(wrapper.emitted('update:material-refs').at(-1)).to.deep.equal([[]])
+    } finally { wrapper.unmount() }
+  })
+  it('does not silently send all historical conversation associations', async () => {
+    const { wrapper, conversation } = panel('private')
+    try {
+      conversation.links.value = [{ relationId: 'old', fileId: 'old-file', version: '7', role: 'REFERENCE', state: 'ACTIVE' }]
+      await settle()
+      await wrapper.get('.composer-send').trigger('click')
+      expect(wrapper.emitted('send-message').at(-1)).to.deep.equal([{ materialRefs: [] }])
+      expect(wrapper.find('.composer-attachment-card').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+})
+
+describe('local material handoff does not admit execution', () => {
+  it('stages a PRIVATE fixed version without writing associations or sending', async () => {
+    const { wrapper, conversation, task } = panel('private')
+    try {
+      await wrapper.setProps({ conversationId: '', selectedAgent: { agentId: 'agent-a' } })
+      await settle()
+      const refs = [{ fileId: 'photo', version: '1' }]
+      expect(await wrapper.vm.prepareMaterialDraft(refs)).to.deep.equal(refs)
+      expect(wrapper.vm.applyMaterialDraft(refs)).to.equal(true)
+      refs[0].version = '9'
+      expect(wrapper.vm.materialDraft()).to.deep.equal({ scope: 'EXPLICIT', inputs: [{ fileId: 'photo', version: '1' }] })
+      expect(conversation.calls).to.deep.equal([])
+      expect(task.calls).to.deep.equal([])
+      expect(wrapper.emitted('send-message')).to.equal(undefined)
+      await wrapper.setProps({ selectedAgent: { agentId: 'agent-b' } })
+      expect(wrapper.vm.materialDraft().inputs).to.deep.equal([])
+    } finally { wrapper.unmount() }
+  })
+
+  it('requires exact TASK linked versions and rechecks removal between prepare and apply', async () => {
+    const { wrapper, task } = panel('bounty')
+    try {
+      task.links.value = [{ fileId: 'photo', version: '1', role: 'INPUT', state: 'ACTIVE' }]
+      await settle()
+      expect(await wrapper.vm.prepareMaterialDraft([{ fileId: 'photo', version: '2' }])).to.equal(null)
+      const prepared = await wrapper.vm.prepareMaterialDraft([{ fileId: 'photo', version: '1' }])
+      expect(prepared).to.deep.equal([{ fileId: 'photo', version: '1' }])
+      task.links.value = []
+      expect(wrapper.vm.applyMaterialDraft(prepared)).to.equal(false)
+      expect(task.calls).to.deep.equal([])
+      expect(wrapper.emitted('send-message')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+
+  for (const locked of [{ conversationBusy: true }, { isStreaming: true }, { isAwaitingReply: true }, { voice: { voiceInteractionLocked: true } }]) {
+    it(`does not replace a private material draft while ${Object.keys(locked)[0]}`, async () => {
+      const { wrapper } = panel('private')
+      try {
+        await settle()
+        const refs = [{ fileId: 'photo', version: '1' }]
+        expect(wrapper.vm.applyMaterialDraft(refs)).to.equal(true)
+        await wrapper.setProps(locked)
+        expect(await wrapper.vm.prepareMaterialDraft([])).to.equal(null)
+        expect(wrapper.vm.applyMaterialDraft([])).to.equal(false)
+        expect(wrapper.vm.materialDraft().inputs).to.deep.equal(refs)
+      } finally { wrapper.unmount() }
+    })
+  }
+
+  it('does not replace materials during upload or association writes', async () => {
+    const { wrapper, conversation, Picker } = panel('private')
+    try {
+      await settle()
+      wrapper.findComponent(Picker).vm.$emit('upload-busy', true)
+      await settle()
+      expect(wrapper.vm.applyMaterialDraft([{ fileId: 'photo', version: '1' }])).to.equal(false)
+      wrapper.findComponent(Picker).vm.$emit('upload-busy', false)
+      conversation.actionState.value = 'saving'
+      await settle()
+      expect(wrapper.vm.applyMaterialDraft([{ fileId: 'photo', version: '1' }])).to.equal(false)
+      conversation.actionState.value = 'idle'
+      await settle()
+      expect(wrapper.vm.applyMaterialDraft([{ fileId: 'photo', version: '1' }])).to.equal(true)
     } finally { wrapper.unmount() }
   })
 })

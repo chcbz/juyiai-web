@@ -2,38 +2,66 @@
   <div class="media-asset">
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="previewUrl && mediaKind === 'image'">
-      <button type="button" class="image-button" aria-label="放大查看图片" @click="expanded = true"><img :src="previewUrl" :alt="part.filename || '会话图片'" /></button>
+      <button
+        type="button"
+        class="image-button"
+        aria-label="放大查看图片"
+        @click="expanded = true"
+      ><img :src="previewUrl" :alt="part.filename || '会话图片'" /></button>
 
     </template>
     <template v-else-if="mediaKind === 'image'"><span>{{ loading ? '正在读取图片…' : '图片暂不可预览，请打开预览后重试。' }}</span></template>
     <template v-if="mediaKind === 'audio'">
-      <audio v-if="previewUrl" :src="previewUrl" controls controlslist="nodownload" preload="none" aria-label="会话音频" />
-      <button v-else type="button" :disabled="loading" @click="loadPreview">{{ loading ? '正在读取音频…' : '播放音频' }}</button>
+      <audio
+        v-if="previewUrl"
+        :src="previewUrl"
+        controls
+        controlslist="nodownload"
+        preload="none"
+        aria-label="会话音频"
+      ></audio>
+      <button
+        v-else
+        type="button"
+        :disabled="loading"
+        @click="loadPreview"
+      >{{ loading ? '正在读取音频…' : '播放音频' }}</button>
     </template>
-    <div class="media-actions" role="group" aria-label="成果操作">
+    <div class="media-actions" role="group" aria-label="文件操作">
       <button type="button" :disabled="loading" @click="expanded = true">预览</button>
       <slot name="actions"></slot>
     </div>
     <Teleport to="body">
-      <dialog v-if="expanded" ref="previewDialog" class="image-overlay" aria-label="会话资料预览" @cancel.prevent="expanded = false" @click="closeOnBackdrop">
-        <header><strong>{{ part.filename || '资料预览' }}</strong><button type="button" class="media-preview-close" aria-label="关闭预览" title="关闭预览" @click="expanded = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
-        <img v-if="previewUrl && mediaKind === 'image'" :src="previewUrl" :alt="part.filename || '会话图片'" />
-        <audio v-else-if="previewUrl && mediaKind === 'audio'" :src="previewUrl" controls controlslist="nodownload" preload="none" aria-label="音频预览" />
-        <RichDocumentPreview v-else-if="previewBlob && documentKind" :text="previewText" :kind="documentKind" :title="part.filename" />
-        <pre v-else-if="previewBlob && mediaKind === 'text'" class="asset-text-preview" v-text="previewText"></pre>
-        <PdfDocumentPreview v-else-if="previewBlob && mediaKind === 'pdf'" :blob="previewBlob" />
-        <p v-else>{{ loading ? '正在读取…' : '此格式暂不支持在线预览。' }}</p>
-        <p v-if="error" role="alert">{{ error }}</p>
-        <footer v-if="!previewBlob && (mediaKind !== 'file' || documentKind)"><button type="button" :disabled="loading" @click="loadPreview">重试预览</button></footer>
+      <dialog
+        v-if="expanded"
+        ref="previewDialog"
+        class="image-overlay"
+        aria-label="会话资料预览"
+        @cancel.prevent="expanded = false"
+        @click="closeOnBackdrop"
+      >
+        <header><strong>{{ part.filename || '资料预览' }}</strong><button
+          type="button"
+          class="media-preview-close"
+          aria-label="关闭预览"
+          title="关闭预览"
+          @click="expanded = false"
+        ><svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        ><path d="m6 6 12 12M18 6 6 18" /></svg></button></header>
+        <FilePreview :source="modalSource" />
       </dialog>
     </Teleport>
   </div>
 </template>
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import RichDocumentPreview from '../outputs/RichDocumentPreview.vue'
-import { richDocumentKind } from '../../utils/richDocumentPreview.js'
-import PdfDocumentPreview from '../workspace/PdfDocumentPreview.vue'
+import FilePreview from '../preview/FilePreview.vue'
+import { previewMime } from '../../utils/filePreview.js'
 import { createApi } from '../../composables/useHttp.js'
 import { conversationAssetContentPath, safeAssetPreviewKind } from '../../composables/juyiting/hallMessageParts.js'
 
@@ -45,7 +73,6 @@ const props = defineProps({
 const api = createApi('/chat')
 const previewUrl = ref('')
 const previewBlob = ref(null)
-const previewText = ref('')
 const loading = ref(false)
 const error = ref('')
 const expanded = ref(false)
@@ -59,13 +86,11 @@ watch(expanded, async opened => {
     if (!expanded.value) return
     previewDialog.value?.showModal?.()
     previewDialog.value?.querySelector('button')?.focus()
-    void loadPreview()
   } else {
     await nextTick()
     if (previewReturnFocus?.isConnected) previewReturnFocus.focus()
   }
 })
-const documentKind = computed(() => props.part.kind === 'file' ? richDocumentKind(props.part.mime, props.part.filename) : '')
 const mediaKind = computed(() => safeAssetPreviewKind(props.part))
 let controller = null
 let requestGeneration = 0
@@ -76,19 +101,28 @@ const discard = () => {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   previewUrl.value = ''
   previewBlob.value = null
-  previewText.value = ''
   expanded.value = false
   loading.value = false
   error.value = ''
 }
-const getBlob = async signal => {
+const sourceKey = computed(() => JSON.stringify([props.identityKey, props.conversationId, props.part.partId, props.part.revision, props.part.assetId]))
+const modalSource = computed(() => {
+  const key = sourceKey.value
   const url = conversationAssetContentPath({ conversationId: props.conversationId, assetId: props.part.assetId })
-  const response = await api.execute({ url, method: 'GET', responseType: 'blob', autoLoading: false, needAuth: true, signal })
-  if (!(response instanceof Blob)) throw new Error('无法读取会话资产。')
-  return response
-}
+  return {
+    key, filename: props.part.filename, mimeType: props.part.mime,
+    async load ({ signal }) {
+      if (key !== sourceKey.value || signal?.aborted) throw new DOMException('已取消', 'AbortError')
+      const response = previewBlob.value || await api.execute({ url, method: 'GET', responseType: 'blob', autoLoading: false, needAuth: true, signal })
+      if (key !== sourceKey.value || signal?.aborted) throw new DOMException('已取消', 'AbortError')
+      if (!(response instanceof Blob)) throw new Error('无法读取会话资产。')
+      return response
+    }
+  }
+})
+const getBlob = signal => modalSource.value.load({ signal })
 const loadPreview = async () => {
-  if (previewBlob.value || loading.value || (mediaKind.value === 'file' && !documentKind.value)) return
+  if (previewBlob.value || loading.value || !['image', 'audio'].includes(mediaKind.value)) return
   const generation = ++requestGeneration
   controller?.abort()
   const pending = new AbortController()
@@ -98,14 +132,12 @@ const loadPreview = async () => {
   try {
     const blob = await getBlob(pending.signal)
     if (pending.signal.aborted || generation !== requestGeneration) return
-    const actualMime = String(blob.type || '').toLowerCase().split(';')[0].trim()
-    if (actualMime !== props.part.mime || safeAssetPreviewKind({ ...props.part, mime: actualMime }) !== mediaKind.value) {
+    const actualMime = previewMime(blob.type)
+    if (actualMime !== previewMime(props.part.mime)) {
       throw new Error('文件信息不一致，暂时无法预览。')
     }
-    const text = mediaKind.value === 'text' || documentKind.value ? await blob.text() : ''
     if (pending.signal.aborted || generation !== requestGeneration) return
     previewBlob.value = blob
-    previewText.value = text
     if (['image', 'audio'].includes(mediaKind.value)) previewUrl.value = URL.createObjectURL(blob)
   } catch (cause) {
     if (!pending.signal.aborted && generation === requestGeneration) error.value = cause?.message || '读取内容失败，请重试。'
@@ -113,10 +145,10 @@ const loadPreview = async () => {
     if (generation === requestGeneration) { loading.value = false; controller = null }
   }
 }
-watch(() => `${props.identityKey}\u0000${props.conversationId}\u0000${props.part.partId}\u0000${props.part.revision}\u0000${props.part.assetId}`, () => {
+watch(sourceKey, () => {
   discard()
   if (mediaKind.value === 'image' && props.part.assetId) void loadPreview()
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
 onBeforeUnmount(discard)
 </script>
 <style scoped>

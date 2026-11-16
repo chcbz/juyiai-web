@@ -1,3 +1,4 @@
+import { freezePrivateMaterialRefs } from './hallPrivateMaterials.js'
 import { useHallMessagePages } from './useHallMessagePages.js'
 import { createHallRequestReadbackScheduler } from './hallRequestReadbackScheduler.js'
 import { createChatStreamDecoder } from '../../utils/chatStreamWire.js'
@@ -438,7 +439,7 @@ export const useHallConversation = ({
       recordObservation('first_status', activeRequest.value)
       if (session && event.requestId === session.requestId &&
           (isTerminalTurnState(event.state || event.agentDelivery?.state) || event.type === 'agent_message' ||
-           ['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(event.requestState || event.aggregateState))) {
+           ['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED', 'RESULT_COMMITTED'].includes(event.requestState || event.aggregateState))) {
         session.terminalReadbackHint = true
         scheduleAuthoritativeRequestReadback(session.requestId, { immediate: true })
       }
@@ -598,7 +599,6 @@ export const useHallConversation = ({
       return true
     }
     if (result.shouldStopPolling && !deliberationBusy(activeRequest.value, activeTurns.value)) stopHallReplyPolling()
-    if (result.toastName) showToast(`${result.toastName} 已回话`)
     if (result.type === 'final' && result.message?.sender === 'AGENT') {
       notifyFinalReply({ message: result.message, source: 'agent_event', replyConversationId: event.conversationId })
     }
@@ -1526,11 +1526,9 @@ export const useHallConversation = ({
     clearBuiltInTurn()
     const id = conversationId.value
     if (finalized?.message?.content && id && (!finalized.conversationId || finalized.conversationId === id)) {
-      if (finalized.toastName) showToast(`${finalized.toastName} 已回话`)
       notifyFinalReply({ message: finalized.message, source: 'stream_end', replyConversationId: id })
     }
     completedTurn?.stagedFinals.forEach(staged => {
-      if (staged.toastName && !observedFinalReplyIds.has(exactMessageId(staged.message))) showToast(`${staged.toastName} 已回话`)
       notifyFinalReply({ message: staged.message, source: staged.source, replyConversationId: staged.conversationId })
     })
   }
@@ -1538,7 +1536,7 @@ export const useHallConversation = ({
   const settleCurrentRequest = (session, view) => {
     if (session?.settlePromise) return session.settlePromise
     if (!localRequestViewMatches(session, view) ||
-        !['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(view.state) || !view.turns.length ||
+        !['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED', 'RESULT_COMMITTED'].includes(view.state) || !view.turns.length ||
         !view.turns.every(turn => isTerminalTurnState(turn.state)) ||
         ![...session.expectedTargetIds].every(id => view.turns.some(turn => turn.targetAgentId === id))) return null
     session.terminalConfirmed = true
@@ -1571,6 +1569,7 @@ export const useHallConversation = ({
 
   const performHallMessageSend = async ({
     content: explicitContent,
+    materialRefs,
     contextSnapshot,
     source = 'text',
     clearDraftRevision,
@@ -1587,7 +1586,18 @@ export const useHallConversation = ({
       if (!validated || validated.cas !== contextSnapshot?.cas || clearDraftRevision !== validated.draftRevision) return false
       sendContext = validated
     }
-    const requestConversationId = isVoiceSend ? sendContext.conversationId : conversationId.value
+    const privateSend = sendContext.conversationScopeType === 'private'
+    const originalConversationId = isVoiceSend ? sendContext.conversationId : conversationId.value
+    const requestConversationId = privateSend ? (originalConversationId || null) : originalConversationId
+    // Freeze before capability negotiation: neither identity readback nor a late UI update
+    // may rewrite the intent accepted under this requestId.
+    const frozenMaterials = privateSend ? (isVoiceSend ? sendContext.materialRefs : materialRefs) : null
+    sendContext = { ...sendContext }
+    for (const key of ['targetAgentIds', 'participantAgentIds', 'mentionAgentIds']) {
+      if (Array.isArray(sendContext[key])) sendContext[key] = [...sendContext[key]]
+    }
+    const originalMetadata = isVoiceSend ? sendContext.outgoingMetadata : outgoingMetadata?.value
+    const metadataSource = { ...safeOutgoingMetadata(originalMetadata), inputRefs: inputRefsFor(originalMetadata) }
     const sendScope = scopeSnapshot()
     const sendGuard = captureGuard(sendScope)
     try {
@@ -1600,7 +1610,6 @@ export const useHallConversation = ({
       showToast(deliberationStatus.value)
       return false
     }
-    const metadataSource = isVoiceSend ? (sendContext.outgoingMetadata || {}) : (outgoingMetadata?.value || {})
     const mentionAgentIds = Array.isArray(sendContext.mentionAgentIds) && sendContext.mentionAgentIds.length
       ? sendContext.mentionAgentIds
       : sendContext.targetAgentIds
@@ -1664,12 +1673,13 @@ export const useHallConversation = ({
         clientSeenVector: seenVector(), inputRefs: inputRefsFor(metadataSource),
         content,
         conversationId: requestConversationId,
+        ...(privateSend ? { materialRefs: frozenMaterials } : {}),
         conversationType: 'juyiting',
         conversationScopeType: sendContext.conversationScopeType,
         conversationScopeKey: sendContext.conversationScopeKey,
         targetAgentIds: sendContext.targetAgentIds,
         targetAgentId: sendContext.targetAgentId,
-        taskId: sendContext.taskId,
+        ...(privateSend ? {} : { taskId: sendContext.taskId }),
         metadata: {
           ...safeMetadata,
           scene: 'juyiting',
@@ -1784,6 +1794,10 @@ export const useHallConversation = ({
     if (isVoiceSend && typeof options.content !== 'string') return false
     const content = String((options.content ?? draft.value) || '').trim()
     if (disposed || !content || activeSendToken || isConversationBusy.value || conversationLoadError.value) return false
+    if (!isVoiceSend && currentChatContext.value.conversationScopeType === 'private') {
+      try { options = { ...options, materialRefs: freezePrivateMaterialRefs(options.materialRefs, conversationId.value || null) } }
+      catch (error) { showToast(error.message); return false }
+    }
     const sendToken = Object.freeze({ requestId: createStableRequestId(), generation: lifecycleGeneration })
     activeSendToken = sendToken
     hasPendingSendSession.value = ['public', 'private'].includes(scopeSnapshot()?.type)

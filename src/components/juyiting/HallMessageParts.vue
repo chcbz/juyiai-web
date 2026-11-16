@@ -23,7 +23,7 @@
           class="part-save-button"
           :disabled="archiveStatus(part).busy || archiveStatus(part).state === 'saved'"
           @click="saveToWorkspace(part)"
-        >{{ archiveStatus(part).state === 'saved' ? '已保存到工作空间' : archiveStatus(part).busy ? '正在确认保存…' : ['pending', 'saving', 'unknown', 'partial_failed'].includes(archiveStatus(part).state) ? '继续原保存' : '保存到工作空间' }}</button>
+        >{{ archiveStatus(part).state === 'saved' ? '已保存到个人资料' : archiveStatus(part).busy ? '正在确认保存…' : ['pending', 'saving', 'unknown', 'partial_failed'].includes(archiveStatus(part).state) ? '继续原保存' : '保存到个人资料' }}</button>
         <p v-if="archiveStatus(part).message" :class="{ 'part-archive-error': ['error', 'unknown', 'partial_failed'].includes(archiveStatus(part).state) }" :role="['error', 'unknown', 'partial_failed'].includes(archiveStatus(part).state) ? 'alert' : 'status'">{{ archiveStatus(part).message }}</p>
         <button
           v-if="archiveStatus(part).operationId && ['pending', 'saving', 'unknown', 'error', 'partial_failed'].includes(archiveStatus(part).state) && !archiveStatus(part).busy"

@@ -84,51 +84,18 @@
     </Teleport>
 
     <section class="formal-task-execution" aria-labelledby="formal-task-execution-title">
-      <div>
-        <h5 id="formal-task-execution-title">开始办理</h5>
-        <p>为当前事项生成 PDF 成果，可选择附上资料。</p>
-      </div>
-      <p class="task-material-note">成果：PDF；资料：{{ selectedInputs.length }} 份固定版本。</p>
-      <p v-if="formal.readyReason.value" class="task-material-error" role="status">{{ formal.readyReason.value }}</p>
-      <template v-else>
-        <fieldset class="formal-inputs">
-          <legend>本次使用的资料（可选）</legend>
-          <p v-if="!activeExecutionLinks.length" class="task-material-note">当前不使用资料；执行能力允许时可直接开始办理。</p>
-          <label v-for="link in activeExecutionLinks" :key="link.relationId">
-            <input v-model="selectedInputKeys" type="checkbox" :value="inputKey(link)" :disabled="isOtherVersionSelected(link)">
-            <span>{{ materialName(link) }} · v{{ link.version }} · {{ roleText(link.role) }}</span>
-          </label>
-          <p v-if="activeExecutionLinks.some(link => link.role === 'REFERENCE')" class="task-material-note">只有勾选的资料会用于本次办理。</p>
-        </fieldset>
-        <label class="formal-instruction">
-          <span>办理说明</span>
-          <textarea v-model="instruction" maxlength="4000" placeholder="说明正式交付要求；附件内容不复制到这里。"></textarea>
+      <h5 id="formal-task-execution-title">带入事项议事</h5>
+      <p>仅预填当前事项的办理说明和固定资料，发送后才会受理。</p>
+      <fieldset class="formal-inputs">
+        <legend>本次使用的资料（可选）</legend>
+        <label v-for="link in activeExecutionLinks" :key="link.relationId">
+          <input v-model="selectedInputKeys" type="checkbox" :value="inputKey(link)" :disabled="isOtherVersionSelected(link)">
+          <span>{{ materialName(link) }} · v{{ link.version }} · {{ roleText(link.role) }}</span>
         </label>
-        <p class="formal-risk-note">确认后开始办理，仅使用勾选的资料；可能调用外部服务并产生额外费用，金额尚未确定。</p>
-        <button type="button" class="begin-formal-execution" :disabled="!canBegin" @click="beginFormalExecution">确认并开始办理（PDF）</button>
-      </template>
-      <p v-if="formal.scopeError.value" class="task-material-error" role="alert">{{ formal.scopeError.value }}</p>
-      <p class="task-material-note" role="status">{{ formal.stateText.value }}</p>
-      <dl v-if="formal.activeExecution.value" class="formal-execution-facts">
-        <div><dt>状态</dt><dd>{{ executionLabel(formal.activeExecution.value.state) }}</dd></div>
-      </dl>
-      <label v-if="formal.activeExecution.value?.state === 'QUEUED'" class="formal-confirmation revoke-confirmation">
-        <input v-model="revokeConfirmed" type="checkbox" :disabled="formal.revoking.value">
-        <span>确认撤销本次执行的输入授权；不会自动重跑，不代表已取消外部调用或免除费用。</span>
-      </label>
-      <div class="formal-execution-actions">
-        <button v-if="formal.activeExecution.value?.state === 'QUEUED'" type="button" :disabled="!revokeConfirmed || !formal.canRevoke.value" @click="revokeFormalExecution">撤销本次输入授权</button>
-        <button type="button" :disabled="formal.revoking.value" @click="recoverFormalExecution">查询进度</button>
-        <button type="button" :disabled="formal.execution.pending.value" @click="loadFormalHistory">读取本任务执行历史</button>
-      </div>
-      <p v-if="formal.historyState.value === 'loading'" class="task-material-note" role="status">正在核对执行历史…</p>
-      <p v-else-if="formal.historyError.value" class="task-material-error" role="alert">{{ formal.historyError.value }}</p>
-      <ul v-else-if="formal.formalHistory.value.length" class="formal-history">
-        <li v-for="item in formal.formalHistory.value" :key="item.executionId">
-          <button type="button" @click="formal.selectFormalHistory(item.executionId)">{{ executionLabel(item.state) }} · PDF</button>
-        </li>
-      </ul>
-      <p class="task-material-note">提交后请查看交付进度。</p>
+      </fieldset>
+      <label class="formal-instruction"><span>办理说明</span><textarea v-model="instruction" maxlength="4000" placeholder="说明处理要求；资料不会复制到正文。"></textarea></label>
+      <p v-if="!targetAgentId" class="task-material-note">请先明确本事项的承办好汉。</p>
+      <button type="button" class="begin-formal-execution" :disabled="!canBegin" @click="openDeliberation">带入本事项议事</button>
     </section>
 
     <section class="task-execution-fact" aria-label="执行和成果状态">
@@ -145,16 +112,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePersonalWorkspace } from '@/composables/usePersonalWorkspace'
 import { usePersonalWorkspaceTaskLinks } from '@/composables/usePersonalWorkspaceTaskLinks'
 import { validMaterialVersion } from '../../composables/juyiting/materialVersion.js'
-import { useFormalTaskExecution } from '@/composables/useFormalTaskExecution'
 
-const emit = defineEmits(['formal-execution-created', 'formal-execution-recovered'])
+const emit = defineEmits(['open-deliberation'])
 const props = defineProps({
   taskId: { type: String, required: true },
-  conversationId: { type: String, default: '' },
   targetAgentId: { type: String, default: '' },
-  conversationConfirmed: { type: Boolean, default: false },
-  formalExecutionAuthorized: { type: Boolean, default: false },
-  formalExecutionAuthorizationReason: { type: String, default: '' },
   identityEpoch: { type: [Number, String], default: 0 },
   identityScope: { type: String, default: '' },
   defaultInstruction: { type: String, default: '' }
@@ -170,16 +132,6 @@ const linkNames = ref({})
 const materialIdentityKey = computed(() => `${props.identityEpoch}\u0000${props.identityScope}`)
 const workspace = usePersonalWorkspace({ identityEpoch: materialIdentityKey })
 const links = usePersonalWorkspaceTaskLinks({ taskId: () => props.taskId, identityEpoch: materialIdentityKey })
-const formal = useFormalTaskExecution({
-  taskId: () => props.taskId,
-  conversationId: () => props.conversationId,
-  targetAgentId: () => props.targetAgentId,
-  conversationConfirmed: () => props.conversationConfirmed,
-  executionAuthorized: () => props.formalExecutionAuthorized,
-  executionAuthorizationReason: () => props.formalExecutionAuthorizationReason,
-  identityEpoch: () => props.identityEpoch,
-  identityScope: () => props.identityScope || String(props.identityEpoch)
-})
 const selectedFile = computed(() => workspace.detail.value?.file?.fileId === selectedFileId.value ? workspace.detail.value.file : null)
 const canAttach = computed(() => Boolean(selectedFile.value?.state === 'ACTIVE' && validMaterialVersion(selectedVersion.value) && links.actionState.value !== 'saving'))
 const outputLinks = computed(() => links.links.value.filter(link => link.state === 'ACTIVE' && link.role === 'OUTPUT'))
@@ -187,16 +139,15 @@ const activeExecutionLinks = computed(() => links.links.value.filter(link => lin
 const selectedInputs = computed(() => activeExecutionLinks.value
   .filter(link => selectedInputKeys.value.includes(inputKey(link)))
   .map(link => ({ fileId: link.fileId, version: link.version })))
-const canBegin = computed(() => !formal.readyReason.value &&
-  (selectedInputs.value.length > 0 || formal.execution.generationEnabled.value === true) &&
-  instruction.value.trim().length > 0 && !formal.execution.pending.value)
+const canBegin = computed(() => Boolean(props.taskId && props.targetAgentId && instruction.value.trim() &&
+  links.listState.value !== 'error' && !links.loading.value && !links.pendingWrites.value.length &&
+  !['saving', 'removing'].includes(links.actionState.value)))
 const executionFact = computed(() => {
   if (links.listState.value === 'error') return '资料关联目录不可用，当前不能确认执行或成果状态。'
   if (outputLinks.value.length) return `共 ${outputLinks.value.length} 项成果；验收情况请查看交付状态。`
   return '尚未确认本悬赏有正式交付；资料关联本身不表示已执行。'
 })
 
-const executionLabel = state => ({ QUEUED: '等待办理', OUTPUT_COMMITTED: '成果已生成', CANCELLED: '事项已取消', INPUTS_REVOKED: '资料授权已撤销', FAILED: '办理失败' })[state] || '状态待确认'
 const roleText = role => ({ INPUT: '输入资料', REFERENCE: '参考资料', OUTPUT: '成果引用' })[role] || '未知用途'
 const materialName = link => linkNames.value[link.fileId] || workspace.items.value.find(file => file.fileId === link.fileId)?.displayName || `资料 ${link.fileId}`
 const resolveLinkNames = async operationKey => {
@@ -219,7 +170,7 @@ const openMaterialPicker = () => { materialPickerOpen.value = true }
 const closeMaterialPicker = () => { materialPickerOpen.value = false; resetPickerSelection(); workspace.closeDetail() }
 const refresh = async () => {
   const operationKey = `${materialIdentityKey.value}\u0000${props.taskId}`
-  const [, loaded] = await Promise.all([workspace.refresh({ state: 'ACTIVE' }), links.load(), formal.refreshReadiness()])
+  const [, loaded] = await Promise.all([workspace.refresh({ state: 'ACTIVE' }), links.load()])
   if (loaded && operationKey === `${materialIdentityKey.value}\u0000${props.taskId}`) await resolveLinkNames(operationKey)
 }
 const selectFile = async fileId => {
@@ -246,32 +197,18 @@ const attach = async () => {
   }
 }
 const detach = link => { void links.detach(link) }
-const revokeConfirmed = ref(false)
-const revokeFormalExecution = async () => {
-  const result = await formal.revokeOriginal({ confirmed: revokeConfirmed.value })
-  revokeConfirmed.value = false
-  if (result) emit('formal-execution-recovered', result)
+const openDeliberation = () => {
+  if (!canBegin.value) return false
+  emit('open-deliberation', { mode: 'TASK', taskId: props.taskId, targetAgentId: props.targetAgentId,
+    instruction: instruction.value, inputs: selectedInputs.value.map(input => ({ ...input })) })
+  return true
 }
-watch(() => `${props.identityEpoch}\u0000${props.taskId}\u0000${props.conversationId}\u0000${props.targetAgentId}`, () => { revokeConfirmed.value = false }, { flush: 'sync' })
-const beginFormalExecution = async () => {
-  const result = await formal.begin({ inputs: selectedInputs.value, instruction: instruction.value, confirmed: true })
-  if (result) emit('formal-execution-created', result)
-}
-const recoverFormalExecution = async () => {
-  const result = await formal.recoverOriginalRequest()
-  if (result) emit('formal-execution-recovered', result)
-}
-const loadFormalHistory = () => { void formal.loadFormalHistory() }
-
-watch(() => `${materialIdentityKey.value}\u0000${props.taskId}\u0000${props.conversationId}\u0000${props.targetAgentId}\u0000${props.formalExecutionAuthorized}\u0000${props.formalExecutionAuthorizationReason}\u0000${props.defaultInstruction}`, () => { linkNames.value = {}; resetSelection() }, { immediate: true, flush: 'sync' })
+watch(() => `${materialIdentityKey.value}\u0000${props.taskId}\u0000${props.targetAgentId}\u0000${props.defaultInstruction}`, () => { linkNames.value = {}; resetSelection() }, { immediate: true, flush: 'sync' })
 watch(activeExecutionLinks, values => {
   selectedInputKeys.value = selectedInputKeys.value.filter(key => values.some(link => inputKey(link) === key))
 })
-onMounted(() => {
-  void refresh()
-  void formal.recoverOriginalRequest().then(result => { if (result) emit('formal-execution-recovered', result) })
-})
-onBeforeUnmount(() => { workspace.dispose(); links.dispose(); formal.dispose() })
+onMounted(() => { void refresh() })
+onBeforeUnmount(() => { workspace.dispose(); links.dispose() })
 </script>
 
 <style scoped>

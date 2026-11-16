@@ -1,3 +1,4 @@
+import { FilePreview } from './helpers/file-preview-component.js'
 import * as assigneeCandidates from '../src/composables/juyiting/hallAssigneeCandidates.js'
 import * as taskPresentation from '../src/composables/juyiting/hallTaskPresentation.js'
 import * as materialVersion from '../src/composables/juyiting/materialVersion.js'
@@ -9,6 +10,7 @@ import { before, after, afterEach, describe, it } from 'mocha'
 import * as Vue from 'vue'
 import { mount } from '@vue/test-utils'
 import { compileScript, parse } from '@vue/compiler-sfc'
+import { filePreviewKind, previewMime } from '../src/utils/filePreview.js'
 import { usePersonalWorkspace } from '../src/composables/usePersonalWorkspace.js'
 import * as silver from '../src/utils/wenAmount.js'
 import { useHallRequirementCreate } from '../src/composables/juyiting/useHallRequirementCreate.js'
@@ -26,6 +28,8 @@ const props = { identityScope: scope, authorizationGeneration: 1, abilityText: (
   formatTime: () => '', portraitName: () => '', portraitStyle: () => ({}), taskAgentMatchScore: () => 0,
   taskStateClass: () => '', taskStatusCount: () => 0, taskStatusText: () => '' }
 const wrappers = [], disposers = [], descriptors = {}
+const originalCreateURL = URL.createObjectURL
+const originalRevokeURL = URL.revokeObjectURL
 const flush = async () => {
   for (let step = 0; step < 20; step += 1) { await Promise.resolve(); await Vue.nextTick() }
 }
@@ -55,12 +59,13 @@ function fixture (panelProps = {}) {
     for (let index = 0; index < files.length; index++) {
       const file = files[index], mime = mimeTypes[index]
       if (request.url === `/personal-workspace/files/${file.fileId}`) return detailFor(index)
-      if (request.url === `/personal-workspace/files/${file.fileId}/versions/3/preview`) return ({ state: 'READY', parts: [{ partId: 'content', contentMimeType: mime === 'application/pdf' ? 'text/plain' : mime }], partial: false })
-      if (request.url === `/personal-workspace/files/${file.fileId}/versions/3/preview/parts/content`) return (new Blob(['media'], { type: mime === 'application/pdf' ? 'text/plain' : mime }))
+      if (request.url === `/personal-workspace/files/${file.fileId}/versions/3/content`) return new Blob(['media'], { type: mime })
     }
     throw new Error(`unexpected workspace request ${request.url}`)
   } }
   const urlApi = { createObjectURL: blob => { const url = `blob:exact-${blob.type}`; created.push(url); return url }, revokeObjectURL: url => revoked.push(url) }
+  URL.createObjectURL = urlApi.createObjectURL
+  URL.revokeObjectURL = urlApi.revokeObjectURL
   const agentApi = { create: async (path, body, options) => {
     calls.push({ method: 'POST', path, body, options })
     assert.equal(path, '/tasks/creation-operations/v2')
@@ -72,7 +77,7 @@ function fixture (panelProps = {}) {
     createIdempotencyKey: () => 'bird-original-key', onCommitted: (value, fence) => { if (!fence.isCurrent()) return false; adopted.push(value); return true } })
   disposers.push(() => create.dispose())
   const Picker = compileComponent('../src/components/juyiting/HallMaterialPicker.vue', {
-    vue: Vue, '../../composables/juyiting/materialVersion.js': materialVersion, '@/composables/usePersonalWorkspace': { usePersonalWorkspace: options => usePersonalWorkspace({ ...options, api, urlApi }), savePersonalWorkspaceBlob: () => {} }
+    vue: Vue, '../preview/FilePreview.vue': FilePreview, '../../utils/filePreview.js': { filePreviewKind, previewMime }, '../../composables/juyiting/materialVersion.js': materialVersion, '@/composables/usePersonalWorkspace': { usePersonalWorkspace: options => usePersonalWorkspace({ ...options, api, urlApi }), savePersonalWorkspaceBlob: () => {} }
   })
   const stub = Vue.defineComponent({ render: () => Vue.h('span') })
   const TaskMaterialLinks = Vue.defineComponent({ name: 'TaskMaterialLinks', render: () => Vue.h('section', { class: 'formal-material-controls' }) })
@@ -99,7 +104,7 @@ describe('shared neutral picker + v2 atomic controller integration and read-only
       Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: window[key] })
     }
   })
-  afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount(); for (const dispose of disposers.splice(0)) dispose() })
+  afterEach(() => { for (const wrapper of wrappers.splice(0)) wrapper.unmount(); for (const dispose of disposers.splice(0)) dispose(); URL.createObjectURL = originalCreateURL; URL.revokeObjectURL = originalRevokeURL })
   after(() => {
     for (const key of Object.keys(descriptors)) {
       if (descriptors[key]) Object.defineProperty(globalThis, key, descriptors[key])

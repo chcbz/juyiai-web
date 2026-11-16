@@ -116,10 +116,11 @@ describe('W06 workspace bounty material links', () => {
     await Vue.nextTick()
 
     assert.match(wrapper.text(), /真实参考资料 · v2 · 参考资料/)
-    assert.match(wrapper.text(), /只有勾选的资料会用于本次办理/)
+    assert.match(wrapper.text(), /仅预填当前事项/)
     await wrapper.get('.formal-inputs input').setValue(true)
     await wrapper.get('.begin-formal-execution').trigger('click')
-    assert.deepEqual(begun, [{ inputs: [{ fileId: 'file_ref', version: '2' }], instruction: '整理正式成果', confirmed: true }])
+    assert.deepEqual(begun, [])
+    assert.deepEqual(wrapper.emitted('open-deliberation'), [[{ mode: 'TASK', taskId: 'task_a', targetAgentId: 'agent_a', instruction: '整理正式成果', inputs: [{ fileId: 'file_ref', version: '2' }] }]])
   })
 
   it('renders a server-returned OUTPUT link as an execution-managed reference without inventing formal delivery', () => {
@@ -151,28 +152,10 @@ describe('W06 workspace bounty material links', () => {
     assert.equal(wrapper.find('.attach-material').exists(), false)
   })
 
-  it('requires explicit confirmation to revoke the queued execution and emits the exact receipt', async () => {
-    const calls = []
-    const receipt = { executionId: 'pwe_exact', state: 'INPUTS_REVOKED' }
-    const formal = formalExecutionStub()
-    formal.activeExecution.value = { executionId: 'pwe_exact', state: 'QUEUED' }
-    formal.canRevoke.value = true
-    formal.revokeOriginal = async options => { calls.push(options); return receipt }
-    const workspace = { hasMoreVersions: Vue.ref(false), versionsState: Vue.ref('idle'), versionsError: Vue.ref(''), closeDetail: () => {}, items: Vue.ref([]), nextCursor: Vue.ref(null), listState: Vue.ref('empty'), loading: Vue.ref(false), error: Vue.ref(''), detail: Vue.ref(null), refresh: async () => true, dispose: () => {} }
-    const links = { links: Vue.ref([]), nextCursor: Vue.ref(null), listState: Vue.ref('empty'), loading: Vue.ref(false), pendingWrites: Vue.ref([]), writeNotice: Vue.ref(''), retryWrite: async () => null, actionState: Vue.ref('idle'), error: Vue.ref(''), load: async () => true, dispose: () => {} }
-    const component = TaskMaterialLinks({ vue: Vue, '@/composables/useFormalTaskExecution': { useFormalTaskExecution: () => formal }, '@/composables/usePersonalWorkspace': { usePersonalWorkspace: () => workspace }, '@/composables/usePersonalWorkspaceTaskLinks': { usePersonalWorkspaceTaskLinks: () => links } })
-    const wrapper = mount(component, { global: { stubs: { teleport: true } }, props: { taskId: 'task_a', identityEpoch: 1 } })
-    wrappers.push(wrapper)
-    const button = wrapper.findAll('button').find(node => node.text() === '撤销本次输入授权')
-    assert.equal(button.attributes('disabled'), '')
-    await button.trigger('click')
-    assert.deepEqual(calls, [])
-    await wrapper.get('.formal-confirmation input').setValue(true)
-    assert.equal(button.attributes('disabled'), undefined)
-    await button.trigger('click')
-    assert.deepEqual(calls, [{ confirmed: true }])
-    assert.deepEqual(wrapper.emitted('formal-execution-recovered'), [[receipt]])
-    assert.equal(button.attributes('disabled'), '')
+  it('has no retired revoke/recovery actions in the material prefill surface', () => {
+    const source = readFileSync(new URL('../src/components/personal-workspace/TaskMaterialLinks.vue', import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /revokeOriginal|recoverOriginalRequest|formal-execution-recovered/)
+    assert.match(source, /pendingWrites.value.length/)
   })
 
   it('uses a non-modal full-page material picker whose scroll body and action footer stay separate with long lists', async () => {
@@ -201,8 +184,8 @@ describe('W06 workspace bounty material links', () => {
 
   it('treats the explicit start button as confirmation without an extra consent checkbox', () => {
     const source = readFileSync(new URL('../src/components/personal-workspace/TaskMaterialLinks.vue', import.meta.url), 'utf8')
-    assert.match(source, /confirmed: true/)
-    assert.match(source, /确认并开始办理（PDF）/)
+    assert.match(source, /emit\('open-deliberation'/)
+    assert.match(source, /带入本事项议事/)
     assert.doesNotMatch(source, /v-model="inputsConfirmed"/)
   })
 
@@ -215,7 +198,7 @@ describe('W06 workspace bounty material links', () => {
     const canActOnTask = task => projectHallTask({ task }).actions.some(action => ['ASSIGN', 'DISCUSS'].includes(action))
     const evaluate = (guard, status, embeddedHall, formalTaskExecutionScope, phase) => Boolean(new Function(
       'detailTask', 'embeddedHall', 'formalTaskExecutionScope', 'canActOnTask', 'hasTaskAction', 'assignedAgentForTask', `return (${guard})`
-    )({ status, ...(phase ? { phase } : {}) }, embeddedHall, formalTaskExecutionScope, canActOnTask, (task, action) => embeddedHall && projectHallTask({ task }).actions.includes(action), () => ({ agentId: 'assigned' })))
+    )({ id: formalTaskExecutionScope?.taskId || '', status, ...(phase ? { phase } : {}) }, embeddedHall, formalTaskExecutionScope, canActOnTask, (task, action) => embeddedHall && projectHallTask({ task }).actions.includes(action), () => ({ agentId: 'assigned' })))
     for (const status of ['open', 'planning', 'assigned']) {
       assert.equal(evaluate(formalGuard, status, false, { taskId: 'task_a' }, 'UNKNOWN'), false)
       assert.equal(evaluate(discussionGuard, status, true, null, 'UNKNOWN'), false)
@@ -237,11 +220,11 @@ describe('W06 workspace bounty material links', () => {
     const bounty = readFileSync(new URL('../src/components/juyiting/BountyPanel.vue', import.meta.url), 'utf8')
     assert.match(bounty, /TaskMaterialLinks/)
     const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
-    assert.match(hall, /:formal-task-execution-context="formalTaskExecutionContext"/)
-    assert.match(bounty, /formalTaskExecutionScope\.taskId/)
+    assert.match(hall, /@open-deliberation="openMaterialDeliberation"/)
+    assert.match(bounty, /:task-id="detailTask.id"/)
     // Standalone formal-task PDF controls remain. Embedded matters use the
     // ordinary discussion route, without a second manual execution entry.
-    assert.match(bounty, /v-if="formalTaskExecutionScope && !embeddedHall && canActOnTask\(detailTask\)"/)
+    assert.match(bounty, /v-if="detailTask\?\.id && !embeddedHall && canActOnTask\(detailTask\)"/)
     assert.match(bounty, /v-if="embeddedHall \|\| \(pointAndStartForDetail && !isTerminalMatter\(detailTask\)\)" class="matter-advice-card"/)
     assert.match(bounty, /hasTaskAction\(detailTask, 'DISCUSS'\) && assignedAgentForTask\(detailTask\)/)
     assert.match(bounty, /workspace-shortcut/)

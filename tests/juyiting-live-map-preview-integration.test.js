@@ -22,7 +22,7 @@ import { mount } from '@vue/test-utils'
 import * as Vue from 'vue'
 import { resolveLiveMapPreviewActivation } from '../src/composables/juyiting/liveMapPreviewPolicy.js'
 import { resolveHallNavigationPresentation } from '../src/composables/juyiting/useHallPanels.js'
-import { useFormalTaskExecutionScope } from '../src/composables/useFormalTaskExecutionScope.js'
+import { freezePrivateMaterialRefs } from '../src/composables/juyiting/hallPrivateMaterials.js'
 import { JuyitingGame } from '../src/game/JuyitingGame.js'
 
 global.Element = global.window?.Element
@@ -175,7 +175,7 @@ const makeHallPageMocks = ({ mode, counters, voiceLocked = Vue.ref(false) }) => 
     taskAgentFilter: text, taskAgentOptions: list, taskKeyword: text, tasks: list, taskStatusCount: Vue.ref({}), taskStatusFilter: text, unbindPersona: asyncNoop, visibleAgents: list
   }
   return {
-    resolveLiveMapPreviewActivation, resolveHallNavigationPresentation, useFormalTaskExecutionScope,
+    resolveLiveMapPreviewActivation, resolveHallNavigationPresentation, freezePrivateMaterialRefs,
     resolveAccountDisplayName: (user, fallback = '用户') => user?.nickname || user?.username || fallback,
     createHydratedIdentityScope, hasHydratedIdentity,
     isEconomyPreviewBuildEnabled: () => false,

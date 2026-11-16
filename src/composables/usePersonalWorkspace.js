@@ -64,23 +64,6 @@ const errorMessage = error => {
   if (error?.status === 503) return '工作空间存储暂不可用，请稍后重试。'
   return error?.message || '工作空间请求未完成，请刷新确认。'
 }
-const previewPartMimeTypes = new Set(PERSONAL_WORKSPACE_MIME_TYPES.filter(mime =>
-  mime === 'text/plain' || mime === 'application/pdf' || mime.startsWith('image/') || mime.startsWith('audio/')))
-const validPreviewPart = part => part && typeof part === 'object' && !Array.isArray(part) &&
-  Object.keys(part).every(key => ['partId', 'contentMimeType'].includes(key)) && ID(part.partId) && previewPartMimeTypes.has(normalizeMime(part.contentMimeType))
-const validPreviewView = value => {
-  if (!value || typeof value !== 'object' || Array.isArray(value) ||
-    !Object.keys(value).every(key => ['state', 'parts', 'partial', 'reason'].includes(key)) ||
-    value.state !== 'READY' ||
-    typeof value.partial !== 'boolean' || (value.reason != null && !TEXT(value.reason, 255)) ||
-    !Array.isArray(value.parts) || !value.parts.length || !value.parts.every(validPreviewPart) ||
-    new Set(value.parts.map(part => part.partId)).size !== value.parts.length) return false
-  return true
-}
-// Prefer named document parts over the complete text part for navigation.
-const displayPreviewParts = preview => preview.parts.some(part => part.partId !== 'content')
-  ? preview.parts.filter(part => part.partId !== 'content')
-  : preview.parts
 const validFile = file => file && typeof file.name === 'string' && TEXT(file.name, 255) && Number.isFinite(file.size) && file.size >= 0
 const validFileView = value => value && typeof value === 'object' && ID(value.fileId) && TEXT(value.displayName, 255) &&
   (value.originKind == null || ['USER_UPLOAD', 'AGENT_DELIVERY'].includes(value.originKind)) &&
@@ -93,7 +76,7 @@ const validVersion = value => value && typeof value === 'object' && ID(value.fil
  * Browser adapter for the 1.10 owner-scoped upload-only workspace API. It deliberately
  * contains no task selector, Actor ID, artifact projection, or Agent execution call.
  */
-export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch = 0, urlApi = globalThis.URL } = {}) {
+export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch = 0 } = {}) {
   const writes = usePersonalWorkspaceWriteIntent()
   const confirmationStale = ref(false)
   const items = ref([])
@@ -115,7 +98,6 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
   const hasMoreVersions = computed(() => Boolean(detail.value && (versionsLoaded.value ? versionsNextCursor.value : versionItems.value.length >= 100)))
   const currentEpoch = computed(() => String(valueOf(identityEpoch) ?? ''))
   const controllers = new Set()
-  const activeUrls = new Set()
   let generation = 0
   let previewGeneration = 0
   let detailGeneration = 0
@@ -136,8 +118,6 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
 
   const revokePreview = () => {
     previewGeneration += 1
-    for (const url of activeUrls) urlApi?.revokeObjectURL?.(url)
-    activeUrls.clear()
     preview.value = { kind: 'none', message: '' }
   }
   const reset = () => {
@@ -168,6 +148,9 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
     const controller = new AbortController()
     if (!stillCurrent(snapshot, controller)) throw abortError('Workspace context changed')
     controllers.add(controller)
+    const abort = () => controller.abort(options.signal?.reason)
+    options.signal?.addEventListener('abort', abort, { once: true })
+    if (options.signal?.aborted) abort()
     try {
       let metadata
       const response = await api.execute({
@@ -180,6 +163,7 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
       if (!stillCurrent(snapshot, controller)) throw abortError('Workspace context changed')
       return { data: response, headers: metadata?.headers || {} }
     } finally {
+      options.signal?.removeEventListener('abort', abort)
       controllers.delete(controller)
     }
   }
@@ -468,12 +452,12 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
     const file = detail.value?.file
     return validFileView(file) ? mutate(`/personal-workspace/files/${encodeURIComponent(file.fileId)}/restore`, null) : null
   }
-  const readBlob = async (fileId, version, suffix = 'content') => {
+  const readBlob = async (fileId, version, signal) => {
     if (!ID(fileId) || !VERSION(version)) throw new Error('文件版本无效。')
     const snapshot = { generation, epoch: currentEpoch.value }
     const { data, headers } = await request({
-      url: `/personal-workspace/files/${encodeURIComponent(fileId)}/versions/${version}/${suffix}`,
-      method: 'GET', responseType: 'blob'
+      url: `/personal-workspace/files/${encodeURIComponent(fileId)}/versions/${version}/content`,
+      method: 'GET', responseType: 'blob', signal
     }, snapshot)
     if (!(data instanceof Blob)) throw new Error('文件内容响应无效。')
     return { blob: data, headers }
@@ -492,94 +476,30 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
       return null
     }
   }
-  const selectPreviewPart = index => {
-    const parts = preview.value?.parts
-    if (!Array.isArray(parts) || !Number.isInteger(index) || index < 0 || index >= parts.length) return false
-    preview.value = { ...preview.value, selectedIndex: index }
-    return true
-  }
   const previewVersion = async (version = detail.value?.latestVersion?.version) => {
+    revokePreview()
     const file = detail.value?.file
-    if (!validFileView(file) || !VERSION(version)) { revokePreview(); error.value = '文件版本无效。'; preview.value = { kind: 'error', message: error.value }; return null }
-    const selectedVersion = detail.value?.versions?.find(item => String(item.version) === String(version))
-    if (['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/vnd.ms-powerpoint'].includes(selectedVersion?.contentMimeType)) {
-      revokePreview(); actionState.value = 'ready'; error.value = ''
-      preview.value = { kind: 'unsupported', message: 'PPT 文件不支持在线预览，请下载原文件查看。' }
-      return preview.value
-    }
-    const snapshot = { generation, epoch: currentEpoch.value }
-    revokePreview(); actionState.value = 'loading-preview'; error.value = ''
-    const previewRequest = previewGeneration
-    const current = () => !disposed && snapshot.generation === generation &&
-      snapshot.epoch === currentEpoch.value && previewRequest === previewGeneration
-    const requireCurrent = () => { if (!current()) throw abortError('Workspace preview changed') }
-    try {
-      const documentKind = richDocumentKind(selectedVersion?.contentMimeType, selectedVersion?.originalFilename || file.displayName)
-      if (documentKind) {
-        const content = await readBlob(file.fileId, version)
-        requireCurrent()
-        const text = await content.blob.text()
-        requireCurrent()
-        preview.value = { kind: 'document', documentKind, text, message: '' }
-        actionState.value = 'ready'
-        return preview.value
-      }
-      const { data } = await request({ url: `/personal-workspace/files/${encodeURIComponent(file.fileId)}/versions/${version}/preview`, method: 'GET', params: { view: 'parts' } }, snapshot)
-      requireCurrent()
-      if (!validPreviewView(data)) {
-        preview.value = { kind: 'unsupported', message: data?.reason || '此文件可下载，但暂时无法生成可用预览。' }
-        actionState.value = 'ready'
-        return preview.value
-      }
-      const source = detail.value?.versions?.find(item => String(item.version) === String(version))
-      if (source?.contentMimeType === 'application/pdf' &&
-          (data.parts.length !== 1 || data.parts[0].partId !== 'content' || data.parts[0].contentMimeType !== 'application/pdf')) {
-        throw new Error('PDF 原文件预览类型无效，请下载原文件查看。')
-      }
-      const rendered = []
-      for (const part of displayPreviewParts(data)) {
-        const content = await readBlob(file.fileId, version, `preview/parts/${encodeURIComponent(part.partId)}`)
-        requireCurrent()
-        const mime = normalizeMime(part.contentMimeType)
-        if (normalizeMime(content.blob.type) !== mime) throw new Error('预览分片类型无效，请下载原文件查看。')
-        if (mime === 'application/pdf') {
-          // Keep authenticated original bytes local; never request server text extraction.
-          rendered.push({ partId: part.partId, contentMimeType: mime, kind: 'pdf', blob: content.blob, text: '', url: '' })
-        }
-        else if (mime === 'text/plain') {
-          const text = await content.blob.text()
-          requireCurrent()
-          rendered.push({ partId: part.partId, contentMimeType: mime, kind: 'text', text, url: '' })
-        }
-        else {
-          const url = urlApi?.createObjectURL?.(content.blob)
-          if (!url) throw new Error('当前浏览器不能安全创建预览。')
-          activeUrls.add(url)
-          rendered.push({ partId: part.partId, contentMimeType: mime, kind: mime.startsWith('audio/') ? 'audio' : 'image', text: '', url })
-        }
-      }
-      const note = data.partial ? (data.reason || '预览内容不完整；请下载原文件查看。') : ''
-      if (rendered.length === 1) {
-        const first = rendered[0]
-        preview.value = first.kind === 'pdf'
-          ? { kind: 'pdf', blob: first.blob, message: note, parts: rendered, selectedIndex: 0 }
-          : first.kind === 'text'
-            ? { kind: 'text', text: first.text, message: note, parts: rendered, selectedIndex: 0 }
-            : { kind: first.kind, url: first.url, message: note, parts: rendered, selectedIndex: 0 }
-      } else preview.value = { kind: 'parts', parts: rendered, selectedIndex: 0, message: note }
-      actionState.value = 'ready'
-      return preview.value
-    } catch (cause) {
-      // A stale preview must not revoke or overwrite a newer file/identity's preview.
-      if (!current()) return null
-      revokePreview()
-      if (cause?.name !== 'AbortError' && snapshot.generation === generation) {
-        error.value = errorMessage(cause)
-        preview.value = { kind: 'error', message: error.value }
-        actionState.value = 'error'
-      }
+    const selected = detail.value?.versions?.find(item => String(item.version) === String(version))
+    if (!validFileView(file) || !VERSION(version) || !selected) {
+      preview.value = { kind: 'error', message: '文件版本无效。' }
       return null
     }
+    const snapshot = captureView()
+    const currentPreview = previewGeneration
+    const source = {
+      key: JSON.stringify([snapshot.epoch, file.fileId, version, currentPreview]),
+      filename: selected.originalFilename || file.displayName,
+      mimeType: selected.contentMimeType,
+      load: async ({ signal }) => {
+        if (!ownsView(snapshot) || currentPreview !== previewGeneration) throw abortError('Workspace preview changed')
+        const result = await readBlob(file.fileId, version, signal)
+        if (!ownsView(snapshot) || currentPreview !== previewGeneration) throw abortError('Workspace preview changed')
+        return result.blob
+      }
+    }
+    preview.value = { kind: 'file', source, message: '' }
+    actionState.value = 'ready'
+    return preview.value
   }
 
   const operation = async operationId => {
@@ -611,7 +531,7 @@ export function usePersonalWorkspace ({ api = createApi('/agent'), identityEpoch
     items, nextCursor, listState, loading, actionState, error, detail, preview, lastOperation,
     pendingWrites: writes.pending, retryWrite, confirmationStale, writeNotice, detailRetryFileId, retryDetail, versionItems, hasMoreVersions, versionsState, versionsError, versionsNextCursor, versionsLoaded, loadVersions, loadMoreVersions, closeDetail,
     refresh, loadMore, select, upload, appendVersion, rename, usage, trash, restore,
-    download, previewVersion, selectPreviewPart, operation, revokePreview, reset, dispose
+    download, previewVersion, operation, revokePreview, reset, dispose
   }
 }
 

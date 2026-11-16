@@ -15,7 +15,7 @@ import { getHallCapabilities } from './fixtures/hall-current-protocol.js'
 import { bountyInteractionTargetId } from '../src/composables/juyiting/useHallChatContext.js'
 import { createHydratedIdentityScope, hasHydratedIdentity } from '../src/utils/identityScope.js'
 import { before } from 'mocha'
-import { useFormalTaskExecutionScope } from '../src/composables/useFormalTaskExecutionScope.js'
+import { freezePrivateMaterialRefs } from '../src/composables/juyiting/hallPrivateMaterials.js'
 import { expect } from 'chai'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { mount } from '@vue/test-utils'
@@ -286,7 +286,7 @@ const createActualHallVoiceMocks = ({
     useGlobalStore: () => ({ getJiacn: 'hero', user: { name: 'Tester' }, setTitle: noop, setShowBack: noop, setShowAppBar: noop, setShowMore: noop }),
     useApiStore: () => ({ token: async () => 'token' }), agentApi: {}, chatApi, log: { warn: noop, error: noop }, juyitingGame: {},
     roleDialogues: { default: [''] }, statusFilters: [], taskStatusFilters: [],
-    useFormalTaskExecutionScope,
+    freezePrivateMaterialRefs,
     useHallHomeMode: () => { const homeMode = Vue.ref('map'); return { homeMode, isOverviewHome: Vue.computed(() => homeMode.value === 'overview'), setHomeMode: mode => { homeMode.value = mode } } },
     useHallData: ({ selectedAgent }) => { selectedAgent.value = selectedAgentFixture; return hallData },
     useHallQuickMatter: () => ({ busy: Vue.ref(false), message: Vue.ref(''), submit: asyncNoop }),

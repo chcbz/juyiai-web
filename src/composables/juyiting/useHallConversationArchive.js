@@ -69,7 +69,7 @@ const failure = error => {
   // A 404 is deliberately not interpreted as proof that a previous write was not accepted.
   if (error?.status === 404) return ['unknown', '暂时无法查询保存结果，请确认登录状态后重试。']
   if (error?.status === 409) return ['error', '保存状态已变化，请先查询结果，勿重复保存。']
-  if (error?.status === 422) return ['error', '该会话资产暂不支持保存到工作空间。']
+  if (error?.status === 422) return ['error', '该会话资产暂不支持保存到个人资料。']
   if (error?.status === 400) return ['error', '保存请求被拒绝；资产引用未被确认。']
   if (error?.status === 503) return ['unknown', '保存服务暂不可用，未确认保存；请稍后查询结果。']
   if (error?.requestErrorClass === 'network' || error instanceof TypeError) return ['unknown', '网络结果不明确，未确认保存；请查询结果，不要创建副本。']
@@ -115,7 +115,7 @@ export function useHallConversationArchive ({ api = createApi('/chat'), conversa
   }
   const updateFromReceipt = (key, entry, receipt) => {
     const message = receipt.state === 'saved'
-      ? `服务端已保存到工作空间：文件 ${receipt.item.fileId} v${receipt.item.version}。`
+      ? `服务端已保存到个人资料：文件 ${receipt.item.fileId} v${receipt.item.version}。`
       : receipt.state === 'partial_failed'
         ? (receipt.item.message || '保存仅部分完成；此项尚未保存。')
         : '正在保存…'

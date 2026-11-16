@@ -9,6 +9,7 @@
       @click="$emit('typed-resume')"
     >刷新处理状态</button>
     <ChatPanel
+      ref="chatPanel"
       discussion-variant="bounty"
       empty-text="可以补充要求、添加资料，或向好汉提问。"
       placeholder="补充要求、提问，或说明需要怎样修改…"
@@ -176,11 +177,17 @@ const updateMessageOutputs = items => {
 }
 watch(() => `${props.identityEpoch}\u0000${props.identityScope}\u0000${props.conversationId}\u0000${props.selectedTask?.id || ''}`, () => { messageOutputs.value = [] }, { flush: 'sync' })
 const outputGallery = ref(null)
+const chatPanel = ref(null)
 const refreshMessages = () => {
   outputGallery.value?.refresh()
   emit('load-messages')
 }
-defineExpose({ previewSelected: item => outputGallery.value?.previewSelected(item) })
+defineExpose({
+  previewSelected: item => outputGallery.value?.previewSelected(item),
+  materialDraft: () => chatPanel.value?.materialDraft(),
+  prepareMaterialDraft: inputs => chatPanel.value?.prepareMaterialDraft(inputs),
+  applyMaterialDraft: inputs => chatPanel.value?.applyMaterialDraft(inputs)
+})
 
 const v2Presentation = computed(() => bountyDeliberationPresentation({
   enabled: props.deliberationV2Enabled,

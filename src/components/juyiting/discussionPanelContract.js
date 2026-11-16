@@ -54,6 +54,7 @@ export const discussionPanelEmits = [
   'retry-conversation',
   'select-conversation',
   'send-message',
+  'update:material-refs',
   'update:draft',
   'restore-discussion-context',
   'voice-apply'

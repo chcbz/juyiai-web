@@ -26,7 +26,7 @@ import { readFileSync } from 'fs'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { resolveLiveMapPreviewActivation } from '../src/composables/juyiting/liveMapPreviewPolicy.js'
 import { createEconomyRequestIntentStore } from '../src/composables/juyiting/economyRequestIntent.js'
-import { useFormalTaskExecutionScope } from '../src/composables/useFormalTaskExecutionScope.js'
+import { freezePrivateMaterialRefs } from '../src/composables/juyiting/hallPrivateMaterials.js'
 import { useHallTaskActions } from '../src/composables/juyiting/useHallTaskActions.js'
 import { resolveAccountDisplayName } from '../src/utils/displayName.js'
 import { createHydratedIdentityScope, hasHydratedIdentity } from '../src/utils/identityScope.js'
@@ -177,7 +177,7 @@ const loadSfc = (relativePath, runtimeAgentApi = { post: async () => { throw new
     .replace(/^import\s+\{\s*useApiStore\s*\}\s+from\s+['"]@\/stores\/api['"];?\s*$/gm, 'var { useApiStore } = arguments[5]')
     .replace(/^import\s+\{\s*useGlobalStore\s*\}\s+from\s+['"]@\/stores\/global['"];?\s*$/gm, 'var { useGlobalStore } = arguments[5]')
     .replace(/^import\s+\{\s*usePersonalWorkspace\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspace\.js['"];?\s*$/gm, 'var { usePersonalWorkspace } = arguments[5]')
-    .replace(/^import\s+\{\s*usePersonalWorkspaceExecution\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceExecution\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceExecution } = arguments[5]')
+    .replace(/^import\s+\{\s*usePersonalWorkspaceExecutionHistory\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceExecution\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceExecutionHistory } = arguments[5]')
     .replace(/^import\s+\{\s*usePersonalWorkspaceTaskLinks\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceTaskLinks\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceTaskLinks } = arguments[5]')
     .replace(/^import\s+\{\s*usePersonalWorkspaceConversationLinks\s*\}\s+from\s+['"]\.\.\/\.\.\/composables\/usePersonalWorkspaceConversationLinks\.js['"];?\s*$/gm, 'var { usePersonalWorkspaceConversationLinks } = arguments[5]')
     .replace(/^import\s+HallMessageParts\s+from\s+['"]\.\/HallMessageParts\.vue['"];?\s*$/gm, 'var HallMessageParts = { template: \'<section class="hall-message-parts-stub" />\', props: [\'parts\', \'conversationId\', \'identityKey\'] }')
@@ -224,7 +224,7 @@ const createChatPanelDependencies = () => {
       loading: Vue.ref(false), listState: Vue.ref('empty'), error: Vue.ref(''), items: Vue.ref([]),
       detail: Vue.ref(null), refresh: async () => true, select: async () => null, dispose: () => {}
     }),
-    usePersonalWorkspaceExecution: () => ({
+    usePersonalWorkspaceExecutionHistory: () => ({
       rosterState: Vue.ref('ready'), capabilityState: Vue.ref('ready'), capabilityError: Vue.ref(''),
       rosterError: Vue.ref(''), selectedAgent: Vue.ref(null), allowedMimeTypes: Vue.ref([]),
       generationEnabled: Vue.ref(false), executionState: Vue.ref('idle'), execution: Vue.ref(null),
@@ -2967,7 +2967,7 @@ const createActualHallMocks = ({ mode, mounts, counters = {}, taskActions = null
   }
   const panelHelpers = counters.panelHelpers || {}
   return {
-    ...panelHelpers, useFormalTaskExecutionScope, ...ordinaryCancellation,
+    ...panelHelpers, freezePrivateMaterialRefs, ...ordinaryCancellation,
     Dialog: async () => 'cancel', saveOutputBlob: noop, completedTextItem: async () => null, OutputPreview: EmptyPanel,
     useOutputs: () => ({ items: Vue.ref([]), loading: Vue.ref(false), message: scalar, cacheKey: scalar, nextCursor: Vue.ref(null), refresh: asyncNoop, loadMore: asyncNoop, download: asyncNoop, preview: asyncNoop, dispose: noop }),
     useHallBountyAcceptance: () => ({ scope: Vue.ref(null), error: scalar, refresh: asyncNoop, catalog: { error: scalar, entries: Vue.ref([]) } }),

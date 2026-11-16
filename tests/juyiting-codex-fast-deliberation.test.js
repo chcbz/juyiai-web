@@ -1094,6 +1094,29 @@ describe('HALL-ROUND-WEB-20261011 request-scoped closeout', () => {
     })
   }
 
+  it('PRIVATE native result closes only after its EXECUTE turn is projected terminal', async () => {
+    const context = ref({ ...contextFor('agent:a'), conversationScopeType: 'private', mode: 'private' })
+    const h = harness({ context })
+    try {
+      const { post, sending } = await h.send('处理资料')
+      expect(post.body.materialRefs).to.deep.equal([])
+      const pending = h.viewFor(post, 'RESULT_COMMITTED', ['QUEUED'])
+      pending.turns[0].route = 'EXECUTE'
+      await h.readback(post, pending)
+      expect(post.cancels).to.equal(0)
+      expect(await h.conversation.sendHallMessage({ content: '不可提前开始' })).to.equal(false)
+      const terminal = h.viewFor(post, 'RESULT_COMMITTED', ['FINAL_PERSISTED'])
+      terminal.stateVersion = '3'
+      terminal.turns[0] = { ...terminal.turns[0], route: 'EXECUTE', stateVersion: '3', finalMessageId: '91' }
+      await h.readback(post, terminal)
+      expect(await sending).to.equal(true)
+      expect(h.conversation.activeRequest.value.state).to.equal('RESULT_COMMITTED')
+      expect(h.conversation.isConversationBusy.value).to.equal(false)
+      expect(post.cancels).to.equal(1)
+      expect(h.posts).to.have.length(1)
+    } finally { h.conversation.disposeHallConversation() }
+  })
+
   it('EOF is transport-only: pending GET and failed terminal readback retain the gate without another POST', async () => {
     const h = harness()
     try {

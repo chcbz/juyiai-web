@@ -73,17 +73,10 @@ function createFixture ({ details = new Map(), detailHandler, partHandler, listI
         if (detailHandler) return detailHandler(fileId, options)
         return reply(options, details.get(fileId), { etag: `"${fileId}:1"` })
       }
-      const partMatch = /^\/personal-workspace\/files\/([^/]+)\/versions\/(\d+)\/preview\/parts\/content$/.exec(options.url)
+      const partMatch = /^\/personal-workspace\/files\/([^/]+)\/versions\/(\d+)\/content$/.exec(options.url)
       if (partMatch) {
         if (partHandler) return partHandler(decodeURIComponent(partMatch[1]), Number(partMatch[2]), options)
         return (new Blob(['image'], { type: details.get(decodeURIComponent(partMatch[1])).versions.find(item => Number(item.version) === Number(partMatch[2])).contentMimeType }))
-      }
-      const previewMatch = /^\/personal-workspace\/files\/([^/]+)\/versions\/(\d+)\/preview$/.exec(options.url)
-      if (previewMatch) {
-        const fileId = decodeURIComponent(previewMatch[1])
-        const version = Number(previewMatch[2])
-        const mime = details.get(fileId).versions.find(item => Number(item.version) === version).contentMimeType
-        return ({ state: 'READY', parts: [{ partId: 'content', contentMimeType: mime }], partial: false })
       }
       throw new Error(`Unexpected request: ${options.url}`)
     }
@@ -138,8 +131,8 @@ describe('hall requirement-draft reference image selection', () => {
       { fileId: 'jpeg-file', version: '2', purpose: 'REFERENCE' },
       { fileId: 'png-file', version: '1', purpose: 'REFERENCE' }
     ])
-    assert.ok(fixture.calls.some(call => call.url === '/personal-workspace/files/jpeg-file/versions/2/preview'))
-    assert.ok(fixture.calls.some(call => call.url === '/personal-workspace/files/png-file/versions/1/preview/parts/content'))
+    assert.ok(fixture.calls.some(call => call.url === '/personal-workspace/files/jpeg-file/versions/2/content'))
+    assert.ok(fixture.calls.some(call => call.url === '/personal-workspace/files/png-file/versions/1/content'))
     assert.deepEqual(fixture.created.map(item => item.type), ['image/jpeg', 'image/png'])
     assert.ok(fixture.calls.every(call => call.method === 'GET'))
     selection.dispose()
@@ -196,7 +189,7 @@ describe('hall requirement-draft reference image selection', () => {
     fixture.urlApi.createObjectURL = blob => {
       const url = 'blob:stale-preview'
       fixture.created.push({ url, type: blob.type })
-      queueMicrotask(() => { epoch.value = 'owner-b' })
+      epoch.value = 'owner-b'
       return url
     }
     const selection = useHallReferenceImageSelection({ api: fixture.api, identityEpoch: epoch, urlApi: fixture.urlApi })

@@ -1,3 +1,4 @@
+import { freezePrivateMaterialRefs } from './hallPrivateMaterials.js'
 import { computed, getCurrentInstance, onBeforeUnmount, reactive, ref } from 'vue'
 import { registerIdentityCleanup } from '../../utils/identityLifecycle.js'
 import { createPcmWavRecorder, supportsPcmWavCapture, validatePcm16MonoWav } from '../../utils/pcmWavRecorder.js'
@@ -74,6 +75,7 @@ export const captureHallVoiceSnapshot = ({ context, draft, draftRevision }) => {
       snapshot[key] = normalizeExactStringArray(context[key])
     }
     if (!hasOwn(snapshot, 'targetAgentIds') || !hasOwn(snapshot, 'participantAgentIds')) return null
+    if (context.conversationScopeType === 'private') snapshot.materialRefs = freezePrivateMaterialRefs(context.materialRefs, context.conversationId || null)
     if (hasOwn(context, 'outgoingMetadata')) snapshot.outgoingMetadata = cloneJson(context.outgoingMetadata)
     if (hasOwn(context, 'targetLabel')) {
       if (typeof context.targetLabel !== 'string') return null

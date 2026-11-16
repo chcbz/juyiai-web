@@ -14,7 +14,7 @@ import { useHallBountyAcceptance } from '../src/composables/juyiting/useHallBoun
 import { useHallDrafts } from '../src/composables/juyiting/useHallDrafts.js'
 import { bountyInteractionTargetId } from '../src/composables/juyiting/useHallChatContext.js'
 import { createHydratedIdentityScope, hasHydratedIdentity } from '../src/utils/identityScope.js'
-import { useFormalTaskExecutionScope } from '../src/composables/useFormalTaskExecutionScope.js'
+import { freezePrivateMaterialRefs } from '../src/composables/juyiting/hallPrivateMaterials.js'
 import { readFileSync } from 'fs'
 import { expect } from 'chai'
 import { compileScript, parse } from '@vue/compiler-sfc'
@@ -127,7 +127,7 @@ const createHallMocks = ({ SelectedAgentCard, counters }) => {
     agentApi: {}, chatApi: {}, log: { warn: noop }, juyitingGame: {}, roleDialogues: { default: [''] }, statusFilters: [], taskStatusFilters: [],
     useHallData: ({ selectedAgent }) => { selectedAgent.value = selected; return hallData },
     useHallExperienceMode: () => ({ experienceMode: Vue.ref('landscape-map'), isMobileCoarse: Vue.ref(false), orientationHint: text, orientationRequestPending: Vue.ref(false), requestLandscape: asyncNoop }),
-    useFormalTaskExecutionScope,
+    freezePrivateMaterialRefs,
     useHallHomeMode: () => ({ homeMode: Vue.ref('map'), isOverviewHome: Vue.ref(false), setHomeMode: noop }),
     useHallPanels: () => ({ panelLayout: Vue.ref('center-modal') }),
     useHallSceneState: () => ({ setMapRuntime: noop, reset: noop, forwardPhaseEvents: asyncNoop }), useHallCommandQueue: () => ({ ready: Vue.ref(false), setSimulation: noop }),

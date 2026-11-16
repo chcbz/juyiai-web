@@ -1,3 +1,7 @@
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
+import { FilePreview } from './helpers/file-preview-component.js'
+import { filePreviewKind, previewMime } from '../src/utils/filePreview.js'
 import * as historyWindowHelpers from '../src/composables/juyiting/hallHistoryWindow.js'
 import { displayFixture } from './fixtures/juyiting/interface-display-fixture.mjs'
 import { richDocumentKind } from '../src/utils/richDocumentPreview.js'
@@ -25,8 +29,9 @@ const load = (name, deps) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, (_, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, name) => `var ${name} = deps.${name}`)
+    .replace(/^import\s+FilePreview\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, deps)
+  return ((vue, deps) => new Function('Vue', 'deps', 'FilePreview', code)(vue, { FilePreview, filePreviewKind, previewMime, ...pageReturn, ...returnState, ...deps }, FilePreview))(Vue, deps)
 }
 const noRender = { render: () => null }
 const directory = () => ({ items: Vue.ref([]), links: Vue.ref([]), pendingWrites: Vue.ref([]), loading: Vue.ref(false), error: Vue.ref(''),
@@ -328,7 +333,7 @@ describe('scoped bounty output actions live on the actual message cards', () => 
         if (kind === 'image') expect(dialog.querySelector('img').src).to.include('blob:inline-test')
         if (kind === 'audio') expect(dialog.querySelector('audio').getAttribute('controlslist')).to.equal('nodownload')
         if (kind === 'file') {
-          expect(dialog.textContent).to.include('此格式暂不支持在线预览')
+          expect(dialog.textContent).to.include('此格式不支持在线预览')
           expect(calls).to.deep.equal([])
         }
         expect(calls.every(request => request.method === 'GET' && request.needAuth === true)).to.equal(true)
@@ -350,8 +355,8 @@ describe('scoped bounty output actions live on the actual message cards', () => 
       await wrapper.get('.media-actions button').trigger('click'); await settle()
       const dialog = document.querySelector('[aria-label="会话资料预览"]')
       expect(dialog.querySelector('[role="alert"]').textContent).to.include('媒体读取失败')
-      expect(dialog.querySelector('footer').textContent).to.equal('重试预览')
-      fail = false; dialog.querySelector('footer button').click(); await settle()
+      expect(dialog.querySelector('.file-preview button').textContent).to.equal('重新读取此版本')
+      fail = false; dialog.querySelector('.file-preview button').click(); await settle()
       expect(dialog.querySelector('audio')).not.to.equal(null)
       expect(dialog.querySelector('footer')).to.equal(null)
       await wrapper.setProps({ identityKey: 'owner-b' }); await settle()
@@ -371,7 +376,7 @@ describe('scoped bounty output actions live on the actual message cards', () => 
 
 
 describe('large text preview copy on the real outputs component', () => {
-  it('verifies bytes then gives an honest preview limit and offers download', async () => {
+  it('verifies original bytes without an arbitrary text preview cutoff and keeps the existing download action', async () => {
     const { createHash } = await import('node:crypto')
     const content = 'x'.repeat(2 * 1024 * 1024 + 1)
     const blob = new Blob([content], { type: 'text/plain' })
@@ -385,8 +390,8 @@ describe('large text preview copy on the real outputs component', () => {
       const preview = wrapper.findAll('button').find(button => button.text() === '预览')
       expect(Boolean(preview)).to.equal(true)
       await preview.trigger('click')
-      for (let i = 0; i < 100 && !wrapper.text().includes('文本较大'); i++) { await new Promise(resolve => setTimeout(resolve, 5)); await settle() }
-      expect(wrapper.text()).to.include('文本较大，暂不支持在议事中预览')
+      for (let i = 0; i < 100 && !wrapper.find('.file-preview pre').exists(); i++) { await new Promise(resolve => setTimeout(resolve, 5)); await settle() }
+      expect(wrapper.get('.file-preview pre').text()).to.equal(content)
       expect(wrapper.text()).not.to.include('请下载查看')
       expect(wrapper.findAll('button').some(button => button.text() === '下载')).to.equal(true)
       expect(calls.every(call => call !== 'POST')).to.equal(true)

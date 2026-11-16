@@ -387,7 +387,6 @@
             :work-item-plan-enabled="workItemPlanEnabled"
             :authorization-generation="apiStore.authorizationGeneration"
             :identity-scope="hallIdentityScope"
-            :formal-task-execution-context="formalTaskExecutionContext"
             :cancellation-state="cancellationState"
             :cancellation-busy="cancellationBusy"
             :funded-create-recovery="fundedCreateRecovery"
@@ -439,8 +438,7 @@
             @cancel-task="cancelTask"
             @load-settlement="loadSettlement"
             @open-workspace="openBabaoBox"
-            @formal-execution-created="hallReadRevision += 1"
-            @formal-execution-recovered="hallReadRevision += 1"
+            @open-deliberation="openMaterialDeliberation"
             @discuss-task="discussTask"
             @view-discussion-history="continueBountyModification($event)"
             @load-tasks="loadTasks"
@@ -625,6 +623,7 @@
             :identity-scope="hallIdentityScope"
             :identity-epoch="apiStore.authorizationGeneration"
             @open-task="openOverviewTask"
+            @open-deliberation="openMaterialDeliberation"
             @changed="hallReadRevision += 1"
             @close="returnPanel() || closePanel()"
           />
@@ -641,6 +640,7 @@
             :identity-scope="hallIdentityScope"
             :identity-epoch="apiStore.authorizationGeneration"
             @open-task="openPendingTaskDetail"
+            @open-deliberation="openMaterialDeliberation"
             @close="returnPanel() || closePanel()"
           />
 
@@ -655,6 +655,7 @@
             :agents="operableRosterAgents"
             :identity-scope="hallIdentityScope"
             :identity-epoch="apiStore.authorizationGeneration"
+            @open-deliberation="openMaterialDeliberation"
             @changed="hallReadRevision += 1"
             @close="returnPanel() || closePanel()"
           />
@@ -669,6 +670,7 @@
             :detail-allowed="true"
             embedded
             @start-draft="openReferencedRequirement"
+            @open-deliberation="openMaterialDeliberation"
           />
 
           <PersonaCatalogPanel
@@ -849,6 +851,8 @@
           />
 
           <PrivateDiscussionPanel
+            ref="privateDiscussionRef"
+            @update:material-refs="privateMaterialRefs = $event"
             v-if="panelFrames.includes('chat') && chatMode === 'private'"
             v-show="renderedPanel === 'chat'"
             :identity-scope="hallIdentityScope"
@@ -951,13 +955,7 @@
       <div v-if="selectedOutputPreview && selectionKey(selectedOutputPreview.item) === item.key && selectedOutputPreview.item.sha256 === item.sha256" class="selected-output-preview">
         <p v-if="selectedOutputPreview.loading" role="status">正在读取此成果预览…</p>
         <p v-else-if="selectedOutputPreview.error" role="alert">{{ selectedOutputPreview.error }}</p>
-        <img v-else-if="selectedOutputPreview.url && (selectedOutputPreview.item.contentMimeType || '').startsWith('image/')" :src="selectedOutputPreview.url" :alt="`成果预览：${item.title || item.outputId || '文字成果'}`" />
-        <audio
-          v-else-if="selectedOutputPreview.url && (selectedOutputPreview.item.contentMimeType || '').startsWith('audio/')"
-          :src="selectedOutputPreview.url"
-          controls
-          controlslist="nodownload"
-        />
+        <FilePreview v-else-if="selectedOutputPreview.source" :source="selectedOutputPreview.source" />
         <pre v-else-if="selectedOutputPreview.text">{{ selectedOutputPreview.text }}</pre><p v-else>此格式暂不支持内嵌预览。</p>
       </div>
     </template><template #preview><OutputPreview v-if="reviewPreviewItem" :item="reviewPreviewItem" :load="reviewOutputs.preview" :context-key="reviewOutputs.cacheKey.value" /></template></HallDeliveryReviewDialog>
@@ -969,6 +967,7 @@
 </template>
 
 <script setup>
+import FilePreview from '../preview/FilePreview.vue'
 import { Dialog } from '@varlet/ui'
 import HallMessageWindow from '../juyiting/HallMessageWindow.vue'
 import { useHallTerminalTextHistory } from '@/composables/juyiting/useHallTerminalTextHistory'
@@ -1025,7 +1024,6 @@ import { useTaskWorkspace } from '@/composables/juyiting/useTaskWorkspace'
 import { createDisabledTaskWorkspaceBinding, isTaskWorkspaceBuildEnabled } from '@/composables/juyiting/taskWorkspaceFeature'
 import { useTaskWorkspaceView } from '@/composables/juyiting/useTaskWorkspaceView'
 import { useTaskWorkspaceBinding } from '@/composables/juyiting/useTaskWorkspaceBinding'
-import { useFormalTaskExecutionScope } from '@/composables/useFormalTaskExecutionScope'
 import TaskWorkspacePanel from '@/components/juyiting/TaskWorkspacePanel.vue'
 import ArtifactTransferPanel from '@/components/juyiting/ArtifactTransferPanel.vue'
 import ArtifactOutcomePanel from '@/components/juyiting/ArtifactOutcomePanel.vue'
@@ -1047,6 +1045,7 @@ import HallVoiceHud from '@/components/juyiting/HallVoiceHud.vue'
 import LibraryPanel from '@/components/juyiting/LibraryPanel.vue'
 import PersonaCatalogPanel from '@/components/juyiting/PersonaCatalogPanel.vue'
 import PrivateDiscussionPanel from '@/components/juyiting/PrivateDiscussionPanel.vue'
+import { freezePrivateMaterialRefs } from '@/composables/juyiting/hallPrivateMaterials.js'
 import PublicDiscussionPanel from '@/components/juyiting/PublicDiscussionPanel.vue'
 import SelectedAgentCard from '@/components/juyiting/SelectedAgentCard.vue'
 import PersonalWorkspace from '@/components/workspace/PersonalWorkspace.vue'
@@ -1217,6 +1216,7 @@ const hallRefreshing = ref(false)
 const experienceReady = ref(false)
 const agentBubbles = ref({})
 const outgoingMetadata = ref({})
+const privateMaterialRefs = ref([])
 const effectiveSceneMode = ref('portrait')
 const voiceFeatureEnabled = import.meta.env.VITE_JUYITING_VOICE_ENABLED === 'true'
 let hallVoice = null
@@ -2804,18 +2804,6 @@ const downloadTerminalOutput = async item => {
   }
 }
 
-const formalTaskExecutionContext = useFormalTaskExecutionScope({
-  selectedTask,
-  chatContext,
-  conversationId,
-  identityScope: hallIdentityScope,
-  taskWorkspaceEnabled,
-  taskWorkspaceSubject,
-  taskWorkspaceSnapshot,
-  taskWorkspaceConnectionState,
-  taskWorkspaceError
-})
-
 hallVoice = useHallVoiceConversation({
   apiStore,
   chatApi,
@@ -2835,6 +2823,7 @@ hallVoice = useHallVoiceConversation({
       selectedTaskId: current.selectedTaskId ?? null,
       taskId: current.taskId ?? null,
       outgoingMetadata: outgoingMetadata.value,
+      materialRefs: privateMaterialRefs.value,
       targetLabel: chatTargetText.value
     }
   },
@@ -2883,6 +2872,7 @@ const deliveryReview = useHallDeliveryReview({ api: agentApi, taskId: reviewTask
   identityScope: hallIdentityScope, authorizationGeneration: () => apiStore.authorizationGeneration,
   enabled: () => multimediaDeliberationUiEnabled })
 const selectedOutputCandidates = ref([]); const selectedOutputPreview = ref(null); const bountyDiscussionRef = ref(null)
+const privateDiscussionRef = ref(null)
 const selectedOutputReview = useHallSelectedOutputReview({ api: agentApi, review: deliveryReview, taskId: reviewTaskId,
   conversationId, identityKey: hallIdentityScope, authorizationGeneration: () => apiStore.authorizationGeneration, candidates: selectedOutputCandidates })
 const openSelectedOutputReview = async item => {
@@ -3101,7 +3091,7 @@ const handleSendHallMessage = async (typedInput = {}) => {
       else if (typedDeliberation.error.value) showToast(typedDeliberation.error.value)
       return accepted
     }
-    return await sendHallMessage()
+    return await sendHallMessage({ materialRefs: typedInput?.materialRefs || [] })
   } finally {
     manualSendPending.value = false
   }
@@ -3176,6 +3166,63 @@ const handleStartAgentConversation = (candidate) => {
   enterPrivateConversation(agent)
   markAgentSpeaking(agent, '入席密议', 'system')
   showToast(`正与 ${portraitShortName(agent)} 密议`)
+  return true
+}
+
+// A local handoff is not execution admission. Normal send remains the only writer.
+let materialPrefillGeneration = 0
+watch(renderedPanel, () => { materialPrefillGeneration++ }, { flush: 'sync' })
+const openMaterialDeliberation = async (input, sourceIdentity = `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`) => {
+  if (sourceIdentity !== `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`) return false
+  let intent
+  try {
+    if (!['PRIVATE', 'TASK'].includes(input?.mode) || !exactAgentId(input.targetAgentId) ||
+        typeof input.instruction !== 'string' || !input.instruction.trim() ||
+        (input.mode === 'PRIVATE' ? input.taskId !== null : typeof input.taskId !== 'string' || !input.taskId)) return false
+    const refs = freezePrivateMaterialRefs((input.inputs || []).map(({ fileId, version }) => ({ kind: 'WORKSPACE_VERSION', fileId, version })))
+    intent = { mode: input.mode, taskId: input.taskId, targetAgentId: input.targetAgentId,
+      instruction: input.instruction, inputs: refs.map(({ fileId, version }) => ({ fileId, version })) }
+  } catch (error) { showToast(error.message); return false }
+  if (guardPanelLeave(() => openMaterialDeliberation(intent, sourceIdentity))) return false
+  if (isConversationBusy.value || voiceInteractionLocked.value) { showToast('议事仍在处理中，请稍后带入。'); return false }
+  const identity = `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`
+  if (intent.mode === 'PRIVATE') {
+    const agent = resolvePermittedConversationAgent({ agentId: intent.targetAgentId })
+    if (!agent || !openPanel('chat', { restore: true })) return false
+    if (chatMode.value !== 'private' || chatContext.value.targetAgentId !== agent.agentId) enterPrivateConversation(agent)
+  } else {
+    const task = selectedTask.value?.id === intent.taskId ? selectedTask.value : tasks.value.find(item => item.id === intent.taskId)
+    const target = assignedTaskTarget(task)
+    if (!target || target.agentId !== intent.targetAgentId || !discussTask(task, target)) {
+      showToast('本事项或承办已变化，请刷新后重新带入。'); return false
+    }
+  }
+  // Join the existing read before prefill, but never apply its late result after
+  // navigation or a newer local handoff. This does not create a conversation.
+  const prefillGeneration = ++materialPrefillGeneration
+  await loadHallMessages()
+  await nextTick()
+  const targetConversation = conversationId.value
+  const current = () => !panelDisposed && renderedPanel.value === 'chat' &&
+    prefillGeneration === materialPrefillGeneration && targetConversation === conversationId.value && identity === `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}` &&
+    chatMode.value === (intent.mode === 'TASK' ? 'bounty' : 'private') &&
+    (intent.mode === 'TASK' ? conversationTask.value?.id === intent.taskId && bountyInteractionTargetId(chatContext.value) === intent.targetAgentId
+      : chatContext.value.targetAgentId === intent.targetAgentId)
+  if (!current() || isConversationBusy.value || (intent.mode === 'TASK' && !conversationId.value)) return false
+  const panel = intent.mode === 'TASK' ? bountyDiscussionRef.value : privateDiscussionRef.value
+  const prepared = await panel?.prepareMaterialDraft(intent.inputs)
+  if (!prepared || !current()) { if (current()) showToast('所选资料暂不可带入，请核对固定版本及关联。'); return false }
+  const previousText = draft.value
+  const previousMaterials = panel.materialDraft()
+  const previousConversation = conversationId.value
+  const incomingScope = intent.mode === 'TASK' && !prepared.length ? 'NONE' : 'EXPLICIT'
+  const different = previousText !== intent.instruction || JSON.stringify(previousMaterials) !== JSON.stringify({ scope: incomingScope, inputs: prepared })
+  if (different && (previousText || previousMaterials?.inputs?.length) &&
+      !globalThis.confirm?.('目标议事已有未发送的文字或资料。是否替换为本次内容？取消将保留双方内容。')) return false
+  if (!current() || previousConversation !== conversationId.value || draft.value !== previousText ||
+      JSON.stringify(panel.materialDraft()) !== JSON.stringify(previousMaterials) || !panel.applyMaterialDraft(prepared)) return false
+  setDraft(intent.instruction)
+  showToast('已带入议事，请确认后发送。')
   return true
 }
 

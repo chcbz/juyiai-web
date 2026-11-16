@@ -5,7 +5,7 @@ import { ref } from 'vue'
 import { usePersonalWorkspace } from '../src/composables/usePersonalWorkspace.js'
 
 const fileView = (overrides = {}) => ({ fileId: 'pws_file', sourceKind: 'UPLOAD', displayName: 'notes.txt', mediaFamily: 'TEXT', state: 'ACTIVE', metadataRevision: '1', latestVersion: '1', createdAt: 1, capabilities: {}, ...overrides })
-const versionView = (overrides = {}) => ({ fileId: 'pws_file', version: '1', originalFilename: 'notes.txt', contentMimeType: 'text/plain', byteLength: '5', sha256: 'a'.repeat(64), createdAt: 1, previewState: 'READY', ...overrides })
+const versionView = (overrides = {}) => ({ fileId: 'pws_file', version: '1', originalFilename: 'notes.txt', contentMimeType: 'text/plain', byteLength: '5', sha256: 'a'.repeat(64), createdAt: 1, ...overrides })
 const deferred = () => { let resolve; const promise = new Promise(res => { resolve = res }); return { promise, resolve } }
 const browserFile = (name, type, body = 'hello') => {
   const blob = new Blob([body], { type })
@@ -66,96 +66,61 @@ describe('personal workspace browser adapter', () => {
     workspace.dispose()
   })
 
-  it('renders a server-confirmed image preview only when the preview part preserves the image MIME type', async () => {
-    const urls = []
-    const api = { execute: async options => {
-      if (options.url.endsWith('/preview')) return ({ state: 'READY', parts: [{ partId: 'content', contentMimeType: 'image/png' }], partial: false })
-      if (options.url.endsWith('/preview/parts/content')) return (new Blob(['png-bytes'], { type: 'image/png' }))
-      return reply(options, { file: fileView({ mediaFamily: 'IMAGE', displayName: 'poster.png' }), latestVersion: versionView({ contentMimeType: 'image/png', originalFilename: 'poster.png' }), versions: [versionView({ contentMimeType: 'image/png', originalFilename: 'poster.png' })], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: ref('owner-a'), urlApi: { createObjectURL: blob => { urls.push(blob); return 'blob:preview' }, revokeObjectURL: () => {} } })
-    await workspace.select('pws_file')
-    await workspace.previewVersion('1')
-
-    assert.equal(workspace.preview.value.kind, 'image')
-    assert.equal(workspace.preview.value.url, 'blob:preview')
-    assert.equal(urls[0].type, 'image/png')
-    workspace.dispose()
-  })
-
-  it('keeps partial Office text previews', async () => {
-    const api = { execute: async options => {
-      if (options.url.endsWith('/preview')) return ({ state: 'READY', parts: [{ partId: 'content', contentMimeType: 'text/plain' }], partial: true, reason: '文本已截断' })
-      if (options.url.endsWith('/preview/parts/content')) return (new Blob(['第一页标题'], { type: 'text/plain' }))
-      return reply(options, { file: fileView({ mediaFamily: 'DOCUMENT' }), latestVersion: versionView({ contentMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', originalFilename: 'legacy.pdf' }), versions: [versionView({ contentMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', originalFilename: 'legacy.pdf' })], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: ref('owner-a') })
-    await workspace.select('pws_file')
-    await workspace.previewVersion('1')
-
-    assert.equal(workspace.preview.value.kind, 'text')
-    assert.equal(workspace.preview.value.text, '第一页标题')
-    assert.match(workspace.preview.value.message, /截断/)
-    workspace.dispose()
-  })
 })
 
-describe('1.13.1 workspace multi-part previews', () => {
-  it('keeps PPT downloadable without requesting preview metadata or slide images', async () => {
-    const calls = []
-    const version = versionView({ contentMimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', originalFilename: 'deck.pptx' })
-    const api = { execute: async options => {
-      calls.push(options.url)
-      if (options.url.endsWith('/content')) return new Blob(['original pptx'], { type: version.contentMimeType })
-      return reply(options, { file: fileView({ mediaFamily: 'PRESENTATION' }), latestVersion: version, versions: [version], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: ref('owner-a') })
-    await workspace.select('pws_file')
-    await workspace.previewVersion('1')
-    assert.equal(workspace.preview.value.kind, 'unsupported')
-    assert.match(workspace.preview.value.message, /下载原文件/)
-    assert.equal(calls.some(url => url.includes('/preview')), false)
-    await workspace.download('1')
-    assert.ok(calls.some(url => url.endsWith('/content')))
-    workspace.dispose()
+describe('fixed-version original preview sources', () => {
+  for (const [filename, mime] of [
+    ['poster.png', 'image/png'], ['document.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['data.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], ['page.html', 'text/html'],
+    ['notes.md', 'text/markdown'], ['legacy.md', 'text/plain'], ['deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']
+  ]) it(`returns a lazy authorized original-file source for ${filename}`, async () => {
+    const calls = []; const original = new Blob(['original bytes'], { type: mime })
+    const version = versionView({ originalFilename: filename, contentMimeType: mime })
+    const workspace = usePersonalWorkspace({ api: { execute: async options => {
+      calls.push(options)
+      if (options.url.endsWith('/content')) return original
+      return reply(options, { file: fileView({ displayName: filename }), latestVersion: version, versions: [version], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
+    } } })
+    try {
+      await workspace.select('pws_file')
+      const preview = await workspace.previewVersion('1')
+      assert.equal(preview.kind, 'file'); assert.equal(preview.source.mimeType, mime)
+      assert.equal(preview.source.filename, filename); assert.equal(calls.length, 1)
+      const pending = new AbortController()
+      assert.equal(await preview.source.load({ signal: pending.signal }), original)
+      assert.equal(calls.at(-1).url, '/personal-workspace/files/pws_file/versions/1/content')
+      assert.equal(calls.at(-1).needAuth, true)
+      assert.equal(calls.some(call => call.url.includes('/preview')), false)
+      workspace.revokePreview()
+      await assert.rejects(preview.source.load({}), { name: 'AbortError' })
+    } finally { workspace.dispose() }
   })
-  it('revokes URLs created before a later preview part fails', async () => {
-    const revoked = []
-    const api = { execute: async options => {
-      if (options.url.endsWith('/preview')) return ({ state: 'READY', parts: [{ partId: 'page-1', contentMimeType: 'image/png' }, { partId: 'page-2', contentMimeType: 'image/png' }, { partId: 'content', contentMimeType: 'text/plain' }], partial: false })
-      if (options.url.endsWith('/preview/parts/page-1')) return (new Blob(['png'], { type: 'image/png' }))
-      if (options.url.endsWith('/preview/parts/page-2')) throw new Error('second part failed')
-      return reply(options, { file: fileView({ mediaFamily: 'IMAGE' }), latestVersion: versionView({ contentMimeType: 'image/png', originalFilename: 'image.png' }), versions: [versionView({ contentMimeType: 'image/png', originalFilename: 'image.png' })], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: ref('owner-a'), urlApi: { createObjectURL: () => 'blob:page-1', revokeObjectURL: url => revoked.push(url) } })
-    await workspace.select('pws_file')
-    assert.equal(await workspace.previewVersion('1'), null)
-    assert.deepEqual(revoked, ['blob:page-1'])
-    assert.equal(workspace.preview.value.kind, 'error')
-    workspace.dispose()
+  it('forwards cancellation to the original read without fetching another version', async () => {
+    const pending = deferred(); let signal
+    const workspace = usePersonalWorkspace({ api: { execute: async options => {
+      if (options.url.endsWith('/content')) { signal = options.signal; return pending.promise }
+      return reply(options, { file: fileView(), latestVersion: versionView(), versions: [versionView()], relations: [], derivation: [] })
+    } } })
+    try {
+      await workspace.select('pws_file'); const source = (await workspace.previewVersion('1')).source
+      const controller = new AbortController(); const reading = source.load({ signal: controller.signal })
+      const rejected = assert.rejects(reading, { name: 'AbortError' })
+      controller.abort(); assert.equal(signal.aborted, true)
+      pending.resolve(new Blob(['late'], { type: 'text/plain' })); await rejected
+    } finally { workspace.dispose() }
   })
-})
-
-
-describe('1.13.1 workspace Excel preview parts', () => {
-  it('reads each declared text/plain sheet without falling back to raw XLSX bytes', async () => {
-    const calls = []
-    const api = { execute: async options => {
-      calls.push(options.url)
-      if (options.url.endsWith('/preview')) return ({ state: 'READY', parts: [{ partId: 'sheet-1', contentMimeType: 'text/plain' }, { partId: 'sheet-2', contentMimeType: 'text/plain' }, { partId: 'content', contentMimeType: 'text/plain' }], partial: false })
-      if (options.url.endsWith('/preview/parts/sheet-1')) return (new Blob(['汇总'], { type: 'text/plain' }))
-      if (options.url.endsWith('/preview/parts/sheet-2')) return (new Blob(['明细'], { type: 'text/plain' }))
-      return reply(options, { file: fileView({ mediaFamily: 'SPREADSHEET' }), latestVersion: versionView({ contentMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', originalFilename: 'data.xlsx' }), versions: [versionView({ contentMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', originalFilename: 'data.xlsx' })], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: ref('owner-a') })
-    await workspace.select('pws_file')
-    await workspace.previewVersion('1')
-    assert.equal(workspace.preview.value.kind, 'parts')
-    assert.equal(workspace.preview.value.parts[0].text, '汇总')
-    workspace.selectPreviewPart(1)
-    assert.equal(workspace.preview.value.parts[workspace.preview.value.selectedIndex].text, '明细')
-    assert.equal(calls.some(url => url.endsWith('/content')), false)
-    workspace.dispose()
+  it('does not release late content after an identity change', async () => {
+    const pending = deferred(); const epoch = ref('owner-a')
+    const workspace = usePersonalWorkspace({ identityEpoch: epoch, api: { execute: async options => {
+      if (options.url.endsWith('/content')) return pending.promise
+      return reply(options, { file: fileView(), latestVersion: versionView(), versions: [versionView()], relations: [], derivation: [] })
+    } } })
+    try {
+      await workspace.select('pws_file'); const source = (await workspace.previewVersion('1')).source
+      const reading = source.load({}); const rejected = assert.rejects(reading, { name: 'AbortError' })
+      epoch.value = 'owner-b'; pending.resolve(new Blob(['secret'], { type: 'text/plain' })); await rejected
+      assert.equal(workspace.preview.value.kind, 'none')
+    } finally { workspace.dispose() }
   })
 })
 
@@ -180,39 +145,4 @@ describe('common image material uploads', () => {
       } finally { workspace.dispose() }
     })
   }
-})
-
-
-describe('HTML and Markdown fixed-version workspace preview', () => {
-  for (const [mime, filename, kind] of [['text/html', 'page.html', 'html'], ['text/markdown', 'notes.md', 'markdown'], ['text/plain', 'legacy.md', 'markdown']]) it(`reads authorized original bytes for ${mime} / ${filename}`, async () => {
-    const calls = []
-    const api = { execute: async options => {
-      calls.push(options)
-      if (options.url.endsWith('/content')) return new Blob(['# document'], { type: mime })
-      const version = versionView({ contentMimeType: mime, originalFilename: filename })
-      return reply(options, { file: fileView({ displayName: filename }), latestVersion: version, versions: [version], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: ref('owner-a') })
-    try {
-      await workspace.select('pws_file'); await workspace.previewVersion('1')
-      assert.equal(workspace.preview.value.kind, 'document'); assert.equal(workspace.preview.value.documentKind, kind)
-      assert.equal(workspace.preview.value.text, '# document')
-      assert.ok(calls.some(call => call.url === '/personal-workspace/files/pws_file/versions/1/content' && call.needAuth === true))
-      assert.equal(calls.some(call => call.url.includes('/preview')), false)
-    } finally { workspace.dispose() }
-  })
-  it('clears HTML on identity change and ignores late original bytes', async () => {
-    const pending = deferred(); const epoch = ref('owner-a')
-    const api = { execute: async options => {
-      if (options.url.endsWith('/content')) return pending.promise
-      const version = versionView({ contentMimeType: 'text/html', originalFilename: 'page.html' })
-      return reply(options, { file: fileView(), latestVersion: version, versions: [version], relations: [], derivation: [] }, { etag: '"pws_file:1"' })
-    } }
-    const workspace = usePersonalWorkspace({ api, identityEpoch: epoch })
-    try {
-      await workspace.select('pws_file'); const reading = workspace.previewVersion('1')
-      epoch.value = 'owner-b'; await Promise.resolve(); pending.resolve(new Blob(['secret'], { type: 'text/html' })); await reading
-      assert.notEqual(workspace.preview.value.text, 'secret'); assert.notEqual(workspace.preview.value.kind, 'document')
-    } finally { workspace.dispose() }
-  })
 })

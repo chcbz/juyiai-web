@@ -1,5 +1,7 @@
 import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
 import * as returnState from '../src/utils/pageReturnState.js'
+import { FilePreview, originalFilePreview } from './helpers/file-preview-component.js'
+import { filePreviewKind, previewMime } from '../src/utils/filePreview.js'
 import { taskStatusText } from '../src/constants/juyiting.js'
 import { expect } from 'chai'
 import { beforeEach, describe, it } from 'mocha'
@@ -37,8 +39,9 @@ const loadMaterialPicker = (workspace, save) => {
     .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section class=\"pdf-preview-test-slot\" />', props: ['blob'] }")
     .replace(/^import\s+RichDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var RichDocumentPreview = { name: 'RichDocumentPreview', template: '<section />', props: ['text', 'kind', 'title'] }")
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
+    .replace(/^import\s+FilePreview\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, { ...pageReturn, ...returnState, taskStatusText, validMaterialVersion, usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save })
+  return new Function('Vue', 'deps', 'FilePreview', code)(Vue, { FilePreview, filePreviewKind, previewMime, ...pageReturn, ...returnState, taskStatusText, validMaterialVersion, usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save }, FilePreview)
 }
 const load = (api, workspace = emptyWorkspace(), save = () => {}) => {
   const filename = fileURLToPath(new URL('../src/components/juyiting/HallOverview.vue', import.meta.url))
@@ -52,8 +55,9 @@ const load = (api, workspace = emptyWorkspace(), save = () => {}) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]\.\.\/\.\.\/constants\/juyiting\.js['"];?\s*$/gm, 'var { taskStatusText } = deps')
     .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section class=\"pdf-preview-test-slot\" />', props: ['blob'] }")
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_, names) => `var { ${names} } = deps`)
+    .replace(/^import\s+FilePreview\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
     .replace('export default', 'return')
-  return new Function('Vue', 'deps', code)(Vue, { ...pageReturn, ...returnState, taskStatusText, validMaterialVersion, HallMaterialPicker: loadMaterialPicker(workspace, save), canOpenHallItem, HALL_SOURCES, useHallOverview: options => useHallOverview({ ...options, api }), usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save })
+  return new Function('Vue', 'deps', 'FilePreview', code)(Vue, { FilePreview, filePreviewKind, previewMime, ...pageReturn, ...returnState, taskStatusText, validMaterialVersion, HallMaterialPicker: loadMaterialPicker(workspace, save), canOpenHallItem, HALL_SOURCES, useHallOverview: options => useHallOverview({ ...options, api }), usePersonalWorkspace: () => workspace, savePersonalWorkspaceBlob: save }, FilePreview)
 }
 const summary = (sourceType, sourceId, nextAction) => ({ ref: { sourceType, sourceId }, title: sourceId,
   phase: sourceType === 'TASK' ? 'UNKNOWN' : null, status: { code: sourceType === 'TASK' ? 'open' : 'QUEUED', evidenceSource: 'PERSISTED', observedAt: 100 }, targetAgent: null, nextAction, allowedActions: [nextAction], updatedAt: 100 })
@@ -384,18 +388,18 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
     } finally { wrapper.unmount() }
   })
 
-  it('mixes image/document/audio/text using the real workspace adapter, previews, downloads and removes without writes', async () => {
+  it('mixes original image/document/audio/text using the real workspace adapter, previews and removes without writes or picker downloads', async () => {
     const types = [['bird.png', 'image/png', 'IMAGE'], ['brief.pdf', 'application/pdf', 'PDF'], ['song.mp3', 'audio/mpeg', 'AUDIO'], ['notes.txt', 'text/plain', 'TEXT']]
     const calls = []; const saves = []; const revoked = []
+    const originalRevoke = URL.revokeObjectURL
+    URL.revokeObjectURL = url => { revoked.push(url); originalRevoke.call(URL, url) }
     const files = types.map(([name, , family], index) => ({ fileId: `file-${index}`, displayName: name, mediaFamily: family, state: 'ACTIVE', metadataRevision: '1', latestVersion: '2' }))
     const versions = index => ['1', '2'].map(version => ({ fileId: `file-${index}`, version, originalFilename: types[index][0], contentMimeType: types[index][1], byteLength: '10' }))
-    const workspace = usePersonalWorkspace({ identityEpoch: Vue.ref('owner-a'), urlApi: { createObjectURL: blob => `blob:${blob.type}`, revokeObjectURL: url => revoked.push(url) }, api: { execute: async options => {
+    const workspace = usePersonalWorkspace({ identityEpoch: Vue.ref('owner-a'), api: { execute: async options => {
       calls.push(options)
       if (options.url === '/personal-workspace/files') return { items: files, nextCursor: null, hasMore: false }
       const index = Number(/files\/file-(\d+)/.exec(options.url)[1])
-      const mime = types[index][1]
-      if (options.url.endsWith('/preview')) return { state: 'READY', parts: [{ partId: 'content', contentMimeType: mime }], partial: false }
-      if (options.url.includes('/preview/parts/')) return new Blob(['safe preview'], { type: mime })
+      if (options.url.includes('/preview')) throw new Error('retired preview route')
       if (options.url.endsWith('/content')) return new Blob(['original bytes'], { type: types[index][1] })
       return { file: files[index], latestVersion: versions(index)[1], versions: versions(index) }
     } } })
@@ -410,14 +414,14 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
         expect(wrapper.find('.quick-material-preview-toggle').exists()).to.equal(false)
         // Desktop previews the pinned version without a redundant toggle.
         const preview = wrapper.get('.quick-material-preview')
-        if (index === 0) expect(preview.get('img').attributes('src')).to.equal('blob:image/png')
+        if (index === 0) expect(preview.get('img').attributes('src')).to.match(/^blob:/)
         else if (index === 1) {
           expect(preview.find('.pdf-preview-test-slot').exists()).to.equal(true)
           expect(wrapper.findComponent({ name: 'PdfDocumentPreview' }).props('blob').type).to.equal('application/pdf')
         } else if (index === 2) {
-          expect(preview.get('audio').attributes('src')).to.equal('blob:audio/mpeg')
+          expect(preview.get('audio').attributes('src')).to.match(/^blob:/)
           expect(preview.get('audio').attributes('preload')).to.equal('none')
-        } else expect(preview.get('pre').text()).to.equal('safe preview')
+        } else expect(preview.get('pre').text()).to.equal('original bytes')
         expect(wrapper.find('.quick-material-download').exists()).to.equal(false)
         await wrapper.get('.quick-material-version-actions .primary').trigger('click')
       }
@@ -430,23 +434,23 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
       expect(saves).to.deep.equal([])
       expect(calls.every(call => call.method === 'GET')).to.equal(true)
       expect(calls.filter(call => call.url === '/personal-workspace/files')[0].params).to.deep.equal({ state: 'ACTIVE' })
-      expect(calls.filter(call => call.url.endsWith('/preview')).every(call => call.url.includes('/versions/2/'))).to.equal(true)
-      expect(revoked).to.include('blob:audio/mpeg')
+      expect(calls.some(call => call.url.includes('/preview'))).to.equal(false)
+      expect(calls.filter(call => call.url.endsWith('/content')).every(call => call.url.includes('/versions/2/'))).to.equal(true)
+      expect(revoked.some(url => url.startsWith('blob:'))).to.equal(true)
       await wrapper.findAll('.quick-material-summary li')[1].get('button[aria-label="预览所选资料"]').trigger('click'); await settle()
       expect(wrapper.findComponent({ name: 'PdfDocumentPreview' }).props('blob').type).to.equal('application/pdf')
       await wrapper.get('.quick-material-close').trigger('click')
       expect(wrapper.findComponent({ name: 'PdfDocumentPreview' }).exists()).to.equal(false)
       await wrapper.findAll('.quick-material-summary li')[2].get('button[aria-label="预览所选资料"]').trigger('click'); await settle()
-      expect(wrapper.get('.quick-material-preview audio').attributes('src')).to.equal('blob:audio/mpeg')
+      expect(wrapper.get('.quick-material-preview audio').attributes('src')).to.match(/^blob:/)
       expect(wrapper.find('.quick-material-picker').exists()).to.equal(false)
-      await wrapper.get('.quick-material-download').trigger('click'); await settle()
-      expect(saves).to.have.length(1)
-      expect(saves[0].filename).to.equal('song.mp3')
+      expect(wrapper.find('.quick-material-download').exists()).to.equal(false)
+      expect(saves).to.deep.equal([])
       await wrapper.get('.quick-material-close').trigger('click')
       await wrapper.get('.quick-material-summary li button[aria-label^="移除"]').trigger('click')
       expect(wrapper.findAll('.quick-material-summary li')).to.have.length(3)
       expect(calls.every(call => call.method === 'GET')).to.equal(true)
-    } finally { wrapper.unmount(); workspace.dispose() }
+    } finally { wrapper.unmount(); workspace.dispose(); URL.revokeObjectURL = originalRevoke }
   })
 
   it('only opens formal tasks after a canonical read and hides actions missing permission', async () => {
@@ -554,7 +558,7 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
         workspace.detail.value = { file: { fileId, displayName: '参考图片', state: 'ACTIVE' }, latestVersion: { version: '2' }, versions: [{ version: '2', contentMimeType: 'image/png' }] }
         return workspace.detail.value
       },
-      previewVersion: async () => { preview.value = { kind: 'image', url: 'blob:preview' } },
+      previewVersion: async () => { preview.value = originalFilePreview('image/png', 'preview') },
       revokePreview: () => { preview.value = { kind: 'none' } }
     }
     const wrapper = mount(loadMaterialPicker(workspace, () => {}), { props: { ...props, modelValue: [] }, global: { stubs: { teleport: true } } })
@@ -568,7 +572,7 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
       await toggle.trigger('click'); await settle()
       expect(wrapper.get('.quick-material-preview-toggle').attributes('aria-label'), wrapper.get('dialog').html()).to.equal('收起预览')
       expect(wrapper.get('.quick-material-preview-toggle').attributes('aria-expanded')).to.equal('true')
-      expect(wrapper.get('.quick-material-preview img').attributes('src')).to.equal('blob:preview')
+      expect(wrapper.get('.quick-material-preview img').attributes('src')).to.match(/^blob:/)
       await wrapper.get('.quick-material-picker header button').trigger('click'); await settle()
       expect(wrapper.find('.quick-material-picker').exists()).to.equal(true)
       expect(wrapper.get('.quick-material-preview-toggle').attributes('aria-expanded')).to.equal('false')
@@ -576,7 +580,7 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
       expect(wrapper.findAll('.quick-material-draft li')).to.have.length(1)
       resized({ matches: false }); await settle()
       expect(wrapper.find('.quick-material-preview-toggle').exists()).to.equal(false)
-      expect(wrapper.get('.quick-material-preview img').attributes('src')).to.equal('blob:preview')
+      expect(wrapper.get('.quick-material-preview img').attributes('src')).to.match(/^blob:/)
       resized({ matches: true }); await settle()
       expect(wrapper.findAll('.quick-material-draft li')).to.have.length(1)
       await wrapper.get('.quick-material-confirm').trigger('click')
@@ -597,7 +601,7 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
         workspace.hasMoreVersions.value = false
         return true
       },
-      previewVersion: async version => { previewCalls.push(version); workspace.preview.value = { kind: 'text', text: '原固定版本' } }
+      previewVersion: async version => { previewCalls.push(version); workspace.preview.value = originalFilePreview('text/plain', '原固定版本') }
     }
     const original = [{ fileId: 'old-file', version: '1', displayName: '原资料' }]
     const wrapper = mount(loadMaterialPicker(workspace, () => {}), { props: { ...props, modelValue: original }, global: { stubs: { teleport: true } } })
@@ -835,7 +839,7 @@ describe('material picker screenshot feedback: directory, preview and layout con
     let refreshes = 0
     const workspace = { ...emptyWorkspace(), preview: Vue.ref({ kind: 'none' }), refresh: async () => { refreshes++; return true }, select: async fileId => {
       workspace.detail.value = { file: { fileId, displayName: 'fixed.txt', state: 'ACTIVE' }, latestVersion: { version: '2' }, versions: [{ version: '1' }, { version: '2' }] }; return workspace.detail.value
-    }, previewVersion: async v => { expect(v).to.equal('1'); workspace.preview.value = { kind: 'text', text: '固定版本原文' } }, revokePreview: () => { workspace.preview.value = { kind: 'none' } } }
+    }, previewVersion: async v => { expect(v).to.equal('1'); workspace.preview.value = originalFilePreview('text/plain', '固定版本原文') }, revokePreview: () => { workspace.preview.value = { kind: 'none' } } }
     const materials = [{ fileId: 'fixed', version: '1', displayName: 'fixed.txt' }]
     const wrapper = mount(loadMaterialPicker(workspace), { props: { identityScope: 'owner-a', modelValue: materials }, global: { stubs: { teleport: true } } })
     try {

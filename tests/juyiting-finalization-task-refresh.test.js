@@ -62,6 +62,7 @@ describe('submission does not complete the root; explicit review owns completion
     expect(gallery).not.to.include("emit('task-completed'")
     expect(gallery).not.to.include('finalizeSelected')
     expect(gallery).not.to.include('保存到工作空间')
+    expect(gallery).not.to.include('保存到个人资料')
     expect(gallery).to.include('>下载</button>')
     expect(gallery).to.include('@click="downloadOutput(item)"')
   })

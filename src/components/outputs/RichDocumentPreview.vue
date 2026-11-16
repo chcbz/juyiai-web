@@ -1,6 +1,6 @@
 <template>
   <section class="rich-document-preview">
-    <p class="rich-document-note">静态文档预览：脚本、链接跳转和外部资源已禁用；可下载原文件查看完整内容。</p>
+    <p class="rich-document-note">静态文档预览：脚本、链接跳转和外部资源已禁用。</p>
     <p v-if="!text" role="status">文件内容为空。</p>
     <iframe
       v-else

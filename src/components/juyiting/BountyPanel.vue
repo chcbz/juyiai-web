@@ -274,19 +274,14 @@
                 <button type="button" @click="$emit('open-workspace')">打开百宝箱</button>
               </section>
               <TaskMaterialLinks
-                v-if="formalTaskExecutionScope && !embeddedHall && canActOnTask(detailTask)"
-                :key="formalTaskExecutionScope.taskId"
-                :task-id="formalTaskExecutionScope.taskId"
-                :conversation-id="formalTaskExecutionScope.conversationId"
-                :target-agent-id="formalTaskExecutionScope.targetAgentId"
-                :conversation-confirmed="formalTaskExecutionScope.conversationConfirmed"
-                :formal-execution-authorized="formalTaskExecutionScope.formalExecutionAuthorized"
-                :formal-execution-authorization-reason="formalTaskExecutionScope.authorizationReason"
+                v-if="detailTask?.id && !embeddedHall && canActOnTask(detailTask)"
+                :key="detailTask.id"
+                :task-id="detailTask.id"
+                :target-agent-id="assignedAgentForTask(detailTask)?.agentId || ''"
                 :identity-epoch="authorizationGeneration"
                 :identity-scope="identityScope"
                 :default-instruction="detailTask.description || detailTask.title"
-                @formal-execution-created="$emit('formal-execution-created', $event)"
-                @formal-execution-recovered="$emit('formal-execution-recovered', $event)"
+                @open-deliberation="$emit('open-deliberation', $event)"
               />
 
               <section
@@ -533,7 +528,6 @@ const props = defineProps({
   workItemPlanEnabled: { type: Boolean, default: false },
   authorizationGeneration: { type: Number, default: 0 },
   identityScope: { type: String, default: '' },
-  formalTaskExecutionContext: { type: Object, default: null },
   fundedCreateRecovery: { type: Object, default: null },
   requirementCreateState: { type: Object, default: null },
   requirementCreateBusy: { type: Boolean, default: false },
@@ -572,8 +566,7 @@ const emit = defineEmits([
   'view-discussion-history',
   'load-settlement',
   'open-workspace',
-  'formal-execution-created',
-  'formal-execution-recovered',
+  'open-deliberation',
   'load-tasks',
   'load-more-tasks',
   'select-agent',
@@ -770,20 +763,6 @@ watch(matterAgent, (agent, previous) => {
   if (!agent && previous) matterCandidateExpansion.value = null
 })
 
-const formalTaskExecutionScope = computed(() => {
-  const taskId = detailTask.value?.id
-  if (!taskId) return null
-  const context = props.formalTaskExecutionContext
-  if (context?.taskId === taskId) return context
-  return {
-    taskId,
-    conversationId: '',
-    targetAgentId: '',
-    conversationConfirmed: false,
-    formalExecutionAuthorized: false,
-    authorizationReason: '当前榜文的正式议事与必需工作项尚未核对；请先进入本事项议事并明确选择已指派好汉。'
-  }
-})
 const fundedRecoveryAbilities = computed(() => {
   const abilities = props.fundedCreateRecovery?.body?.requiredAbilities
   return Array.isArray(abilities) ? abilities.join('、') || '未填写' : abilities || '未填写'

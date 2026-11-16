@@ -71,14 +71,6 @@ export function validateHallReferenceDetail (detail, expectedFileId) {
   })
 }
 
-const previewUrlFrom = preview => {
-  if (preview?.kind === 'image' && typeof preview.url === 'string' && preview.url) return preview.url
-  if (preview?.kind === 'parts' && Array.isArray(preview.parts)) {
-    const image = preview.parts.find(part => part?.kind === 'image' && typeof part.url === 'string' && part.url)
-    return image?.url || ''
-  }
-  return ''
-}
 
 /**
  * Read-only requirement-draft selector. It only reads through the existing JWT-scoped
@@ -97,6 +89,7 @@ export function useHallReferenceImageSelection ({
   const currentEpoch = computed(() => String(valueOf(identityEpoch) ?? ''))
   const sessions = new Map()
   const pendingSessions = new Set()
+  const sessionUrls = new Map()
   const pendingKeys = new Set()
   let generation = 0
   let detailRequest = 0
@@ -112,6 +105,9 @@ export function useHallReferenceImageSelection ({
   const disposeSession = session => {
     if (!session) return
     pendingSessions.delete(session)
+    const url = sessionUrls.get(session)
+    if (url) urlApi.revokeObjectURL(url)
+    sessionUrls.delete(session)
     session.dispose?.()
   }
   const revokeSelected = () => {
@@ -199,8 +195,13 @@ export function useHallReferenceImageSelection ({
 
       const preview = await previewSession.previewVersion(version)
       if (!stillCurrent(snapshot)) throw abortError('Reference identity changed')
-      const previewUrl = previewUrlFrom(preview)
-      if (!previewUrl) throw new Error('该精确版本没有可用的授权图片预览。')
+      if (preview?.kind !== 'file') throw new Error('该精确版本没有可用的授权图片预览。')
+      const blob = await preview.source.load({})
+      if (!stillCurrent(snapshot)) throw abortError('Reference identity changed')
+      if (!(blob instanceof Blob) || normalizeMime(blob.type) !== exactVersions[0].contentMimeType) throw new Error('参考图媒体类型与固定版本不一致。')
+      const previewUrl = urlApi.createObjectURL(blob)
+      sessionUrls.set(previewSession, previewUrl)
+      if (!stillCurrent(snapshot)) throw abortError('Reference identity changed')
       if (sessions.has(key)) throw new Error('该文件版本已选择，不能重复加入。')
 
       sessions.set(key, previewSession)

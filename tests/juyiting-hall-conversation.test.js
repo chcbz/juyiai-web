@@ -1877,3 +1877,45 @@ describe('page return draft ownership', () => {
     } finally { conversation.disposeHallConversation() }
   })
 })
+
+
+describe('PRIVATE native send intent', () => {
+  const makePrivate = chatApi => useHallConversation({
+    apiStore: { token: async () => '' }, chatApi,
+    chatContext: ref({ conversationScopeType: 'private', conversationScopeKey: 'agent:a', mode: 'private', targetAgentIds: ['a'], targetAgentId: 'a', participantAgentIds: ['a'] }),
+    chatMode: ref('private'), globalStore: { getJiacn: 'owner', user: {} },
+    log: { warn() {}, error() {} }, openPanel() {}, outgoingMetadata: ref({}),
+    portraitShortName: agent => agent?.agentId || '', selectedAgent: ref({ agentId: 'a' }), selectedTask: ref(null), showToast() {}
+  })
+  it('freezes original null and exact materials before awaiting capabilities or receiving a conversation ID', async () => {
+    const gate = deferred(), payloads = []
+    const conversation = makePrivate({
+      get: async path => { if (path === '/capabilities') { await gate.promise; return getHallCapabilities(path) } return null },
+      create: async (_path, body, options) => { payloads.push(body); options.onStream({ conversationId: '1002' }); options.onStreamEnd() }
+    })
+    const materialRefs = [{ kind: 'WORKSPACE_VERSION', fileId: 'file-a', version: '3' }]
+    try {
+      const sending = conversation.sendHallMessage({ content: '整理表格', materialRefs })
+      materialRefs[0].version = '4'
+      gate.resolve()
+      expect(await sending).to.equal(true)
+      expect(payloads).to.have.length(1)
+      expect(payloads[0].conversationId).to.equal(null)
+      expect(payloads[0].materialRefs).to.deep.equal([{ kind: 'WORKSPACE_VERSION', fileId: 'file-a', version: '3' }])
+      expect(payloads[0]).not.to.have.property('taskId')
+      expect(payloads[0].metadata).not.to.have.property('materialRefs')
+      expect(payloads[0].inputRefs).to.deep.equal([])
+    } finally { gate.resolve(); conversation.disposeHallConversation() }
+  })
+  it('rejects invalid selections without consuming the draft or creating a request', async () => {
+    let posts = 0
+    const conversation = makePrivate({ get: getHallCapabilities, create: async () => { posts++ } })
+    try {
+      conversation.setDraft('处理资料')
+      expect(await conversation.sendHallMessage({ materialRefs: [{ kind: 'WORKSPACE_VERSION', fileId: 'file-a', version: 'latest' }] })).to.equal(false)
+      expect(posts).to.equal(0)
+      expect(conversation.draft.value).to.equal('处理资料')
+      expect(conversation.isSubmitting.value).to.equal(false)
+    } finally { conversation.disposeHallConversation() }
+  })
+})

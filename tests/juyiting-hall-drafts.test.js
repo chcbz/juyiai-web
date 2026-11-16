@@ -9,6 +9,7 @@ const draft = (overrides = {}) => ({
 })
 const execution = (overrides = {}) => ({ executionId: 'exec-1', targetAgentId: 'agent-1', state: 'QUEUED', ...overrides })
 const receipt = (overrides = {}) => ({ ref: { sourceType: 'PRIVATE_CASE', sourceId: 'case-1' }, execution: execution(), task: null, submittedAt: 2, ...overrides })
+const formalReceipt = () => ({ ref: { sourceType: 'TASK', sourceId: 'task-1' }, execution: null, task: { taskId: 'task-1', taskVersion: '1' }, submittedAt: 2 })
 const memoryStorage = () => {
   const map = new Map()
   return {
@@ -22,22 +23,12 @@ const fields = { title: '整理案卷', instruction: '固定版本后保存', ta
 const createSaved = async (adapter, values = fields) => adapter.create(values)
 
 describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
-  it('accepts server-declared plain-text input capability without exposing it as an output format', async () => {
-    const api = { execute: async request => {
-      expect(request).to.include({ url: '/personal-workspace/executions/capabilities', method: 'GET' })
-      return ({
-        allowedMimeTypes: ['application/pdf'],
-        inputMimeTypes: ['application/pdf', 'text/plain'],
-        generationEnabled: true
-      })
-    } }
+  it('does not discover retired execution capabilities', async () => {
+    const calls = []
     const { useHallDrafts } = await import('../src/composables/juyiting/useHallDrafts.js')
-    const drafts = useHallDrafts({ agentApi: api, identityScope: 'tenant-a\u0000client-a\u0000owner-a' })
-    const capabilities = await drafts.loadCapabilities()
-    expect(capabilities.allowedMimeTypes).to.deep.equal(['application/pdf'])
-    expect(capabilities.inputMimeTypes).to.deep.equal(['application/pdf', 'text/plain'])
-    expect(drafts.allowedMimeTypes.value).to.deep.equal(['application/pdf'])
-    expect(drafts.capabilityState.value).to.equal('ready')
+    const drafts = useHallDrafts({ agentApi: { execute: async request => { calls.push(request); return null } }, identityScope: 'owner' })
+    expect(drafts).not.to.have.property('loadCapabilities')
+    expect(calls).to.deep.equal([])
     drafts.dispose()
   })
 
@@ -95,8 +86,8 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
     const storage = memoryStorage()
     const api = { execute: async request => {
       calls.push(request)
-      if (request.url === '/hall/drafts') return (draft())
-      if (request.url.endsWith('/submit')) return (receipt())
+      if (request.url === '/hall/drafts') return (draft({ kind: 'TASK_CREATE' }))
+      if (request.url.endsWith('/submit')) return (formalReceipt())
       if (request.url === '/hall/cases/case-1') return ({ caseId: 'case-1', title: '整理案卷', revision: '1', executions: [{ revisionNo: '1', parentExecutionId: null, sourceOutputRef: null, execution: execution() }], allowedActions: [], sourceRef: { originRef: 'juyiting' } })
       throw new Error(`unexpected ${request.url}`)
     } }
@@ -104,7 +95,7 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
     const drafts = useHallDrafts({ agentApi: api, identityScope: 'tenant-a\u0000client-a\u0000owner-a', storage, keyFactory: () => 'submit-key' })
     await createSaved(drafts)
     const accepted = await drafts.submit({ authorizationAcknowledgement: true })
-    expect(accepted.ref).to.deep.equal({ sourceType: 'PRIVATE_CASE', sourceId: 'case-1' })
+    expect(accepted.ref).to.deep.equal({ sourceType: 'TASK', sourceId: 'task-1' })
     const submitCall = calls.find(call => call.url.endsWith('/submit'))
     expect(submitCall.headers).to.deep.equal({ 'Idempotency-Key': 'submit-key' })
     expect(submitCall.data).to.deep.equal({ expectedRevision: '1', authorizationAcknowledgement: true })
@@ -122,7 +113,7 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
     const storage = memoryStorage()
     const api = { execute: async request => {
       calls.push(request)
-      if (request.url === '/hall/drafts') return (draft())
+      if (request.url === '/hall/drafts') return (draft({ kind: 'TASK_CREATE' }))
       if (request.url.endsWith('/submit')) { const error = new Error('lost'); error.status = 503; throw error }
       if (request.url === '/hall/submissions/request') { const error = new Error('not found'); error.status = 404; error.code = 'HALL_RESOURCE_NOT_FOUND'; throw error }
       throw new Error(`unexpected ${request.url}`)
@@ -152,12 +143,12 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
     let requestReads = 0
     const api = { execute: async request => {
       calls.push(request)
-      if (request.url === '/hall/drafts') return (draft())
+      if (request.url === '/hall/drafts') return (draft({ kind: 'TASK_CREATE' }))
       if (request.url.endsWith('/submit')) { const error = new Error('lost'); error.status = 503; throw error }
       if (request.url === '/hall/submissions/request') {
         requestReads += 1
         if (requestReads < 3) { const error = new Error('reauthorize'); error.status = requestReads === 1 ? 401 : 403; throw error }
-        return (receipt())
+        return (formalReceipt())
       }
       if (request.url === '/hall/cases/case-1') return ({ caseId: 'case-1', title: '整理案卷', revision: '1', executions: [], allowedActions: [], sourceRef: { originRef: 'juyiting' } })
       throw new Error(`unexpected ${request.url}`)
@@ -172,7 +163,7 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
     await drafts.reconcileSubmission()
     expect(drafts.unresolvedIntent.value.idempotencyKey).to.equal('original-key')
     await drafts.reconcileSubmission()
-    expect(drafts.receipt.value.ref.sourceType).to.equal('PRIVATE_CASE')
+    expect(drafts.receipt.value.ref.sourceType).to.equal('TASK')
     expect(calls.filter(call => call.url.endsWith('/submit'))).to.have.length(1)
     expect(calls.filter(call => call.url === '/hall/submissions/request').map(call => call.headers['Idempotency-Key'])).to.deep.equal(['original-key', 'original-key', 'original-key'])
     drafts.dispose()
@@ -181,7 +172,7 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
   it('hides the prior owner on logout while retaining the isolated unknown key for reauthorization', async () => {
     const storage = memoryStorage()
     const scope = ref('tenant-a\u0000client-a\u0000owner-a')
-    const api = { execute: async request => request.url === '/hall/drafts' ? (draft()) : Promise.reject(Object.assign(new Error('lost'), { status: 503 })) }
+    const api = { execute: async request => request.url === '/hall/drafts' ? (draft({ kind: 'TASK_CREATE' })) : Promise.reject(Object.assign(new Error('lost'), { status: 503 })) }
     const { useHallDrafts } = await import('../src/composables/juyiting/useHallDrafts.js')
     const drafts = useHallDrafts({ agentApi: api, identityScope: scope, storage, keyFactory: () => 'original-key' })
     await createSaved(drafts)
@@ -200,7 +191,7 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
 
   it('refuses persistence and submission without a stable owner/client scope', async () => {
     const storage = memoryStorage()
-    const api = { execute: async request => request.url === '/hall/drafts' ? (draft()) : (receipt()) }
+    const api = { execute: async request => request.url === '/hall/drafts' ? (draft({ kind: 'TASK_CREATE' })) : (formalReceipt()) }
     const { useHallDrafts } = await import('../src/composables/juyiting/useHallDrafts.js')
     const drafts = useHallDrafts({ agentApi: api, identityEpoch: ref(7), storage, keyFactory: () => 'key' })
     await createSaved(drafts)
@@ -210,23 +201,23 @@ describe('JYT-UX-W03 Hall draft submission and recovery adapter', () => {
     drafts.dispose()
   })
 
-  it('accepts the frozen TASK_ACTION receipt shape without mixing it into a private case', async () => {
-    const api = { execute: async request => request.url === '/hall/drafts'
-      ? (draft({ kind: 'TASK_ACTION' }))
-      : (receipt({ ref: { sourceType: 'TASK', sourceId: 'task-1' }, execution: execution({ executionId: 'task-exec' }), task: null })) }
+  for (const kind of ['CREATE', 'REVISION', 'TASK_ACTION']) it(`does not submit retired ${kind} draft execution`, async () => {
+    const calls = [], storage = memoryStorage()
+    const api = { execute: async request => { calls.push(request); return draft({ kind }) } }
     const { useHallDrafts } = await import('../src/composables/juyiting/useHallDrafts.js')
-    const drafts = useHallDrafts({ agentApi: api, identityScope: 'tenant\u0000client\u0000owner', storage: memoryStorage(), keyFactory: () => 'task-action-key' })
-    await createSaved(drafts)
-    const accepted = await drafts.submit({ authorizationAcknowledgement: true })
-    expect(accepted.ref).to.deep.equal({ sourceType: 'TASK', sourceId: 'task-1' })
-    expect(drafts.caseView.value).to.equal(null)
-    drafts.dispose()
+    const model = useHallDrafts({ agentApi: api, identityScope: 'owner', storage })
+    await model.load('draft-1')
+    expect(await model.submit({ authorizationAcknowledgement: true })).to.equal(null)
+    expect(calls.map(call => call.method)).to.deep.equal(['GET'])
+    expect(storage.entries()).to.deep.equal([])
+    expect(model.draft.value.state).to.equal('EDITING')
+    model.dispose()
   })
 
   it('releases deterministic submit failures for correction while retaining only uncertain failures', async () => {
     const storage = memoryStorage()
     const api = { execute: async request => {
-      if (request.url === '/hall/drafts') return (draft())
+      if (request.url === '/hall/drafts') return (draft({ kind: 'TASK_CREATE' }))
       const error = new Error('unavailable'); error.status = 422; error.code = 'HALL_SUBMISSION_KIND_UNAVAILABLE'; throw error
     } }
     const { useHallDrafts } = await import('../src/composables/juyiting/useHallDrafts.js')

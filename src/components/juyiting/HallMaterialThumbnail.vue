@@ -4,7 +4,7 @@
       v-if="imageUrl"
       :src="imageUrl"
       alt=""
-      @error="imageFailed = true"
+      @error="fail"
     />
     <svg
       v-else
@@ -17,26 +17,29 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { usePersonalWorkspace } from '@/composables/usePersonalWorkspace'
+import { useFilePreview } from '../../composables/useFilePreview.js'
+import { filePreviewKind } from '../../utils/filePreview.js'
 
 const props = defineProps({
   fileId: { type: String, required: true },
   version: { type: String, required: true },
   identityKey: { type: String, required: true }
 })
-// Each card owns its preview URLs: opening the full preview must not revoke thumbnails.
-const context = computed(() => `${props.identityKey}\u0000${props.fileId}\u0000${props.version}`)
+// This card owns its source/URL; opening another viewer cannot revoke it.
+const context = computed(() => JSON.stringify([props.identityKey, props.fileId, props.version]))
 const workspace = usePersonalWorkspace({ identityEpoch: context })
-const imageFailed = ref(false)
-const imageUrl = computed(() => !imageFailed.value && workspace.preview.value?.kind === 'image' ? workspace.preview.value.url : '')
+const source = computed(() => workspace.preview.value?.source || null)
+const { url: imageUrl, fail } = useFilePreview(source)
 watch(context, async key => {
-  imageFailed.value = false
   const detail = await workspace.select(props.fileId)
   if (key !== context.value) return
-  const version = detail?.versions?.find(item => item.version === props.version)
-  if (version?.contentMimeType?.startsWith('image/')) await workspace.previewVersion(props.version)
-}, { immediate: true })
+  const version = detail?.versions?.find(item => String(item.version) === props.version)
+  if (filePreviewKind(version?.contentMimeType, version?.originalFilename) === 'image') {
+    await workspace.previewVersion(props.version)
+  }
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <style scoped>

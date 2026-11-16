@@ -2,7 +2,6 @@ import { validMaterialVersion } from './materialVersion.js'
 import { computed, getCurrentInstance, onBeforeUnmount, ref, unref, watch } from 'vue'
 import { agentApi as defaultAgentApi } from '../useHttp.js'
 import { registerIdentityCleanup } from '../../utils/identityLifecycle.js'
-import { validPersonalWorkspaceExecutionCapabilities } from '../usePersonalWorkspaceExecution.js'
 
 const MAX_ID_LENGTH = 100
 const MAX_TEXT_LENGTH = 16000
@@ -149,10 +148,6 @@ export function createHallSubmissionRecoveryStore ({ storage = globalThis.localS
 
 /** DRAFT-v1 plus frozen submit/reconciliation contracts; unknown POSTs are never replayed. */
 export function useHallDrafts ({ agentApi = defaultAgentApi, identityEpoch = 0, identityScope = '', storage = globalThis.localStorage || globalThis.window?.localStorage, keyFactory = randomKey } = {}) {
-  const capabilityState = ref('idle')
-  const capabilityError = ref('')
-  const allowedMimeTypes = ref([])
-  const generationEnabled = ref(false)
   const draft = ref(null)
   const state = ref('idle')
   const error = ref('')
@@ -179,10 +174,6 @@ export function useHallDrafts ({ agentApi = defaultAgentApi, identityEpoch = 0, 
     generation += 1
     for (const controller of controllers) controller.abort(abortError('Hall draft identity changed'))
     controllers.clear()
-    capabilityState.value = 'idle'
-    capabilityError.value = ''
-    allowedMimeTypes.value = []
-    generationEnabled.value = false
     draft.value = null
     summaries.value = []
     nextCursor.value = null
@@ -218,28 +209,6 @@ export function useHallDrafts ({ agentApi = defaultAgentApi, identityEpoch = 0, 
     error.value = ''
     reloadRequired.value = false
     return value
-  }
-  const loadCapabilities = async () => {
-    if (!currentScope.value || capabilityState.value === 'loading') return null
-    const snapshot = snapshotNow()
-    capabilityState.value = 'loading'
-    capabilityError.value = ''
-    allowedMimeTypes.value = []
-    generationEnabled.value = false
-    try {
-      const value = await request({ url: '/personal-workspace/executions/capabilities', method: 'GET' }, snapshot)
-      if (!validPersonalWorkspaceExecutionCapabilities(value)) throw new Error('执行格式返回无效')
-      allowedMimeTypes.value = [...value.allowedMimeTypes]
-      generationEnabled.value = value.generationEnabled
-      capabilityState.value = value.allowedMimeTypes.length ? 'ready' : 'empty'
-      return value
-    } catch (cause) {
-      if (cause?.name !== 'AbortError' && snapshot.generation === generation) {
-        capabilityState.value = 'error'
-        capabilityError.value = '暂未读到可用交付格式，草稿和原格式仍保留；请重新读取后再交办。'
-      }
-      return null
-    }
   }
   const create = async ({ kind = 'CREATE', originRef = 'juyiting', sourceRef = null, caseId = null, taskId = null, conversationId = null, sourceOutputRef = null, ...editable } = {}) => {
     const fields = normalizedEditable(editable)
@@ -367,6 +336,10 @@ export function useHallDrafts ({ agentApi = defaultAgentApi, identityEpoch = 0, 
       error.value = unresolvedIntent.value || submissionState.value === 'submitting' ? '原交办结果仍待确认；请核对原请求，勿重复交办。' : '请先保存草稿并明确确认授权。'
       return null
     }
+    if (currentDraft.kind !== 'TASK_CREATE') {
+      error.value = '私人资料处理请带入密议；正式事项修改请回原正式入口。'
+      return null
+    }
     // Another retained Hall pane can have submitted since this model last read recovery.
     const storedIntent = recoveryStore.read()
     if (storedIntent?.uncertain || storedIntent?.draftId === currentDraft.draftId) {
@@ -382,7 +355,6 @@ export function useHallDrafts ({ agentApi = defaultAgentApi, identityEpoch = 0, 
     unresolvedIntent.value = intent; submissionRecovery.value = intent; submissionState.value = 'submitting'; error.value = ''
     try {
       const value = applyReceipt(await request({ url: `/hall/drafts/${encodeURIComponent(snapshot.draftId)}/submit`, method: 'POST', headers: { 'Idempotency-Key': key }, data: { expectedRevision: snapshot.revision, authorizationAcknowledgement: true } }, snapshot), intent)
-      if (value.ref.sourceType === 'PRIVATE_CASE') void loadCase(value.ref.sourceId)
       return value
     } catch (cause) {
       if (cause?.name !== 'AbortError' && snapshot.generation === generation) {
@@ -494,5 +466,5 @@ export function useHallDrafts ({ agentApi = defaultAgentApi, identityEpoch = 0, 
   })
   const dispose = () => { if (!disposed) { disposed = true; unregisterIdentityCleanup(); reset() } }
   if (getCurrentInstance()) onBeforeUnmount(dispose)
-  return { capabilityState, capabilityError, allowedMimeTypes, generationEnabled, loadCapabilities, draft, summaries, nextCursor, state, error, reloadRequired, receipt, submissionState, caseView, executionView, submissionRecovery, unresolvedIntent, executionResults, resultsState, resultsError, create, save, list, loadMore, load, discard, submit, reconcileSubmission, loadFormalTask, loadCase, loadExecution, loadResults, reset, dispose }
+  return { draft, summaries, nextCursor, state, error, reloadRequired, receipt, submissionState, caseView, executionView, submissionRecovery, unresolvedIntent, executionResults, resultsState, resultsError, create, save, list, loadMore, load, discard, submit, reconcileSubmission, loadFormalTask, loadCase, loadExecution, loadResults, reset, dispose }
 }

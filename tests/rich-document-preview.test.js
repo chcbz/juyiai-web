@@ -1,3 +1,7 @@
+import * as pageReturn from '../src/composables/juyiting/useHallPageReturn.js'
+import * as returnState from '../src/utils/pageReturnState.js'
+import { FilePreview } from './helpers/file-preview-component.js'
+import { filePreviewKind, previewMime } from '../src/utils/filePreview.js'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
@@ -13,7 +17,7 @@ function component (path, imports) {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_, names, key) => `const { ${names.replace(/\s+as\s+/g, ': ')} } = imports[${JSON.stringify(key)}]`)
     .replace(/^import\s+(\w+)\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_, name, key) => `const ${name} = imports[${JSON.stringify(key)}]`)
     .replace('export default', 'return')
-  return new Function('imports', code)({ vue: Vue, ...imports })
+  return new Function('imports', code)({ vue: Vue, '../../composables/juyiting/useHallPageReturn.js': pageReturn, '../../utils/pageReturnState.js': returnState, '../preview/FilePreview.vue': FilePreview, '../../utils/filePreview.js': { filePreviewKind, previewMime }, ...imports })
 }
 const Rich = component('../src/components/outputs/RichDocumentPreview.vue', { '../../utils/richDocumentPreview.js': { richDocumentSource } })
 const Preview = component('../src/components/outputs/OutputPreview.vue', {
@@ -25,8 +29,8 @@ describe('static HTML and Markdown file preview', () => {
   it('recognizes MIME and historical plain-text filename aliases, never unknown binary formats', () => {
     for (const [mime, name, kind] of [['text/html', '', 'html'], ['text/markdown', '', 'markdown'], ['text/plain', 'NOTES.MD', 'markdown'], ['application/octet-stream', 'report.htm', 'html'], ['application/pdf', 'report.html', '']]) assert.equal(richDocumentKind(mime, name), kind)
     for (const mimeType of ['text/html', 'text/markdown', 'text/x-markdown']) {
-      assert.equal(outputPreviewKind({ mimeType, byteLength: 100 }), 'text')
-      assert.equal(outputPreviewKind({ mimeType, byteLength: 1024 * 1024 + 1 }), 'none')
+      assert.equal(outputPreviewKind({ mimeType, byteLength: 100 }), mimeType === 'text/html' ? 'html' : 'markdown')
+      assert.equal(outputPreviewKind({ mimeType, byteLength: 1024 * 1024 + 1 }), mimeType === 'text/html' ? 'html' : 'markdown')
     }
   })
   it('renders real Markdown headings, table, lists, emphasis and fenced code', () => {
@@ -59,15 +63,15 @@ describe('static HTML and Markdown file preview', () => {
   })
   for (const mimeType of ['text/html', 'text/markdown']) it(`uses the actual output renderer for ${mimeType}`, async () => {
     const wrapper = mount(Preview, { props: { item: { artifactId: 'a', artifactVersion: '1', title: '文件', mimeType, byteLength: 10 }, load: async () => new Blob(['<h1>Title</h1>'], { type: mimeType }) } })
-    try { await flushPromises(); assert.equal(wrapper.findComponent(Rich).exists(), true); assert.equal(wrapper.find('iframe').exists(), true) } finally { wrapper.unmount() }
+    try { await flushPromises(); assert.equal(wrapper.find('iframe').exists(), true); assert.equal(wrapper.find('iframe').exists(), true) } finally { wrapper.unmount() }
   })
   for (const type of ['text/html;charset=utf-8', 'text/markdown; charset=utf-8', 'application/json']) it(`preserves document MIME matching for ${type}`, async () => {
     const mimeType = type.startsWith('text/markdown') ? 'text/markdown' : 'text/html'
     const wrapper = mount(Preview, { props: { item: { artifactId: 'a', artifactVersion: '1', title: '文件', mimeType, byteLength: 10 }, load: async () => new Blob(['<h1>Title</h1>'], { type }) } })
     try {
       await flushPromises()
-      assert.equal(wrapper.findComponent(Rich).exists(), type !== 'application/json')
-      if (type === 'application/json') assert.match(wrapper.text(), /类型不匹配/)
+      assert.equal(wrapper.find('iframe').exists(), type !== 'application/json')
+      if (type === 'application/json') assert.match(wrapper.text(), /文件信息不一致/)
     } finally { wrapper.unmount() }
   })
   it('does not show a stale output after the file context changes', async () => {
@@ -121,7 +125,7 @@ describe('material picker HTML/Markdown entry points', () => {
   }
   for (const kind of ['html', 'markdown']) for (const standalone of [false, true]) it(`renders ${kind} via ${standalone ? 'selected-material dialog' : 'picker sidebar'}`, async () => {
     const workspace = makeWorkspace()
-    workspace.document = { kind: 'document', documentKind: kind, text: kind === 'html' ? '<h1>正文</h1><script>alert(1)</script>' : '# 正文\n\n**重点**', message: '' }
+    workspace.document = { kind: 'file', source: { key: 'owner-a:brief:1', filename: 'brief', mimeType: `text/${kind}`, load: async () => new Blob([kind === 'html' ? '<h1>正文</h1><script>alert(1)</script>' : '# 正文\n\n**重点**'], { type: `text/${kind}` }) }, message: '' }
     const Picker = component('../src/components/juyiting/HallMaterialPicker.vue', {
       '../outputs/RichDocumentPreview.vue': Rich, '../workspace/PdfDocumentPreview.vue': { render: () => null },
       '../../composables/juyiting/materialVersion.js': { validMaterialVersion: value => /^[1-9][0-9]*$/.test(String(value)) },
@@ -141,7 +145,7 @@ describe('material picker HTML/Markdown entry points', () => {
       assert.equal(frame.getAttribute('sandbox'), ''); assert.match(frame.srcdoc, /<h1>正文<\/h1>/)
       assert.doesNotMatch(frame.srcdoc, /<script>/); if (kind === 'markdown') assert.match(frame.srcdoc, /<strong>重点<\/strong>/)
       assert.equal(workspace.calledVersion, '1', 'retains existing fixed version rather than latest')
-      workspace.preview.value = { kind: 'document', documentKind: kind, text: '', message: '' }; await Vue.nextTick()
+      workspace.preview.value = { kind: 'file', source: { ...workspace.document.source, key: 'empty:1', load: async () => new Blob([''], { type: `text/${kind}` }) }, message: '' }; await flushPromises()
       assert.equal(dialog.querySelector('iframe'), null); assert.match(dialog.textContent, /文件内容为空/)
       workspace.preview.value = { kind: 'error', message: '读取失败' }; await Vue.nextTick()
       assert.match(dialog.textContent, /读取失败/); assert.ok(dialog.querySelector('[aria-label="重试预览"]'))

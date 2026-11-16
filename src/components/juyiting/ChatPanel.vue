@@ -272,7 +272,7 @@
       @cancel-deliberation="$emit('cancel-deliberation', $event)"
       @clear-target="$emit('clear-target', $event)"
       @mention-agent="$emit('mention-agent', $event)"
-      @send-message="$emit('send-message', typedEnabled && discussionVariant === 'bounty' ? { sourceSelectors: typedSourceSelectors, materialScope: typedMaterialScope } : undefined)"
+      @send-message="$emit('send-message', isPrivateDiscussion ? { materialRefs: privateMaterialRefs } : typedEnabled && discussionVariant === 'bounty' ? { sourceSelectors: typedSourceSelectors, materialScope: typedMaterialScope } : undefined)"
       @update:draft="$emit('update:draft', $event)"
       @voice-apply="$emit('voice-apply', $event)"
       @open-tools="closeHistory"
@@ -284,12 +284,12 @@
     >
       <template #attachments>
         <div
-          v-if="activeMaterialLinks.length"
+          v-if="composerMaterials.length"
           class="composer-attachment-strip"
           tabindex="0"
           aria-label="已选资料，可横向滚动"
         >
-          <article v-for="link in activeMaterialLinks" :key="link.relationId" class="composer-attachment-card">
+          <article v-for="link in composerMaterials" :key="`${link.fileId}:${link.version}`" class="composer-attachment-card">
             <HallMaterialThumbnail :file-id="link.fileId" :version="link.version" :identity-key="materialIdentityKey" />
             <span class="composer-attachment-name"><strong :title="materialName(link)">{{ materialName(link) }}</strong><small>固定版本 v{{ link.version }}</small></span>
             <button
@@ -492,6 +492,7 @@ const emit = defineEmits([
   'select-conversation',
   'send-message',
   'update:draft',
+  'update:material-refs',
   'restore-discussion-context',
   'voice-apply',
   'typed-reply',
@@ -522,6 +523,10 @@ const typedBodyRendered = (message, projection) => {
 }
 
 const isTaskDiscussion = computed(() => props.discussionVariant === 'bounty')
+const isPrivateDiscussion = computed(() => props.discussionVariant === 'private')
+const privateSelectedMaterials = ref([])
+const privateMaterialRefs = computed(() => privateSelectedMaterials.value.map(({ fileId, version }) => ({ kind: 'WORKSPACE_VERSION', fileId, version })))
+watch(privateMaterialRefs, refs => emit('update:material-refs', refs), { flush: 'sync', immediate: true })
 const displayedMessages = computed(() => !isTaskDiscussion.value ? props.messages : discussionTurns({
   messages: props.messages, projections: props.typedOutcomes, conversationId: props.conversationId, taskId: taskId.value
 }))
@@ -583,7 +588,7 @@ const materialPickerLoading = ref(false)
 let materialRefresh = null
 let materialSelectionGeneration = 0
 const typedSelectedSourceIds = ref(new Set())
-const hasMaterialScope = computed(() => isTaskDiscussion.value ? Boolean(taskId.value) : Boolean(props.conversationId))
+const hasMaterialScope = computed(() => isTaskDiscussion.value ? Boolean(taskId.value) : isPrivateDiscussion.value || Boolean(props.conversationId))
 // UI, staging and recovery are shared; only the authorized association scope differs.
 const selectedMaterialDirectory = computed(() => isTaskDiscussion.value ? taskMaterialLinks : conversationMaterialLinks)
 const materialWriteUnresolved = computed(() => selectedMaterialDirectory.value.pendingWrites.value.length > 0)
@@ -591,9 +596,11 @@ const materialActionBusy = computed(() => ['saving', 'removing'].includes(select
 const materialError = computed(() => selectedMaterialDirectory.value.error.value || workspace.error.value)
 const activeMaterialLinks = computed(() => selectedMaterialDirectory.value.links.value.filter(link => link.state === 'ACTIVE' &&
   (isTaskDiscussion.value ? ['INPUT', 'REFERENCE'].includes(link.role) : link.role === 'REFERENCE')))
-const materialName = link => materialNames.value[link.fileId] || workspace.items.value.find(file => file.fileId === link.fileId)?.displayName || `资料 ${link.fileId}`
+const composerMaterials = computed(() => isPrivateDiscussion.value ? privateSelectedMaterials.value : activeMaterialLinks.value)
+const materialName = link => link.displayName || materialNames.value[link.fileId] || workspace.items.value.find(file => file.fileId === link.fileId)?.displayName || `资料 ${link.fileId}`
 const pickerMaterials = computed(() => [...new Map([
   ...activeMaterialLinks.value.map(link => ({ fileId: link.fileId, version: link.version, displayName: materialName(link) })),
+  ...privateSelectedMaterials.value,
   ...pendingMaterials.value
 ].map(material => [`${material.fileId}:${material.version}`, material])).values()])
 const previewMaterial = link => materialPickerRef.value?.preview?.({ ...link, displayName: materialName(link) })
@@ -639,6 +646,8 @@ const resolveMaterialNames = async operationKey => {
   }
 }
 const refreshMaterialReferences = () => {
+  // A first PRIVATE draft has no server association or conversation to load.
+  if (isPrivateDiscussion.value && !props.conversationId) return workspace.refresh({ state: 'ACTIVE' })
   if (!hasMaterialScope.value) return Promise.resolve(false)
   const operationKey = `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`
   if (materialRefresh?.key === operationKey) return materialRefresh.promise
@@ -681,6 +690,13 @@ const completeMaterials = async (materials, baseline = pickerMaterials.value) =>
 }
 const attachMaterials = async (materials, reconcile = false, baseline = []) => {
   if (serverTaskCompleted.value || materialSelectionBusy.value || !hasMaterialScope.value) return 'stale'
+  // Initial PRIVATE selection is local. The native admission transaction alone creates
+  // its conversation and freezes input authority when the user actually sends.
+  if (isPrivateDiscussion.value && !props.conversationId) {
+    const selected = reconcile ? materials : [...privateSelectedMaterials.value, ...materials]
+    privateSelectedMaterials.value = [...new Map(selected.map(material => [`${material.fileId}:${material.version}`, { ...material }])).values()]
+    return 'confirmed'
+  }
   const directory = selectedMaterialDirectory.value
   const operationKey = `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}`
   const generation = ++materialSelectionGeneration
@@ -718,12 +734,21 @@ const attachMaterials = async (materials, reconcile = false, baseline = []) => {
       }
     }
     if (!current()) return 'stale'
+    if (isPrivateDiscussion.value) {
+      const selected = reconcile ? materials : [...privateSelectedMaterials.value, ...materials]
+      privateSelectedMaterials.value = [...new Map(selected.map(material => [`${material.fileId}:${material.version}`, { ...material }])).values()]
+    }
     pendingMaterials.value = []
     return 'confirmed'
   } finally { if (current()) materialSelectionBusy.value = false }
 }
 const removeMaterialReference = async link => {
   if (!link || serverTaskCompleted.value || materialSelectionBusy.value || materialActionBusy.value || props.conversationBusy || materialUploadBusy.value) return
+  if (isPrivateDiscussion.value) {
+    // Removing a request attachment does not revoke a historical association.
+    privateSelectedMaterials.value = privateSelectedMaterials.value.filter(item => item.fileId !== link.fileId || item.version !== link.version)
+    return
+  }
   await selectedMaterialDirectory.value.detach(link)
 }
 const closeHistory = () => {
@@ -790,7 +815,7 @@ watch(() => `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conv
   nextTick(followLatestMessages)
 })
 
-watch(() => `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}\u0000${serverTaskCompleted.value}`, () => {
+watch(() => `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conversationId}\u0000${serverTaskCompleted.value}\u0000${isPrivateDiscussion.value ? props.selectedAgent?.agentId : ''}`, () => {
   historyOpen.value = false
   materialPickerOpen.value = false
   materialNames.value = {}
@@ -801,6 +826,7 @@ watch(() => `${materialIdentityKey.value}\u0000${taskId.value}\u0000${props.conv
   materialPickerLoading.value = false
   materialRefresh = null
   pendingMaterials.value = []
+  privateSelectedMaterials.value = []
   typedSelectedSourceIds.value = new Set()
   typedMaterialScope.value = 'TASK_DEFAULT'
   draftMaterialScope.value = 'TASK_DEFAULT'
@@ -826,7 +852,35 @@ watch(serverTaskCompleted, (terminal, previous) => {
   materialPickerOpen.value = false
   if (!previous) props.voice?.cancel?.()
 }, { flush: 'sync', immediate: true })
+// Parent owns navigation, identity and draft-conflict confirmation. These methods
+// only prepare/apply local selections; they never create associations or executions.
+const materialDraft = () => ({
+  scope: isTaskDiscussion.value ? typedMaterialScope.value : 'EXPLICIT',
+  inputs: (isPrivateDiscussion.value ? privateSelectedMaterials.value : typedSourceSelectors.value).map(({ fileId, version }) => ({ fileId, version }))
+})
+const canApplyMaterialDraft = inputs => !serverTaskCompleted.value && !props.conversationBusy &&
+  !props.isStreaming && !props.isAwaitingReply && !props.voice?.voiceInteractionLocked &&
+  !materialWriteUnresolved.value && !materialUploadPending.value && !materialSelectionBusy.value &&
+  !materialUploadBusy.value && !materialActionBusy.value && !pendingMaterials.value.length &&
+  (!isTaskDiscussion.value || inputs.every(input => activeMaterialLinks.value.some(link => link.fileId === input.fileId && link.version === input.version)))
+const prepareMaterialDraft = async inputs => {
+  const generation = materialSelectionGeneration
+  if (isTaskDiscussion.value && !await refreshMaterialReferences()) return null
+  if (generation !== materialSelectionGeneration || !canApplyMaterialDraft(inputs)) return null
+  return inputs.map(input => ({ ...input }))
+}
+const applyMaterialDraft = inputs => {
+  if (!canApplyMaterialDraft(inputs)) return false
+  if (isPrivateDiscussion.value) privateSelectedMaterials.value = inputs.map(input => ({ ...input }))
+  else {
+    typedMaterialScope.value = inputs.length ? 'EXPLICIT' : 'NONE'
+    typedSelectedSourceIds.value = new Set(inputs.map(input => `${input.fileId}\u0000${input.version}`))
+  }
+  return true
+}
+defineExpose({ materialDraft, prepareMaterialDraft, applyMaterialDraft })
 onBeforeUnmount(() => {
+  if (isPrivateDiscussion.value) emit('update:material-refs', [])
   materialSelectionGeneration++
   workspace.dispose()
   conversationMaterialLinks.dispose()
