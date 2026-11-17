@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { JSDOM, ResourceLoader } from 'jsdom'
 
 const entry = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
-const asset = 'mini-program-viewport.v1.js'
+const asset = 'mini-program-viewport.v2.js'
 const android = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Mobile MicroMessenger/8.0.60'
 const ios = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) MicroMessenger/8.0.60 miniProgram'
 const desktop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) MicroMessenger/4.0 miniProgram'
@@ -23,7 +23,7 @@ const assertFixed = dom => {
   expect(content(dom)).to.include('user-scalable=no')
 }
 
-describe('Android mini-program viewport policy', () => {
+describe('Mini-program fixed app viewport policy', () => {
   for (const miniProgram of [true, false]) {
     it(`executes the actual external head script before app startup (miniProgram=${miniProgram})`, async () => {
       class PolicyLoader extends ResourceLoader {
@@ -60,13 +60,25 @@ describe('Android mini-program viewport policy', () => {
   for (const [label, ua, env] of [
     ['Android browser', android.replace('MicroMessenger/8.0.60', 'Chrome/130'), undefined],
     ['ordinary WeChat page', android, undefined],
-    ['iOS mini-program', ios, 'miniprogram'],
-    ['desktop mini-program', desktop, 'miniprogram']
+    ['ordinary iOS WeChat page', ios.replace(' miniProgram', ''), undefined],
+    ['ordinary desktop browser', desktop.replace(' miniProgram', ''), undefined]
   ]) {
     it(`preserves zoom for ${label}, even with an orientation query`, () => {
       const dom = boot({ ua, env, url: 'https://example.test/?nativeOrientation=portrait' })
       try { expect(content(dom)).to.equal('width=device-width,initial-scale=1.0') } finally { dom.window.close() }
     })
+  }
+
+  for (const [label, ua] of [['iOS', ios], ['desktop', desktop]]) {
+    for (const useEnvironment of [false, true]) {
+      it(`fixes the application viewport on ${label} via ${useEnvironment ? 'injected environment' : 'UA'}`, () => {
+        const dom = boot({
+          ua: useEnvironment ? ua.replace(' miniProgram', '') : ua,
+          env: useEnvironment ? 'miniprogram' : undefined
+        })
+        try { assertFixed(dom) } finally { dom.window.close() }
+      })
+    }
   }
 
   it('accepts the injected environment when UA has no miniProgram suffix', () => {

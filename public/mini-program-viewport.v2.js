@@ -1,8 +1,7 @@
-// Runs before the app: Android WebView zoom controls can cover fixed navigation.
-// Keep browser/iOS accessibility zoom; only the Android mini-program fixes page scale.
+// Runs before the app: mini-programs use a fixed application viewport.
+// Keep ordinary browser accessibility zoom and app-owned image/document zoom.
 ;(function () {
   var ua = window.navigator.userAgent || ''
-  if (!/Android/i.test(ua)) return
 
   function applyViewport() {
     if (window.__wxjs_environment !== 'miniprogram' && !/\bminiProgram\b/i.test(ua)) return
