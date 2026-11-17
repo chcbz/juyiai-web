@@ -2873,12 +2873,20 @@ const deliveryReview = useHallDeliveryReview({ api: agentApi, taskId: reviewTask
   enabled: () => multimediaDeliberationUiEnabled })
 const selectedOutputCandidates = ref([]); const selectedOutputPreview = ref(null); const bountyDiscussionRef = ref(null)
 const privateDiscussionRef = ref(null)
+const reconcileReviewTask = async ({ taskId, minimumTaskVersion }) => {
+  const identity = hallIdentityScope.value, generation = apiStore.authorizationGeneration
+  hallReadRevision.value += 1
+  // Discussion owns a separate task snapshot; refreshing board selection alone
+  // does not update its status or disable the completed conversation's actions.
+  if (conversationTask.value?.id === taskId) await refreshCurrentConversationTask()
+  else await loadTasks({ refreshTaskId: taskId, minimumTaskVersion })
+  if (identity !== hallIdentityScope.value || generation !== apiStore.authorizationGeneration) return
+  if (formalTaskRef.value?.id === taskId && selectedTask.value?.id === taskId) formalTaskRef.value = selectedTask.value
+  if (deliveryReview.context.value?.taskId === taskId && ['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(deliveryReview.context.value.taskState)) deliveryReview.close()
+}
 const selectedOutputReview = useHallSelectedOutputReview({ api: agentApi, review: deliveryReview, taskId: reviewTaskId,
   conversationId, identityKey: hallIdentityScope, authorizationGeneration: () => apiStore.authorizationGeneration, candidates: selectedOutputCandidates,
-  reconcileTask: async ({ taskId, minimumTaskVersion }) => {
-    hallReadRevision.value += 1
-    await loadTasks({ refreshTaskId: taskId, minimumTaskVersion })
-  } })
+  reconcileTask: reconcileReviewTask })
 const openSelectedOutputReview = async item => {
   if (reviewInteractionLocked()) return
   selectedOutputPreview.value = null
@@ -2917,11 +2925,12 @@ const openDeliveryReview = async task => {
   if (reviewInteractionLocked()) return
   if (task?.id) selectedTask.value = task
   reviewPreviewItem.value = null; reviewPreviewError.value = ''
-  await deliveryReview.openConfirmation()
+  if (!await deliveryReview.openConfirmation()) await reconcileReviewTask({ taskId: reviewTaskId.value })
 }
 const confirmDeliveryReview = async () => {
   if (reviewInteractionLocked()) return
-  await deliveryReview.confirmAcceptance()
+  const receipt = await deliveryReview.confirmAcceptance()
+  if (receipt?.state !== 'COMMITTED') await reconcileReviewTask({ taskId: reviewTaskId.value })
 }
 let reviewPreviewGeneration = 0
 const previewReviewOutput = async item => {
@@ -2948,8 +2957,7 @@ watch(() => deliveryReview.operation.value.receipt, receipt => {
   const key = `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}\u0000${receipt.operationId}`
   if (key === lastReviewCompletion) return
   lastReviewCompletion = key
-  hallReadRevision.value += 1
-  void loadTasks({ refreshTaskId: receipt.taskId, minimumTaskVersion: receipt.taskVersion })
+  void reconcileReviewTask({ taskId: receipt.taskId, minimumTaskVersion: receipt.taskVersion })
 })
 
 

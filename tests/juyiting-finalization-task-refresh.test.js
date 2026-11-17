@@ -66,6 +66,15 @@ describe('submission does not complete the root; explicit review owns completion
     expect(gallery).to.include('>下载</button>')
     expect(gallery).to.include('@click="downloadOutput(item)"')
   })
+  it('refreshes the independent discussion task on conflict and acceptance rather than only board selection', () => {
+    const page = source('world/JuyiHall')
+    const helper = page.slice(page.indexOf('const reconcileReviewTask ='), page.indexOf('const selectedOutputReview ='))
+    expect(helper).to.include('conversationTask.value?.id === taskId')
+    expect(helper).to.include('await refreshCurrentConversationTask()')
+    expect(helper).to.include('else await loadTasks(')
+    expect(page).to.include('reconcileTask: reconcileReviewTask')
+    expect(page).to.include('void reconcileReviewTask({ taskId: receipt.taskId')
+  })
   it('compiles every affected view and the shared frozen-batch dialog', () => {
     for (const name of ['juyiting/BountyExecutionOutputs', 'juyiting/BountyDiscussionPanel', 'juyiting/BountyAcceptancePanel', 'juyiting/HallDeliveryReviewDialog', 'world/JuyiHall']) {
       const file = `src/components/${name}.vue`; const { descriptor, errors } = parse(source(name), { filename: file })
