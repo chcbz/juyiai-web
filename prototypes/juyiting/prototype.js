@@ -212,11 +212,13 @@ function send(){const ctx=conversation();if(ctx===state&&acceptanceLocked())retu
 function dialog(title,html,footer=''){const d=document.createElement('dialog');d.className='mmd mmd-dialog'+(title==='删除议事记录'?' history-delete-dialog':'');d.setAttribute('aria-label',title);d.innerHTML=`<header><h3>${esc(title)}</h3>${title==='删除议事记录'?'':button('关闭','close-dialog','aria-label="关闭窗口"')}</header>${html}${footer?'<footer>'+footer+'</footer>':''}`;document.body.append(d);lastFocus=document.activeElement;d.addEventListener('close',()=>{d.remove();if(lastFocus?.isConnected)lastFocus.focus();});d.showModal();return d;}
 function openMaterials(context,selection=null){
  const ids=selection||(context==='chat'?conversation().chatFiles:state.draftFiles);
- picker={context,task:state.task,originalFiles:JSON.stringify(state.task?.files||[]),conversation:conversation(),ids:[...ids],selected:null,preview:false,previewDismissed:false,expanded:false,scope:conversation().materialScope||'task'};
+ picker={context,task:state.task,originalFiles:JSON.stringify(state.task?.files||[]),conversation:conversation(),ids:[...ids],selected:null,preview:false,previewDismissed:false,expanded:false,visibleCount:6,scope:conversation().materialScope||'task'};
  const d=dialog('选择资料','');d.classList.add('material-picker-dialog');
  d.querySelector('header').innerHTML=button('← 返回','close-dialog','class="panel-return material-back" aria-label="返回，取消本次资料选择"')+'<div><h3>选择资料</h3><p>选择或上传资料，点击“完成”带入当前需求或议事。</p></div>';
  d.insertAdjacentHTML('beforeend','<div class="material-picker-main"><div class="material-picker-body" aria-label="可选资料"></div><section class="material-detail" aria-label="当前资料"></section></div><footer class="material-picker-footer"></footer>');
  d.addEventListener('cancel',e=>{if(picker.expanded||picker.preview){e.preventDefault();if(picker.expanded)picker.expanded=false;else {picker.preview=false;picker.previewDismissed=true;}renderMaterialPicker(picker.preview?'picker-preview':'picker-toggle-selected');}});
+ const list=$('.material-picker-body',d);
+ list.addEventListener('scroll',()=>{if(picker.visibleCount<picker.availableCount&&list.scrollHeight-list.scrollTop-list.clientHeight<=120){picker.visibleCount+=6;renderMaterialPicker();}});
  renderMaterialPicker();$('.material-back',d).focus({preventScroll:true});
 }
 function renderMaterialPicker(focusAction,focusId){
@@ -227,7 +229,10 @@ function renderMaterialPicker(focusAction,focusId){
  const all=[...new Map([...catalog,...state.localFiles,...state.saved.map(asset)].filter(a=>a&&!state.fileMeta[a.id]?.recycled).map(a=>[a.id,a])).values()];
  d.classList.toggle('is-preview',picker.preview);d.classList.toggle('preview-dismissed',!!picker.previewDismissed);
  const back=$('.material-back',d);back.dataset.action=picker.preview?'picker-preview':'close-dialog';back.setAttribute('aria-label',picker.preview?'返回资料列表':'返回，取消本次资料选择');
- $('.material-picker-body',d).innerHTML=all.map(a=>button(`<span><strong>${esc(a.name)}</strong><small>最新 v${esc(a.version||1)}</small></span>${picker.ids.includes(a.id)?'<span class="material-added">已添加</span>':'<span class="material-chevron" aria-hidden="true">›</span>'}`,'picker-select',`data-id="${esc(a.id)}" aria-pressed="${picker.selected===a.id}" class="material-file${picker.selected===a.id?' selected':''}"`)).join('')||'<p>暂无资料，也可以直接提需求。</p>';
+ $('.material-picker-body',d).innerHTML=all.slice(0,picker.visibleCount).map(a=>button(`<span><strong>${esc(a.name)}</strong><small>最新 v${esc(a.version||1)}</small></span>${picker.ids.includes(a.id)?'<span class="material-added">已添加</span>':'<span class="material-chevron" aria-hidden="true">›</span>'}`,'picker-select',`data-id="${esc(a.id)}" aria-pressed="${picker.selected===a.id}" class="material-file${picker.selected===a.id?' selected':''}"`)).join('')||'<p>暂无资料，也可以直接提需求。</p>';
+ picker.availableCount=all.length;
+ const list=$('.material-picker-body',d);
+ if(all.length)list.insertAdjacentHTML('beforeend','<p role="status">'+(picker.visibleCount<all.length?'向下滚动自动加载更多资料':'已加载全部资料')+'</p>');
  const a=asset(picker.selected);
  $('.material-detail',d).innerHTML=a?`<div class="material-detail-heading"><strong>${esc(a.name)}</strong><small>已固定 v${esc(a.version||1)} · 版本管理在工作空间</small></div>${picker.previewDismissed?'<p class="material-preview-collapsed" role="status">预览已关闭，可重新预览或继续选择资料。</p>':''}<section id="material-inline-preview" class="material-inline-preview" aria-label="资料预览">${a.type==='image'?`<img src="${esc(a.url)}" alt="${esc(a.name)}（原型示意插画）">`:media(a,true)}</section><div class="material-version">${desktop?'':button(picker.preview?'收起预览':'预览','picker-preview',`aria-expanded="${picker.preview}" aria-controls="material-inline-preview"`)}${button(picker.ids.includes(a.id)?'已添加':'添加','picker-stage',picker.ids.includes(a.id)?'disabled':'class="mmd-primary"')}</div>`:'<div class="material-preview-empty"><span aria-hidden="true">▧</span><p>选择一份资料</p><small>在这里查看完整预览并添加</small></div>';
  $('.material-picker-body',d).scrollTop=scroll;

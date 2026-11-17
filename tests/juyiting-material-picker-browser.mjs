@@ -8,8 +8,16 @@ import { launchChrome, evaluate, waitForExpression, stopChrome } from '../script
 const root = fileURLToPath(new URL('..', import.meta.url))
 const fixture = `import { ref } from 'vue';
 export const savePersonalWorkspaceBlob = () => {};
-export const usePersonalWorkspace = () => ({ items: ref([]), detail: ref(null), listState: ref('empty'), error: ref(''), hasMore: ref(false), loading: ref(false), nextCursor: ref(null),
-refresh: async () => true, closeDetail: () => {}, dispose: () => {} });`
+export const usePersonalWorkspace = () => {
+ const items=ref([]), listState=ref('empty'), loading=ref(false), nextCursor=ref(null);
+ const rows=start=>Array.from({length:7},(_,i)=>({fileId:'file-'+(start+i),displayName:'资料 '+(start+i)+'.pdf',latestVersion:'1'}));
+ const fixture={calls:0,active:0,maxActive:0}; window.__pickerPaging=fixture;
+ return {items,listState,loading,nextCursor,detail:ref(null),error:ref(''),
+ refresh:async()=>{items.value=rows(1);listState.value='ready';nextCursor.value='page-2';fixture.calls=0;return true;},
+ loadMore:async()=>{if(loading.value||!nextCursor.value)return false;loading.value=true;fixture.calls++;fixture.active++;fixture.maxActive=Math.max(fixture.maxActive,fixture.active);
+ await new Promise(resolve=>setTimeout(resolve,60));const start=items.value.length+1;items.value=[...items.value,...rows(start)];nextCursor.value=items.value.length<21?'page-3':null;fixture.active--;loading.value=false;return true;},
+ closeDetail:()=>{},dispose:()=>{} };
+};`
 const page = `<meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div><script type="module">
 import { createApp, h } from 'vue';
 import Picker from '/src/components/juyiting/HallMaterialPicker.vue';
@@ -44,9 +52,16 @@ try {
     const geometry = await evaluate(cdp, `(()=>{const context=document.querySelector('.quick-material-context').getBoundingClientRect(),body=document.querySelector('.quick-material-picker-body').getBoundingClientRect();return {contextBottom:context.bottom,bodyTop:body.top,overflow:document.documentElement.scrollWidth>innerWidth}})()`)
     assert.ok(geometry.bodyTop >= geometry.contextBottom - 1)
     assert.equal(geometry.overflow, false)
+    for (let pageIndex=0;pageIndex<3;pageIndex++) {
+      await evaluate(cdp, `(()=>{const list=document.querySelector('.quick-material-list-pane');list.scrollTop=list.scrollHeight})()`)
+      await new Promise(resolve=>setTimeout(resolve,200))
+    }
+    await waitForExpression(cdp, `document.querySelectorAll('.quick-material-files button').length===21`)
+    const paging=await evaluate(cdp, `({...window.__pickerPaging,count:document.querySelectorAll('.quick-material-files button').length,unique:new Set([...document.querySelectorAll('.quick-material-files button')].map(e=>e.dataset.fileId)).size,ended:document.querySelector('.quick-material-list-status').textContent.includes('已加载全部资料')})`)
+    assert.equal(paging.calls,2);assert.equal(paging.maxActive,1);assert.equal(paging.unique,21);assert.equal(paging.ended,true)
     const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
     await writeFile(`${evidence}/picker-${width}.png`, Buffer.from(screenshot.data, 'base64'))
-    checks.push({ width, height, ...geometry, summaryClicked: true, radioSelected: true })
+    checks.push({ width, height, ...geometry, paging, summaryClicked: true, radioSelected: true })
     await click('.quick-material-back')
     await waitForExpression(cdp, `!document.querySelector('dialog[open]')`)
   }

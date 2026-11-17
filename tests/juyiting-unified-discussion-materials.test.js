@@ -31,6 +31,127 @@ const stub = { render: () => null }
 const picker = state => compile('HallMaterialPicker', { usePersonalWorkspace: () => state, validMaterialVersion, PdfDocumentPreview: stub })
 const mountPicker = state => mount(picker(state), { attachTo: document.body, props: { identityScope: 'owner/thread-a', dialogOnly: true }, global: { stubs: { 'var-icon': true } } })
 
+describe('material picker automatic cursor paging', () => {
+  let originalObserver, observers, wrapper
+  beforeEach(() => {
+    originalObserver = globalThis.IntersectionObserver
+    observers = []
+    globalThis.IntersectionObserver = class {
+      constructor(callback, options) { this.callback = callback; this.options = options; this.disconnected = false; observers.push(this) }
+      observe(target) { this.target = target }
+      disconnect() { this.disconnected = true }
+      intersect(visible = true) { this.callback([{ target: this.target, isIntersecting: visible }]) }
+    }
+  })
+  afterEach(() => {
+    wrapper?.unmount(); wrapper = null
+    if (originalObserver === undefined) delete globalThis.IntersectionObserver
+    else globalThis.IntersectionObserver = originalObserver
+  })
+  const ready = () => {
+    const state = workspace()
+    state.items.value = [{ fileId: 'file-1', displayName: '第一份.pdf', latestVersion: '1' }]
+    state.listState.value = 'ready'; state.nextCursor.value = 'page-2'
+    return state
+  }
+  it('observes the actual scroll pane, appends one page at a time and stops at the last cursor', async () => {
+    const state = ready(); let calls = 0
+    state.loadMore = async options => { expect(options).to.deep.equal({ state: 'ACTIVE' }); calls++; state.loading.value = true }
+    wrapper = mountPicker(state)
+    expect(observers).to.have.length(0)
+    await wrapper.vm.open(); await settle()
+    const first = observers.at(-1)
+    expect(first.options.root).to.equal(document.querySelector('.quick-material-list-pane'))
+    expect(first.options.rootMargin).to.equal('0px 0px 120px 0px')
+    expect(first.target).to.equal(document.querySelector('.quick-material-list-status'))
+    expect([...document.querySelectorAll('.quick-material-picker button')].some(button => button.textContent.trim() === '加载更多')).to.equal(false)
+    first.intersect(false); expect(calls).to.equal(0)
+    first.intersect(); first.intersect(); await settle()
+    expect(calls).to.equal(1); expect(first.disconnected).to.equal(true)
+    expect(document.querySelector('.quick-material-list-status').textContent).to.include('正在加载更多资料')
+    state.items.value.push({ fileId: 'file-2', displayName: '第二份.docx', latestVersion: '2' })
+    state.nextCursor.value = 'page-3'; state.loading.value = false; await settle()
+    expect(document.querySelectorAll('.quick-material-files button')).to.have.length(2)
+    observers.at(-1).intersect(); await settle(); expect(calls).to.equal(2)
+    state.nextCursor.value = null; state.loading.value = false; await settle()
+    const count = observers.length
+    observers.at(-1).intersect(); await settle()
+    expect(observers).to.have.length(count); expect(calls).to.equal(2)
+    expect(document.querySelector('.quick-material-list-status').textContent).to.include('已加载全部资料')
+  })
+  it('keeps the page and fixed selection on failure and waits for explicit retry', async () => {
+    const state = ready(); let calls = 0
+    state.loadMore = async () => {
+      calls++; state.loading.value = true
+      await Promise.resolve()
+      state.error.value = '网络断开'; state.listState.value = 'error'; state.loading.value = false
+      return false
+    }
+    wrapper = mount(picker(state), { attachTo: document.body, props: { identityScope: 'owner', modelValue: [{ fileId: 'file-1', version: '1', displayName: '第一份.pdf' }] } })
+    await wrapper.vm.open(); await settle()
+    const observer = observers.at(-1); observer.intersect(); await settle()
+    observer.intersect(); await settle(); expect(calls).to.equal(1)
+    expect(state.nextCursor.value).to.equal('page-2')
+    expect(document.querySelectorAll('.quick-material-files button')).to.have.length(1)
+    expect(document.querySelector('.quick-material-list-status').textContent).to.include('网络断开')
+    expect(wrapper.emitted('update:modelValue')).to.equal(undefined)
+    state.loadMore = async () => { calls++; state.listState.value = 'ready'; state.error.value = ''; state.nextCursor.value = null; return true }
+    document.querySelector('.quick-material-list-status button').click(); await settle()
+    expect(calls).to.equal(2)
+    expect(document.querySelector('.quick-material-list-status').textContent).to.include('已加载全部资料')
+  })
+  it('disconnects on close and unmount and ignores previously queued observer callbacks', async () => {
+    const state = ready(); let calls = 0
+    state.loadMore = async () => { calls++ }
+    wrapper = mountPicker(state); await wrapper.vm.open(); await settle()
+    const first = observers.at(-1)
+    document.querySelector('.quick-material-back').click(); await settle()
+    expect(first.disconnected).to.equal(true)
+    first.intersect(); expect(calls).to.equal(0)
+    await wrapper.vm.open(); await settle()
+    const second = observers.at(-1)
+    wrapper.unmount(); wrapper = null
+    expect(second.disconnected).to.equal(true)
+    second.intersect(); expect(calls).to.equal(0)
+  })
+  it('pauses in mobile preview and resumes on return to the list', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} })
+    try {
+      const state = ready()
+      state.select = async () => { state.detail.value = { file: { ...state.items.value[0], state: 'ACTIVE' }, latestVersion: { version: '1' }, versions: [{ version: '1' }] }; return state.detail.value }
+      state.previewVersion = async () => true
+      wrapper = mountPicker(state); await wrapper.vm.open(); await settle()
+      const first = observers.at(-1)
+      document.querySelector('.quick-material-files button').click(); await settle()
+      document.querySelector('.quick-material-preview-toggle').click(); await settle()
+      expect(first.disconnected).to.equal(true)
+      const count = observers.length
+      first.intersect(); await settle(); expect(observers).to.have.length(count)
+      document.querySelector('.quick-material-back').click(); await settle()
+      expect(observers.length).to.be.greaterThan(count)
+    } finally { window.matchMedia = originalMatchMedia }
+  })
+  it('retains manual loading only for browsers without IntersectionObserver', async () => {
+    delete globalThis.IntersectionObserver
+    const state = ready(); let calls = 0
+    state.loadMore = async () => { calls++; state.nextCursor.value = null; return true }
+    wrapper = mountPicker(state); await wrapper.vm.open(); await settle()
+    const button = document.querySelector('.quick-material-list-status button')
+    expect(button.textContent).to.equal('加载更多'); button.click(); await settle()
+    expect(calls).to.equal(1)
+  })
+  for (const readOnly of [false, true]) it(`renders exactly one working preview per linked file (readOnly=${readOnly})`, async () => {
+    const state = ready(); let selected = 0
+    state.select = async fileId => { expect(fileId).to.equal('file-1'); selected++; return null }
+    wrapper = mount(picker(state), { props: { identityScope: 'owner', readOnly, modelValue: [{ fileId: 'file-1', version: '1', displayName: '第一份.pdf' }] } })
+    expect(wrapper.findAll('[aria-label="预览所选资料"]')).to.have.length(1)
+    expect(wrapper.findAll('[aria-label^="移除"]')).to.have.length(readOnly ? 0 : 1)
+    await wrapper.get('[aria-label="预览所选资料"]').trigger('click'); await settle()
+    expect(selected).to.equal(1)
+  })
+})
+
 describe('shared discussion material import receipts', () => {
   it('returns cancellation focus to an explicitly supplied pre-load trigger', async () => {
     const trigger = document.createElement('button'); document.body.append(trigger)

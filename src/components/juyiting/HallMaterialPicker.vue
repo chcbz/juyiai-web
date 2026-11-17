@@ -26,7 +26,6 @@
     <ul v-if="selectedMaterials.length && !dialogOnly" class="quick-material-summary" aria-label="已选资料">
       <li v-for="material in selectedMaterials" :key="materialKey(material)">
         <span><strong>{{ material.displayName || ('资料 ' + material.fileId) }}</strong><small>v{{ material.version }}</small></span>
-        <button type="button" :disabled="disabled" @click="previewSelectedMaterial(material)" class="hall-tool" aria-label="预览所选资料" title="预览所选资料"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button
           type="button"
           :disabled="disabled"
@@ -121,7 +120,7 @@
         </section>
         <div v-if="$slots.context" class="quick-material-context"><slot name="context"></slot></div>
         <div class="quick-material-picker-body">
-          <section class="quick-material-list-pane" aria-label="可选资料列表">
+          <section ref="materialListRoot" class="quick-material-list-pane" aria-label="可选资料列表">
             <p v-if="workspace.listState.value === 'loading'" role="status">正在读取你的资料…</p>
             <p v-else-if="workspace.listState.value === 'empty' && !pickerFiles.length">暂无资料，也可以直接提需求。</p>
             <div v-if="pickerFiles.length" class="quick-material-files" aria-label="可选资料">
@@ -130,12 +129,18 @@
                 :aria-pressed="pickerFileId === file.fileId" :disabled="confirming || uploading" @click="selectQuickMaterialFile(file.fileId)"
               ><span><strong>{{ file.displayName }}</strong><small>最新 v{{ file.latestVersion }}</small></span><span v-if="draftMaterials.some(item => item.fileId === file.fileId)" class="quick-material-added">已添加</span><span v-else class="quick-material-chevron" aria-hidden="true">›</span></button>
             </div>
-            <button
-              v-if="workspace.nextCursor.value"
-              type="button"
-              :disabled="workspace.loading.value"
-              @click="loadMoreQuickMaterials"
-            >加载更多</button>
+            <div ref="materialListEnd" class="quick-material-list-status" aria-live="polite">
+              <template v-if="workspace.listState.value === 'error'">
+                <p role="alert">{{ workspace.error.value || '资料加载失败，请重试。' }}</p>
+                <button type="button" :disabled="workspace.loading.value" @click="retryQuickMaterialList">重试</button>
+              </template>
+              <p v-else-if="workspace.loading.value && pickerFiles.length" role="status">正在加载更多资料…</p>
+              <template v-else-if="workspace.nextCursor.value">
+                <p v-if="supportsListObserver">向下滚动自动加载更多资料</p>
+                <button v-else type="button" :disabled="workspace.loading.value" @click="loadMoreQuickMaterials">加载更多</button>
+              </template>
+              <p v-else-if="pickerFiles.length && !workspace.loading.value">已加载全部资料</p>
+            </div>
           </section>
           <section class="quick-material-detail-pane" aria-label="固定版本与预览">
             <div v-if="pickerDetail" class="quick-material-fields">
@@ -572,6 +577,28 @@ const cancelQuickMaterialPicker = () => {
   materialPickerOpen.value = false; draftMaterials.value = []; resetMaterialPicker()
 }
 const loadMoreQuickMaterials = () => workspace.loadMore({ state: 'ACTIVE' })
+const retryQuickMaterialList = () => workspace.nextCursor.value ? loadMoreQuickMaterials() : workspace.refresh({ state: 'ACTIVE' })
+const materialListRoot = ref(null)
+const materialListEnd = ref(null)
+const supportsListObserver = typeof IntersectionObserver !== 'undefined'
+let materialListObserver = null
+const stopMaterialListObserver = () => { materialListObserver?.disconnect(); materialListObserver = null }
+watch([materialListRoot, materialListEnd, materialPickerOpen, mobilePreviewOpen, isMobile, workspace.loading, workspace.nextCursor, workspace.listState], () => {
+  stopMaterialListObserver()
+  if (!supportsListObserver || !materialPickerOpen.value || (isMobile.value && mobilePreviewOpen.value) ||
+      !materialListRoot.value || !materialListEnd.value || workspace.loading.value ||
+      workspace.listState.value === 'error' || !workspace.nextCursor.value) return
+  const observer = new IntersectionObserver(entries => {
+    if (materialListObserver !== observer || !materialPickerOpen.value || workspace.loading.value ||
+        workspace.listState.value === 'error' || !entries.some(entry => entry.isIntersecting)) return
+    stopMaterialListObserver()
+    void loadMoreQuickMaterials()
+  }, { root: materialListRoot.value, rootMargin: '0px 0px 120px 0px' })
+  materialListObserver = observer
+  observer.observe(materialListEnd.value)
+}, { flush: 'post' })
+onBeforeUnmount(stopMaterialListObserver)
+
 const selectQuickMaterialFile = async (fileId, fixedVersion = null) => {
   const operationIdentity = materialIdentityKey.value, generation = ++pickerGeneration
   const current = () => !props.disabled && generation === pickerGeneration && materialIdentityKey.value === operationIdentity && (materialPickerOpen.value || selectedPreview.value)
@@ -786,6 +813,7 @@ onBeforeUnmount(() => { pickerGeneration += 1; mobileQuery?.removeEventListener?
 .quick-material-picker-body { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr); min-height: 0; min-width: 0; overflow: hidden; }
 .quick-material-list-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 16px; border-right: 1px solid #e3e5dc; scrollbar-gutter: stable; }
 .quick-material-files { display: grid; gap: 10px; }
+.quick-material-list-status { min-height: 1px; margin-top: 10px; color: var(--material-muted); font-size: 12px; }
 .quick-material-files button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0; padding: 14px; background: var(--material-paper); border-radius: 10px; text-align: left; overflow-wrap: anywhere; }
 .quick-material-files button > span:first-child { min-width: 0; flex: 1; }
 .quick-material-files strong, .quick-material-files small { display: block; }
