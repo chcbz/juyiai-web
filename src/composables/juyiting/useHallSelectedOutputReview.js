@@ -4,7 +4,7 @@ import { batchMatchesSelection, selectedOutput, selectionKey } from './hallSelec
 const read = value => typeof value === 'function' ? value() : unref(value)
 
 /** Both UI entries share one frozen selection and the existing submission/review operations. */
-export function useHallSelectedOutputReview ({ api, review, taskId, conversationId, identityKey, authorizationGeneration = 0, candidates }) {
+export function useHallSelectedOutputReview ({ api, review, taskId, conversationId, identityKey, authorizationGeneration = 0, candidates, reconcileTask = async () => {} }) {
   const finalization = useHallBountyFinalization({ api, taskId, conversationId, identityKey, authorizationGeneration })
   const open = ref(false); const busy = ref(false); const error = ref(''); const selectedKeys = ref([]); const snapshot = ref(null)
   const available = ref([]); let epoch = 0
@@ -29,6 +29,19 @@ export function useHallSelectedOutputReview ({ api, review, taskId, conversation
     selectedKeys.value = selectedKeys.value.includes(key) ? selectedKeys.value.filter(value => value !== key) : [...selectedKeys.value, key]
   }
   const close = () => { if (!busy.value) { open.value = false; error.value = ''; review.close() } }
+  const reconcile = async (version, receipt, reason) => {
+    snapshot.value = null // A stale review context must not authorize another confirmation.
+    const id = read(taskId)
+    const context = await review.refresh()
+    if (version !== epoch) return
+    snapshot.value = context
+    if (!context) error.value = review.error.value || '验收上下文暂无法核对，请重新打开。'
+    if (['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(context?.taskState)) {
+      open.value = false
+      review.close()
+    }
+    await reconcileTask({ taskId: id, minimumTaskVersion: context?.taskVersion || receipt?.taskVersion || null, reason })
+  }
   const confirm = async () => {
     if (busy.value || !open.value || !selected.value.length || !snapshot.value) return
     const version = epoch; const set = selected.value.map(item => ({ ...item })); const initial = snapshot.value
@@ -41,19 +54,27 @@ export function useHallSelectedOutputReview ({ api, review, taskId, conversation
           expectedTaskVersion: initial.taskVersion, expectedAssignmentRevision: initial.assignmentRevision,
           conversationId: read(conversationId), summary: `验收用户选定的 ${set.length} 项成果`, selectedOutputs: set } })
         if (version !== epoch) return
-        if (!receipt || receipt.state !== 'COMPLETED' || receipt.stage !== 'SUBMITTED') return
+        if (!receipt || receipt.state !== 'COMPLETED' || receipt.stage !== 'SUBMITTED') {
+          if (receipt?.state === 'FAILED' || receipt?.stage === 'TASK_COMPLETED') await reconcile(version, receipt, 'finalization')
+          return
+        }
         deliveryId = receipt.deliveryId
       }
       if (version !== epoch) return
       // Never accept whichever batch happens to be current after the submission.
       if (!await review.openConfirmation({ deliveryId, selectedOutputs: set, assignmentRevision: initial.assignmentRevision })) {
-        error.value = review.error.value || '交付状态已变化，请核对结果后再验收。'; return
+        if (version !== epoch) return
+        error.value = review.error.value || '交付状态已变化，请核对结果后再验收。'
+        await reconcile(version, null, 'confirmation'); return
       }
       if (version !== epoch) return
       const receipt = await review.confirmAcceptance()
       if (version !== epoch) return
       if (receipt?.state === 'COMMITTED') open.value = false
-      else error.value = review.operation.value.message || review.error.value || '尚未确认验收成功，请核对原验收操作。'
+      else {
+        error.value = review.operation.value.message || review.error.value || '尚未确认验收成功，请核对原验收操作。'
+        await reconcile(version, null, 'acceptance')
+      }
     } catch (cause) { if (version === epoch) error.value = cause.message || '验收未完成，请核对结果。' }
     finally { if (version === epoch) busy.value = false }
   }

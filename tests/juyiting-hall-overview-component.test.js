@@ -74,6 +74,19 @@ const settle = async () => { await flushPromises(); await Vue.nextTick() }
 const props = { enabled: true, identityScope: 'tenant\u0000client\u0000owner-a', identityEpoch: 1 }
 
 describe('JYT-UX-W05 mounted overview and message projection', () => {
+  it('hidden overview waits for activation and coalesces foreground events, then removes listeners', async () => {
+    const calls = []; const api = { execute: async options => { calls.push(options); return response() } }
+    const wrapper = mount(load(api), { props: { enabled: true, active: false, identityScope: 'owner-a' } })
+    try {
+      await flushPromises(); expect(calls).to.have.length(0)
+      await wrapper.setProps({ active: true }); await flushPromises(); expect(calls).to.have.length(1)
+      window.dispatchEvent(new window.Event('focus')); document.dispatchEvent(new window.Event('visibilitychange'))
+      await flushPromises(); expect(calls).to.have.length(2)
+      await wrapper.setProps({ active: false, refreshKey: 1 }); await flushPromises(); expect(calls).to.have.length(2)
+      await wrapper.setProps({ active: true }); await flushPromises(); expect(calls).to.have.length(3)
+    } finally { wrapper.unmount() }
+    window.dispatchEvent(new window.Event('focus')); await flushPromises(); expect(calls).to.have.length(3)
+  })
   it('explains save-before-delegation without inventing a beta or free-use promise', async () => {
     const writes = []
     const wrapper = mount(load({ execute: async request => { writes.push(request); return response() } }), { props })

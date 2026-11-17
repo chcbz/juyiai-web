@@ -134,6 +134,7 @@
             :refresh-key="hallReadRevision"
             :enabled="Boolean(hallIdentityScope)"
             :lists-enabled="homeListsActive"
+            :active="homeActivated && homeListsActive && homeMode === 'overview' && !renderedPanel"
             :identity-scope="hallIdentityScope"
             :identity-epoch="apiStore.authorizationGeneration"
             :agents="operableRosterAgents"
@@ -601,6 +602,7 @@
             v-if="panelFrames.includes('messages')"
             v-show="renderedPanel === 'messages'"
             :refresh-key="hallReadRevision"
+            :active="renderedPanel === 'messages'"
             :inert="renderedPanel !== 'messages' ? '' : null"
             :aria-hidden="renderedPanel !== 'messages' ? 'true' : null"
             messages-only
@@ -1641,11 +1643,9 @@ const selectTask = async (task) => {
   selectedTask.value = task
   if (task) {
     const identity = hallIdentityScope.value, generation = apiStore.authorizationGeneration
-    // Search rows need not contain grant-backed assignedTarget. Read the exact
-    // detail instead of looking the executor up in the owner's roster.
-    if (task.funding?.mode !== 'FUNDED_SINGLE_AGENT' && (task.assignedAgentId || task.assignedAgentIds?.length === 1) && !assignedTaskTarget(task)) {
-      await loadTaskDetail(task)
-    }
+    // This handler receives list summaries; full create/overview/save receipts
+    // use their existing detail paths without another read.
+    if (!await loadTaskDetail(task)) return false
     if (identity !== hallIdentityScope.value || generation !== apiStore.authorizationGeneration || selectedTask.value?.id !== task.id) return false
     await loadTaskRecommendations(selectedTask.value)
     markRecommendedAgents(recommendedAgents.value.filter(agent => ['HIGH', 'MEDIUM'].includes(agent.recommendationLevel)))
@@ -2874,7 +2874,11 @@ const deliveryReview = useHallDeliveryReview({ api: agentApi, taskId: reviewTask
 const selectedOutputCandidates = ref([]); const selectedOutputPreview = ref(null); const bountyDiscussionRef = ref(null)
 const privateDiscussionRef = ref(null)
 const selectedOutputReview = useHallSelectedOutputReview({ api: agentApi, review: deliveryReview, taskId: reviewTaskId,
-  conversationId, identityKey: hallIdentityScope, authorizationGeneration: () => apiStore.authorizationGeneration, candidates: selectedOutputCandidates })
+  conversationId, identityKey: hallIdentityScope, authorizationGeneration: () => apiStore.authorizationGeneration, candidates: selectedOutputCandidates,
+  reconcileTask: async ({ taskId, minimumTaskVersion }) => {
+    hallReadRevision.value += 1
+    await loadTasks({ refreshTaskId: taskId, minimumTaskVersion })
+  } })
 const openSelectedOutputReview = async item => {
   if (reviewInteractionLocked()) return
   selectedOutputPreview.value = null

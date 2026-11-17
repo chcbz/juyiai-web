@@ -19,7 +19,7 @@ export const taskQuoteText = quote => {
 export const isRecommendedLevel = level => ['HIGH', 'MEDIUM'].includes(level)
 export const recommendationLevelText = level => ({ HIGH: '优先推荐', MEDIUM: '可以考虑', LOW: '匹配较低', UNKNOWN: '资料不足' }[level] || '')
 const strings = value => Array.isArray(value) && value.every(text)
-export const recommendationTaskKey = task => JSON.stringify([task?.id, task?.taskVersion, task?.title, task?.description])
+export const recommendationTaskKey = task => JSON.stringify([task?.id, task?.taskVersion])
 export const parseAssigneeRecommendation = (value, task) => {
   if (!value || Array.isArray(value) || value.taskId !== task?.id || value.taskVersion !== task?.taskVersion ||
       !['READY', 'NO_MATCH', 'NO_CANDIDATES'].includes(value.state) ||

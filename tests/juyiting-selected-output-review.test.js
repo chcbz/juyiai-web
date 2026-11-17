@@ -19,9 +19,9 @@ const setup = (options = {}) => {
   const api = { execute: async request => { calls.push(request); if (request.method === 'POST') body = request.data
     if (options.defer) await options.defer
     if (options.unknown && request.method === 'POST') throw new TypeError('network')
-    return receipt() } }
-  const client = useHallSelectedOutputReview({ api, review, taskId: ref('task-1'), conversationId: ref('conversation-1'), identityKey: identity, candidates })
-  return { client, calls, candidates, identity, accepts: () => accepts }
+    return options.conflict ? { ...receipt(), state: 'FAILED', stage: 'READY_TO_SUBMIT', deliveryId: null, deliveryState: null, taskState: 'COMPLETED', errorCode: 'FINALIZATION_CONFLICT' } : receipt() } }
+  const client = useHallSelectedOutputReview({ api, review, taskId: ref('task-1'), conversationId: ref('conversation-1'), identityKey: identity, candidates, reconcileTask: options.reconcileTask })
+  return { client, calls, candidates, identity, context, accepts: () => accepts }
 }
 describe('selected existing outputs unified acceptance', () => {
   beforeEach(() => window.sessionStorage.clear())
@@ -52,6 +52,17 @@ describe('selected existing outputs unified acceptance', () => {
     const f = setup({ batch: batch([item(3)]), mismatch: true }); try {
       await f.client.show(item(1)); await f.client.confirm(); expect(f.calls.some(x => x.method === 'POST')).to.equal(true)
       expect(f.accepts()).to.equal(0); expect(f.client.error.value).not.to.equal('')
+    } finally { f.client.dispose() }
+  })
+  it('confirmed conflict refreshes terminal business state without changing failed operation or accepting again', async () => {
+    const reconciled = []; const f = setup({ conflict: true, reconcileTask: async value => reconciled.push(value) })
+    try {
+      await f.client.show(item(1)); f.context.value = { ...f.context.value, taskState: 'COMPLETED', taskVersion: '12' }
+      await f.client.confirm()
+      expect(f.client.open.value).to.equal(false); expect(f.accepts()).to.equal(0)
+      expect(f.client.finalization.status.value.state).to.equal('FAILED')
+      expect(reconciled).to.deep.equal([{ taskId: 'task-1', minimumTaskVersion: '12', reason: 'finalization' }])
+      expect(f.calls.filter(x => x.method === 'POST')).to.have.length(1)
     } finally { f.client.dispose() }
   })
   it('double confirmation freezes original selection and writes once', async () => {

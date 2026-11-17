@@ -71,7 +71,7 @@
 <script setup>
 import { useHallReturnReceiver } from '../../composables/juyiting/useHallPageReturn.js'
 import { taskStatusText } from '../../constants/juyiting.js'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { canOpenHallItem, HALL_SOURCES, useHallOverview } from '@/composables/juyiting/useHallOverview'
 import HallMaterialPicker from './HallMaterialPicker.vue'
 
@@ -79,6 +79,7 @@ const props = defineProps({
   identityScope: { type: String, default: '' },
   identityEpoch: { type: [Number, String], default: 0 },
   enabled: { type: Boolean, default: false },
+  active: { type: Boolean, default: true },
   listsEnabled: { type: Boolean, default: true },
   messagesOnly: { type: Boolean, default: false },
   refreshKey: { type: Number, default: 0 },
@@ -183,12 +184,36 @@ const showArchive = () => {
   archiveView.value = true
   if (model.state.value !== 'loading') void refreshArchive()
 }
-const refresh = async () => {
-  if (!props.enabled || !props.listsEnabled || !props.identityScope) { model.reset(); return }
-  await model.refresh()
-  if (archiveView.value && !props.messagesOnly) await refreshArchive()
+let refreshFlight = null; let pendingRefresh = false; let disposed = false; let foregroundQueued = false
+const readable = () => !disposed && props.active && props.enabled && props.listsEnabled && props.identityScope && document.visibilityState !== 'hidden'
+const refresh = () => {
+  pendingRefresh = true
+  if (!readable()) return refreshFlight
+  if (refreshFlight) return refreshFlight
+  refreshFlight = (async () => {
+    do {
+      pendingRefresh = false
+      const refreshed = await model.refresh()
+      if (refreshed && readable() && archiveView.value && !props.messagesOnly) await refreshArchive()
+    } while (pendingRefresh && readable())
+  })().finally(() => { refreshFlight = null })
+  return refreshFlight
 }
-watch([() => props.listsEnabled, () => props.enabled, () => props.identityScope, () => props.identityEpoch, () => props.refreshKey], refresh, { immediate: true })
+const foreground = () => {
+  if (!readable() || foregroundQueued) return
+  foregroundQueued = true
+  queueMicrotask(() => { foregroundQueued = false; if (readable()) void refresh() })
+}
+watch([() => props.active, () => props.listsEnabled, () => props.enabled, () => props.identityScope, () => props.identityEpoch, () => props.refreshKey], refresh, { immediate: true })
+onMounted(() => {
+  window.addEventListener('focus', foreground)
+  document.addEventListener('visibilitychange', foreground)
+})
+onBeforeUnmount(() => {
+  disposed = true
+  window.removeEventListener('focus', foreground)
+  document.removeEventListener('visibilitychange', foreground)
+})
 
 </script>
 

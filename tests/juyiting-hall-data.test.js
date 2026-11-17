@@ -497,7 +497,7 @@ describe('D3.1 assigned list rows versus authoritative detail', () => {
       } })
     try {
       await hall.loadTasks()
-      expect(reads).to.deep.equal(['/tasks/task'])
+      expect(reads).to.deep.equal([]) // Equal-version summary preserves the already loaded detail.
       expect(selectedTask.value.assignedTarget).to.deep.equal(assignedTarget)
     } finally { hall.dispose() }
   })
@@ -615,5 +615,22 @@ describe('exact rental removal snapshot', () => {
     let error
     try { await data.unbindPersona(persona, snapshot) } catch (cause) { error = cause }
     expect(error?.message).to.include('尚未确认')
+  })
+})
+
+
+describe('FLOW-08 summary cannot replace selected detail', () => {
+  it('same-version short title is list-only; higher version reloads exact detail', async () => {
+    const selectedTask = ref({ id: '695', taskVersion: '0', title: '完整榜文标题', description: '完整需求' })
+    let row = { id: '695', taskVersion: '0', title: '完整榜文' }; const reads = []
+    const hall = useHallData({ selectedTask, selectedAgent: ref(null), normalizeStatus: x => x, taskAgentMatchScore: () => 0, log: { warn () {} },
+      agentApi: { search: async (url, params, options) => options.onSuccess(url === '/tasks/search'
+        ? { items: [row], pageNum: 1, pageSize: 30, total: '1' } : { phaseCounts: {}, rawStatusCounts: {} }),
+      get: async url => { reads.push(url); return { ...row, title: '新版本完整详情', description: '新需求' } } } })
+    try {
+      await hall.loadTasks(); expect(selectedTask.value.title).to.equal('完整榜文标题'); expect(reads).to.deep.equal([])
+      row = { ...row, taskVersion: '1' }; await hall.loadTasks()
+      expect(selectedTask.value.title).to.equal('新版本完整详情'); expect(reads).to.deep.equal(['/tasks/695'])
+    } finally { hall.dispose() }
   })
 })

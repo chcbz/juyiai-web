@@ -17,9 +17,9 @@
   if(d().stage==='submitting')d().stage='unknown';
   if(d().stage==='accepting')d().stage='accept-unknown';
   const busy=()=>['submitting','accepting'].includes(d().stage);
-  const frozen=()=>['submitting','unknown','failed','submitted','accepting','accept-unknown','accepted'].includes(d().stage);
-  const complete=()=>d().stage==='accepted';
-  const captions={ready:'可选择任意成果验收',submitting:'正在提交所选成果…',failed:'提交未成功，可重试原操作',unknown:'提交结果待核对',submitted:'成果已提交，待确认验收',accepting:'正在确认验收…','accept-unknown':'验收结果待核对',accepted:'已验收 · 事项已完成'};
+  const frozen=()=>['submitting','unknown','failed','submitted','accepting','accept-unknown','accepted','conflict'].includes(d().stage);
+  const complete=()=>d().stage==='accepted'||d().stage==='conflict';
+  const captions={conflict:'本次提交冲突；已核对事项在另一窗口完成，未重复验收',ready:'可选择任意成果验收',submitting:'正在提交所选成果…',failed:'提交未成功，可重试原操作',unknown:'提交结果待核对',submitted:'成果已提交，待确认验收',accepting:'正在确认验收…','accept-unknown':'验收结果待核对',accepted:'已验收 · 事项已完成'};
   const baseDiscussion=handleSubmittedDiscussion;
   handleSubmittedDiscussion=function(...args){return conversation()===state?false:baseDiscussion(...args);};
   const baseSend=send;
@@ -46,7 +46,7 @@
     $$('[aria-label="查看并验收"], [data-action="delivery-all"]',panel).forEach(e=>e.remove());
     $('.toolbar-actions',panel)?.insertAdjacentHTML('beforeend',button(uiIcon('acceptance'),'delivery-all',`class="icon-button acceptance-icon" title="${complete()?'验收记录':'验收'}" aria-label="${complete()?'验收记录':'统一验收'}"`));
     const em=$('.context-summary em',panel);if(em)em.textContent=captions[d().stage];
-    panel.insertAdjacentHTML('afterbegin',`<section class="delivery-entry-demo"><span>交互原型 · 不操作真实事项</span><details><summary>演示状态</summary><div>${button('正常提交','delivery-mode','data-mode="ok"')}${button('提交失败','delivery-mode','data-mode="failed"')}${button('提交结果未知','delivery-mode','data-mode="unknown"')}${button('重新体验','delivery-reset')}</div><small>本机模拟，不调用模型。</small></details></section>`);
+    panel.insertAdjacentHTML('afterbegin',`<section class="delivery-entry-demo"><span>交互原型 · 不操作真实事项</span><details><summary>演示状态</summary><div>${button('正常提交','delivery-mode','data-mode="ok"')}${button('提交失败','delivery-mode','data-mode="failed"')}${button('提交结果未知','delivery-mode','data-mode="unknown"')}${button('另一窗口已完成','delivery-mode','data-mode="conflict"')}${button('重新体验','delivery-reset')}</div><small>本机模拟，不调用模型。</small></details></section>`);
   };
   function closeOwn(){$$('dialog.delivery-entry-dialog').forEach(e=>e.close());}
   function review(){
@@ -61,7 +61,7 @@
   function accept(){d().acceptanceWrites=1;d().stage='accepting';persist();renderChat();review();timer=setTimeout(finish,650);}
   function submit(){
     d().operationId||='demo-submit-'+Date.now();d().submissionWrites=1;d().stage='submitting';persist();renderChat();review();
-    timer=setTimeout(()=>{const mode=d().mode;d().mode='ok';if(mode!=='ok'){d().stage=mode;persist();renderChat();review();return;}state.delivery=[...d().selected];accept();},800);
+    timer=setTimeout(()=>{const mode=d().mode;d().mode='ok';if(mode!=='ok'){d().stage=mode;if(mode==='conflict')state.task.complete=true;persist();renderChat();review();return;}state.delivery=[...d().selected];accept();},800);
   }
   document.addEventListener('change',e=>{const id=e.target.dataset.deliverySelect;if(!id||frozen())return;d().selected=e.target.checked?[...new Set([...d().selected,id])]:d().selected.filter(x=>x!==id);persist();const modal=e.target.closest('dialog');$('[data-selection-count]',modal).textContent=`已选 ${d().selected.length} 份`;$('[data-action="delivery-accept"]',modal).disabled=!d().selected.length;});
   document.addEventListener('click',e=>{

@@ -147,7 +147,7 @@ export function useHallBountyFinalization ({ api = createApi('/agent'), conversa
     const receipt = Object.freeze({ ...raw, selectedOutputs: freezeBody(snapshot.intent.body).selectedOutputs })
     const intent = Object.freeze({ ...snapshot.intent, operationId: raw.operationId })
     const message = raw.state === 'FAILED'
-      ? (raw.retryable ? '验收未完成，可继续验收。' : '验收未完成，请查看需求状态。')
+      ? (raw.errorCode === 'FINALIZATION_CONFLICT' ? '需求状态已变化，正在核对当前事项。' : raw.retryable ? '验收未完成，可继续验收。' : '验收未完成，请查看需求状态。')
       : `${stageLabel(raw)}。`
     status.value = { state: raw.state, busy: true, message, intent, receipt }
     persist(intent) // The original key/body was already persisted before any write.
@@ -188,7 +188,7 @@ export function useHallBountyFinalization ({ api = createApi('/agent'), conversa
     } catch (error) {
       // A non-success write cannot carry a receipt. Reconcile the immutable original key by GET only.
       if (active(snapshot, controller) && error?.name !== 'AbortError' && Number.isInteger(statusCode(error)) && statusCode(error) >= 400) {
-        try { return await read(snapshot, controller) } catch { /* preserve the original write error */ }
+        return await read(snapshot, controller)
       }
       throw error
     }

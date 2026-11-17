@@ -25,6 +25,18 @@ const harness = (handler, owner = ref('tenant\u0000client\u0000owner-a')) => {
 }
 
 describe('JYT-UX-W05 independent Hall read model', () => {
+  it('same-identity refresh preserves searches and replaces their cursor with a filtered first page', async () => {
+    const { model, calls } = harness(async options => options.url === '/hall/overview' ? overview() :
+      { ...page(options.params.kind, part(), options.params.view), q: options.params.q })
+    try {
+      await model.refresh(); model.queries.value.recent = '精确搜索'
+      await model.refresh()
+      expect(model.queries.value.recent).to.equal('精确搜索')
+      expect(calls.filter(x => x.url === '/hall/items')).to.have.length(3)
+      expect(calls.slice(-3).every(x => x.params.q === '精确搜索' && !x.params.cursor)).to.equal(true)
+      expect(model.sections.value.recent.partitions.task.items).to.deep.equal([])
+    } finally { model.dispose() }
+  })
   it('uses a query-free overview and retains unknown counts and exact source refs', async () => {
     const { model, calls } = harness(async () => overview())
     try {

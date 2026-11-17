@@ -61,13 +61,13 @@ export function useHallOverview ({ api = defaultApi, identityEpoch = 0, identity
   let generation = 0
   let disposed = false
   let openingSequence = 0
-  const reset = () => {
+  const reset = ({ preserveQueries = false } = {}) => {
     generation += 1
     for (const controller of controllers) controller.abort(abort())
     controllers.clear()
     sequences.clear()
     sections.value = sectionsFor()
-    queries.value = { recent: '', needsAction: '', archive: '' }
+    if (!preserveQueries) queries.value = { recent: '', needsAction: '', archive: '' }
     state.value = 'idle'
     openingRef.value = null
     openError.value = ''
@@ -101,7 +101,7 @@ export function useHallOverview ({ api = defaultApi, identityEpoch = 0, identity
     return Object.fromEntries(sources.map(source => [source, readPartition(value.partitions?.[source], source, sourceStatus?.[source], asOf)]))
   }
   const refresh = async () => {
-    reset()
+    reset({ preserveQueries: true })
     if (!scope.value || disposed) return false
     state.value = 'loading'
     sections.value = sectionsFor('loading')
@@ -114,8 +114,12 @@ export function useHallOverview ({ api = defaultApi, identityEpoch = 0, identity
         const partitions = decode(result.sections?.[view], HALL_SOURCES, result.sourceStatus?.[view], result.asOf)
         next[view] = { status: aggregate(partitions), partitions }
       }
+      // Never display unfiltered overview rows under a retained search query.
+      for (const view of OVERVIEW_VIEWS) if (queries.value[view]) next[view] = section()
       sections.value = next
       state.value = 'ready'
+      await Promise.all(OVERVIEW_VIEWS.filter(view => queries.value[view]).flatMap(view =>
+        HALL_SOURCES.map(source => loadPartition(view, source))))
       return true
     } catch (error) {
       if (error?.name !== 'AbortError' && ![401, 403].includes(error?.status)) {
@@ -175,7 +179,7 @@ export function useHallOverview ({ api = defaultApi, identityEpoch = 0, identity
       if (sequence === openingSequence) openingRef.value = null
     }
   }
-  watch([scope, () => valueOf(identityEpoch)], reset, { flush: 'sync' })
+  watch([scope, () => valueOf(identityEpoch)], () => reset(), { flush: 'sync' })
   const unregister = registerIdentityCleanup(reset)
   const dispose = () => { disposed = true; unregister(); reset() }
   if (getCurrentInstance()) onBeforeUnmount(dispose)

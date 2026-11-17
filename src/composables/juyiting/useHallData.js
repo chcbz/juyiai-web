@@ -1,6 +1,6 @@
 import { computed, ref, toValue, watch } from 'vue'
 import { parseAssigneeRecommendation, recommendationTaskKey } from './hallAssigneeRecommendation.js'
-import { assigneePage, assignedTaskTarget } from './hallAssigneeCandidates.js'
+import { assigneePage } from './hallAssigneeCandidates.js'
 import { pointAndStartLong } from './hallPointAndStartIntent.js'
 import { projectHallTask, validateHallTaskCounts } from './hallTaskPresentation.js'
 
@@ -174,7 +174,7 @@ export const useHallData = ({
   const stopDetailScope = watch(() => JSON.stringify([identityFingerprint(), selectedTask.value?.id]), () => {
     detailEpoch++; detailController?.abort(); detailController = null
   }, { flush: 'sync' })
-  const loadTaskDetail = async (task = selectedTask.value) => {
+  const loadTaskDetail = async (task = selectedTask.value, { minimumTaskVersion = null } = {}) => {
     if (!task?.id || selectedTask.value?.id !== task.id) return false
     detailController?.abort()
     const epoch = ++detailEpoch, identity = identityFingerprint(), own = new AbortController()
@@ -185,7 +185,8 @@ export const useHallData = ({
       const snapshot = await agentApi.get(`/tasks/${encodeURIComponent(task.id)}`, undefined, { autoLoading: false, needAuth: true, signal: own.signal })
       if (!current()) return false
       if (snapshot?.id !== task.id || !pointAndStartLong(snapshot.taskVersion, true) ||
-        (pointAndStartLong(selectedTask.value?.taskVersion, true) && BigInt(snapshot.taskVersion) < BigInt(selectedTask.value.taskVersion))) {
+        (pointAndStartLong(selectedTask.value?.taskVersion, true) && BigInt(snapshot.taskVersion) < BigInt(selectedTask.value.taskVersion)) ||
+        (minimumTaskVersion !== null && BigInt(snapshot.taskVersion) < BigInt(minimumTaskVersion))) {
         throw new Error('事项详情版本尚未核对，请重查')
       }
       selectedTask.value = snapshot
@@ -534,25 +535,11 @@ export const useHallData = ({
         const before = version(selectedTask.value?.taskVersion)
         const after = version(selected?.taskVersion)
         const minimum = options?.refreshTaskId === selectedId ? version(options.minimumTaskVersion) : null
-        const needsAssignedDetail = selected?.funding?.mode !== 'FUNDED_SINGLE_AGENT' &&
-          (selected?.assignedAgentId || selected?.assignedAgentIds?.length === 1) && !assignedTaskTarget(selected)
-        if (selected && !needsAssignedDetail && (before === null || (after !== null && after >= before)) && (minimum === null || (after !== null && after >= minimum))) selectedTask.value = selected
-        else if ((!append || selected) && selectedId && selectedTask.value?.id === selectedId) {
-          // Acceptance can move the active matter out of this filter/page. Read
-          // that exact ID once; a missing list row is not a current detail snapshot.
-          try {
-            const snapshot = await agentApi.get(`/tasks/${encodeURIComponent(selectedId)}`, undefined, { autoLoading: false, needAuth: true })
-            if (!current() || selectedTask.value?.id !== selectedId) return list
-            const nextVersion = version(snapshot?.taskVersion)
-            const currentVersion = version(selectedTask.value?.taskVersion)
-            if (snapshot?.id !== selectedId || nextVersion === null ||
-              (currentVersion !== null && nextVersion < currentVersion) || (minimum !== null && nextVersion < minimum)) {
-              throw new Error('事项详情版本尚未核对，请重查。')
-            }
-            selectedTask.value = snapshot
-          } catch (error) {
-            if (current() && selectedTask.value?.id === selectedId) tasksError.value = error?.message || '事项详情暂无法核对，请重查。'
-          }
+        // List rows are summaries, never a replacement for the selected detail.
+        // Reuse the detail reader's identity/epoch/version fence for actual changes.
+        if (selectedId && ((!selected && !append) || minimum !== null ||
+          (after !== null && (before === null || after > before)))) {
+          await loadTaskDetail(selectedTask.value, { minimumTaskVersion: minimum })
         }
         return list
       } catch (error) {

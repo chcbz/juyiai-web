@@ -26,6 +26,14 @@ const setup = (execute, options = {}) => {
 const send = client => client.submit({ taskId: 'task-1', body: body() })
 
 describe('MMD finalization immutable owner acceptance', () => {
+  for (const status of [404, 500]) it(`409 followed by ${status} remains unknown, not a definite failure`, async () => {
+    const { client, calls } = setup(request => { throw error(request.method === 'POST' ? 409 : status) })
+    try {
+      await send(client); expect(client.status.value.state).to.equal('unknown')
+      expect(client.status.value.receipt).to.equal(null)
+      expect(calls.map(x => x.method)).to.deep.equal(['POST', 'GET'])
+    } finally { client.dispose() }
+  })
   it('rejects missing, unsafe, padded and noncanonical task versions without coercion', () => {
     for (const value of ['', null, undefined, '01', ' 9', '9 ', '-1', '1.5', 1.5, true, Number.MAX_SAFE_INTEGER + 1, '9223372036854775807']) expect(safeFinalizationVersion(value)).to.equal(null)
     for (const value of [0, '0', 9, '9', Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER)]) expect(safeFinalizationVersion(value)).to.equal(Number(value))
