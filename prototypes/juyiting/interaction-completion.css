@@ -432,6 +432,7 @@ body[data-ui-revision] .material-picker-dialog .material-back{display:inline-fle
 .material-picker-dialog.is-preview .material-picker-body{display:none}
 .material-picker-dialog.is-preview .material-detail{border-left:0}
 .material-picker-body{padding:16px;overflow:auto;min-height:0;min-width:0;scrollbar-gutter:stable;overscroll-behavior:contain}
+.material-list-status{margin:0;padding:16px;text-align:center;color:var(--hall-text-muted,#68716b);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 body[data-ui-revision] .material-picker-dialog .material-file{display:flex;align-items:center;justify-content:space-between;text-align:left;width:100%;padding:14px;margin:0 0 10px;border:1px solid #d8d8ce;border-radius:10px;background:#fffefa;color:#242e2b;gap:8px;overflow-wrap:anywhere}
 .material-file>span:first-child{min-width:0;flex:1}.material-file strong,.material-file small{display:block}.material-file small{margin-top:6px;color:#68716b;font-size:12px}.material-added{color:#68716b;font-size:12px;white-space:nowrap}.material-chevron{color:#68716b;font-size:22px}
 body[data-ui-revision] .material-picker-dialog .material-file.selected{border-color:#923f30;background:#f6eee8}

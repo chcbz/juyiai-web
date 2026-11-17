@@ -813,7 +813,9 @@ onBeforeUnmount(() => { pickerGeneration += 1; mobileQuery?.removeEventListener?
 .quick-material-picker-body { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr); min-height: 0; min-width: 0; overflow: hidden; }
 .quick-material-list-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 16px; border-right: 1px solid #e3e5dc; scrollbar-gutter: stable; }
 .quick-material-files { display: grid; gap: 10px; }
-.quick-material-list-status { min-height: 1px; margin-top: 10px; color: var(--material-muted); font-size: 12px; }
+.quick-material-list-status { min-height: 1px; padding: 16px; text-align: center; color: var(--material-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.quick-material-list-status p { margin: 0; }
+.quick-material-list-status button { margin-top: 8px; }
 .quick-material-files button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0; padding: 14px; background: var(--material-paper); border-radius: 10px; text-align: left; overflow-wrap: anywhere; }
 .quick-material-files button > span:first-child { min-width: 0; flex: 1; }
 .quick-material-files strong, .quick-material-files small { display: block; }
