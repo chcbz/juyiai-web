@@ -1,5 +1,5 @@
 import { computed, inject, nextTick, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
-import { createPageReturnStore, returnScene, returnTarget, returnTargetKey } from '../../utils/pageReturnState.js'
+import { createPageReturnStore, returnScene, returnTarget, returnTargetKey, sameReturnDraft } from '../../utils/pageReturnState.js'
 import { clearWechatReturnQuery, hasWechatImportReturn, resolveWechatImport } from '../../utils/miniProgramMaterialBridge.js'
 
 export const hallPageReturnKey = Symbol('hall-page-return')
@@ -22,8 +22,10 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
   const report = cause => { error.value = cause?.message || '原现场恢复未完成，请重试。'; status.value = 'error' }
   const refreshPending = () => { try { pending.value = store.list(owner()) } catch (cause) { error.value = cause.message } }
   const matches = candidate => record.value && candidate && candidate.key() === returnTargetKey(record.value.owner, record.value.target)
+  // The page is inert until restoration is accepted; reactive initialization is not an edit.
+  const canPersist = candidate => !candidate.hydrating && candidate.ready() && !!candidate.key() && !busy.value && status.value !== 'waiting'
   const persist = (candidate, scene) => {
-    if (candidate.hydrating || !candidate.ready() || !candidate.key()) return
+    if (!canPersist(candidate)) return
     const target = returnTarget(candidate.context()), identity = candidate.context().owner
     const old = store.source(identity, target)
     if (!old) return // This is not a whole-site draft persistence framework.
@@ -48,7 +50,7 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
       if (['FINISHED', 'ABANDONED'].includes(original.phase)) scene = { ...scene, pickerOpen: false }
       const live = candidate.scene()
       const changedSource = saved && saved.revision !== original.sourceRevision && saved.acceptedRequestId !== original.requestId &&
-        saved.revision !== original.checkpoint?.revision
+        saved.revision !== original.checkpoint?.revision && !sameReturnDraft(saved, returnScene(original))
       const changedLive = live.draft && live.draft !== scene.draft
       if (!force && (changedSource || changedLive)) { status.value = 'conflict'; error.value = '当前草稿与离开前不同，请选择保留哪一份。'; return }
       if (!scene.resultApplied && !['FINISHED', 'ABANDONED'].includes(original.phase)) {
@@ -66,6 +68,7 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
         candidate.revision = source.revision
         record.value = store.checkpoint(record.value, { ...scene, revision: source.revision })
       }
+      error.value = ''
       status.value = candidate.readOnly() ? 'readonly' : scene.pickerOpen ? 'ready' : 'finished'
       if (scene.pickerOpen && !candidate.readOnly()) {
         const opening = candidate.openPicker?.(scene)
@@ -100,20 +103,22 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
       const old = store.source(owner(), record.value.target)
       const live = candidate.scene()
       const scene = candidate.dirty || live.draft ? live : old || live
-      record.value = store.finish(record.value, scene, true, old?.revision || null)
+      candidate.hydrating = true
+      finish(candidate, scene, true, old?.revision || null)
       await candidate.apply(scene)
       leave()
     } catch (cause) { report(cause) }
+    finally { candidate.hydrating = false }
   }
-  const finish = (candidate, scene, cancelled = false) => {
+  const finish = (candidate, scene, cancelled = false, expectedRevision = candidate.revision) => {
     if (!matches(candidate)) return
-    record.value = store.finish(record.value, scene, cancelled, candidate.revision)
+    record.value = store.finish(record.value, scene, cancelled, expectedRevision)
     candidate.revision = store.source(record.value.owner, record.value.target)?.revision
     status.value = 'finished'; clearWechatReturnQuery(host); refreshPending()
   }
   const saveDraft = (draft, context) => {
     const candidate = receiver.value
-    if (!candidate || candidate.hydrating || candidate.key() !== returnTargetKey(context.owner, returnTarget(context))) return
+    if (!candidate || !canPersist(candidate) || candidate.key() !== returnTargetKey(context.owner, returnTarget(context))) return
     candidate.dirty = true
     try { persist(candidate, { ...candidate.scene(), draft }) } catch (cause) { report(cause) }
   }
@@ -133,7 +138,7 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
   }
   host.addEventListener?.('storage', onStorage)
   onBeforeUnmount(() => { disposed = true; generation++; host.removeEventListener?.('storage', onStorage) })
-  const api = { store, explicit, status, error, record, pending, busy, held, start, leave, keepCurrent, refreshPending, register, matches, persist, finish, report, saveDraft,
+  const api = { store, explicit, status, error, record, pending, busy, held, start, leave, keepCurrent, refreshPending, register, matches, canPersist, persist, finish, report, saveDraft,
     deliver, retry: () => record.value ? start(record.value.requestId) : start(), useRestored: () => deliver(true) }
   provide(hallPageReturnKey, api)
   return api
@@ -147,7 +152,7 @@ export function useHallReturnReceiver ({ context, scene, apply, ready = () => tr
     ready, readOnly, hydrating: true, dirty: false, revision: null, key: () => { const value = context(); return value?.owner ? returnTargetKey(value.owner, returnTarget(value)) : '' },
     openPicker: value => picker.value?.restore(value) }
   const save = () => {
-    if (!coordinator || candidate.hydrating) return
+    if (!coordinator || !coordinator.canPersist(candidate)) return
     candidate.dirty = true
     try { coordinator.persist(candidate, candidate.scene()) } catch (cause) { coordinator.report(cause) }
   }

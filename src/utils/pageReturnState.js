@@ -25,6 +25,12 @@ export const returnSnapshot = (source, scope, selected, staged) => ({ draft: sou
   materialContext: source.kind === 'chat' ? { typedMaterialScope: source.typedMaterialScope || 'TASK_DEFAULT', draftMaterialScope: source.draftMaterialScope || 'TASK_DEFAULT',
     typedSourceIds: source.typedSourceIds || [], draftSourceIds: source.draftSourceIds || [] } : null,
   discussionContext: source.kind === 'chat' ? discussionContext(source.discussionContext) : null })
+// UI/open state and transport revisions do not define a different business draft.
+const draftContent = scene => ({ draft: scene.draft, scope: scene.scope,
+  committedSelection: returnRefs(scene.committedSelection), stagedSelection: returnRefs(scene.stagedSelection),
+  materialContext: scene.materialContext || null, discussionContext: scene.discussionContext || null,
+  writeIntents: scene.writeIntents || [] })
+export const sameReturnDraft = (a, b) => equal(draftContent(a), draftContent(b))
 const validIntent = item => item && returnId(item.key) && ['task', 'conversation'].includes(item.parentKind) && typeof item.parentId === 'string' && !!item.parentId &&
   validReturnReference(item) && ['CREATE', 'DELETE'].includes(item.action) && ['INPUT', 'REFERENCE'].includes(item.role) &&
   ['PREPARED', 'SENDING', 'UNKNOWN', 'PROCESSING', 'COMMITTED', 'REJECTED'].includes(item.state) &&
@@ -63,8 +69,10 @@ export function createPageReturnStore (host = window) {
     if (expectedRevision !== undefined && (old?.revision || null) !== expectedRevision) fail('当前草稿已在其他页面修改，未覆盖。')
     if (!owner || !validTarget(target) || !validScene(scene)) fail('来源现场不完整，未保存。')
     const createdAt = old?.createdAt || now()
-    return write(draftKey(owner, target), { ...clone(scene), version: 1, owner, target: clone(target), revision: uuid(), createdAt,
-      expiresAt: old?.expiresAt || createdAt + PAGE_RETURN_AGE })
+    const value = { ...clone(scene), version: 1, owner, target: clone(target), revision: old?.revision, createdAt,
+      expiresAt: old?.expiresAt || createdAt + PAGE_RETURN_AGE }
+    if (old && equal(old, value)) return clone(old)
+    return write(draftKey(owner, target), { ...value, revision: uuid() })
   }
   const read = (id, owner) => {
     if (!returnId(id) || !owner) return null

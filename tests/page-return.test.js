@@ -216,6 +216,86 @@ describe('page return real picker and scoped coordinator', () => {
   })
 })
 
+describe('page return initialization and accepted version lifecycle', () => {
+  for (const mode of ['home', 'public', 'private', 'bounty']) {
+    for (const cancelled of [true, false]) it(`${mode}: initialization before delivery cannot replace the leaving scene (${cancelled ? 'cancel' : 'files'})`, async () => {
+      const f = fixture(mode); f.callback(cancelled ? [] : [f.imported], cancelled ? 'cancelled' : 'complete')
+      const h = mountReturn(f, { delayedReceiver: true })
+      try {
+        await h.coordinator.start(); await settle()
+        expect(h.coordinator.status.value).to.equal('waiting')
+        // Full-page restoration makes the receiver ready before queued delivery;
+        // synchronous child initialization resets material arrays in that same turn.
+        h.ready.value = true
+        h.selected.value = []
+        h.receiver.save()
+        expect(f.store.source('owner', f.record.target).revision).to.equal(f.record.sourceRevision)
+        expect(f.store.source('owner', f.record.target).pickerOpen).to.equal(true)
+        expect(h.receiver.candidate.dirty).to.equal(false)
+        await settle()
+        expect(h.coordinator.status.value).to.equal('ready')
+        expect(h.text.value).to.equal('原草稿')
+        expect(f.store.read(f.record.requestId, 'owner').checkpoint.stagedSelection).to.deep.equal(cancelled ? [f.old] : [f.old, f.imported])
+      } finally { h.wrapper.unmount() }
+    })
+  }
+  it('does not advance a source revision for an identical durable save', () => {
+    const f = fixture(), old = f.store.source('owner', f.record.target)
+    expect(f.store.saveSource('owner', f.record.target, old, old.revision)).to.deep.equal(old)
+    expect(() => f.store.saveSource('owner', f.record.target, old, randomUUID())).to.throw('其他页面')
+  })
+  it('recovers an existing UI-only revision difference without a false conflict', async () => {
+    const f = fixture(); f.callback()
+    const old = f.store.source('owner', f.record.target)
+    const saved = f.store.saveSource('owner', f.record.target, { ...old, pickerOpen: false }, old.revision)
+    expect(saved.revision).not.to.equal(old.revision)
+    const h = mountReturn(f)
+    try {
+      await h.coordinator.start(); await settle()
+      expect(h.coordinator.status.value).to.equal('ready')
+      expect(h.text.value).to.equal('原草稿')
+    } finally { h.wrapper.unmount() }
+  })
+  for (const adopt of [false, true]) it(`${adopt ? 'restored' : 'current'} choice synchronizes the revision before subsequent edits`, async () => {
+    const f = fixture(); f.callback()
+    const h = mountReturn(f, { currentDraft: '当前稿' })
+    try {
+      await h.coordinator.start(); await settle()
+      expect(h.coordinator.status.value).to.equal('conflict')
+      const revision = f.store.source('owner', f.record.target).revision
+      h.receiver.save() // blocked UI / late initialization cannot overwrite either choice
+      expect(f.store.source('owner', f.record.target).revision).to.equal(revision)
+      if (adopt) await h.coordinator.useRestored()
+      else await h.coordinator.keepCurrent()
+      await settle()
+      expect(h.coordinator.status.value).to.equal(adopt ? 'ready' : 'idle')
+      expect(h.text.value).to.equal(adopt ? '原草稿' : '当前稿')
+      expect(h.receiver.candidate.revision).to.equal(f.store.source('owner', f.record.target).revision)
+      h.text.value = '' // deleting all text remains a real edit
+      await settle()
+      h.receiver.save()
+      expect(h.coordinator.error.value).to.equal('')
+      expect(f.store.source('owner', f.record.target).draft).to.equal('')
+      h.text.value = '继续编辑'; await settle()
+      expect(f.store.source('owner', f.record.target).draft).to.equal('继续编辑')
+    } finally { h.wrapper.unmount() }
+  })
+  it('still detects another page removing material without changing the text', async () => {
+    const f = fixture(); f.callback()
+    const old = f.store.source('owner', f.record.target)
+    f.store.saveSource('owner', f.record.target, { ...old, stagedSelection: [] }, old.revision)
+    const h = mountReturn(f)
+    try {
+      await h.coordinator.start(); await settle()
+      expect(h.coordinator.status.value).to.equal('conflict')
+      expect(f.store.source('owner', f.record.target).stagedSelection).to.deep.equal([])
+      await h.coordinator.keepCurrent(); await settle()
+      expect(f.store.source('owner', f.record.target).stagedSelection).to.deep.equal([])
+      expect(h.coordinator.status.value).to.equal('idle')
+    } finally { h.wrapper.unmount() }
+  })
+})
+
 describe('page return durable association intentions', () => {
   const descriptor = { parentKind: 'conversation', parentId: 'thread', action: 'CREATE', fileId: 'file', version: '1', role: 'REFERENCE', relationId: null, ifMatch: null }
   it('persists original key before request, reload retries with the same key/input, never auto-sends', async () => {

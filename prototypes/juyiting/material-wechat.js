@@ -65,7 +65,8 @@
     previous.forEach(([node]) => { node.inert = true; node.style.visibility = 'hidden'; });
     const close = restore => { view.close(); view.remove(); previous.forEach(([node, inert, visibility]) => { node.inert = inert; node.style.visibility = visibility; }); if (restore) done(); };
     const button = (label, action) => { const el = document.createElement('button'); el.type = 'button'; el.textContent = label; el.onclick = action; view.append(el); };
-    if (mode === 'ready') { queueMicrotask(() => close(true)); return; }
+    // Initialization/UI-only changes are not another business draft.
+    if (mode === 'ready' || mode === 'initializing') { queueMicrotask(() => close(true)); return; }
     button(mode === 'conflict' ? '采用恢复稿' : mode === 'pending' ? '恢复原现场' : '重试读取', () => close(true));
     button(mode === 'conflict' ? '保留当前稿' : mode === 'unknown' ? '暂存离开' : '暂不恢复', () => close(false));
   }
