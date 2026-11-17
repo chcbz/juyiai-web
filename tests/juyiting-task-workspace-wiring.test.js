@@ -284,7 +284,7 @@ describe('discussion entry drafts', () => {
     ['briefSelectedTask', 'const discussTask', [task]],
     ['briefSelectedTask', 'const discussTask', [task, agent]],
     ['discussTask', 'const toggleHallSound', [task, agent]],
-    ['handleStartAgentConversation', 'const canStartAgentConversation', [agent]]
+    ['handleStartAgentConversation', '// A local handoff is not execution admission.', [agent]]
   ]
 
   for (const [name, end, args] of entries) {

@@ -82,6 +82,23 @@ const setup = (outputs = [output(1), output(2)]) => {
 }
 
 describe('scoped bounty output actions live on the actual message cards', () => {
+  it('passes discussion scope to actual message cards: only private chat exposes Save', async () => {
+    const f = setup()
+    let privateWrapper
+    try {
+      await settle()
+      expect(f.wrapper.find('.part-save-button').exists()).to.equal(false)
+      expect(f.wrapper.find('.message-output-accept').exists()).to.equal(true)
+      privateWrapper = mount(f.components.ChatPanel, { props: { ...props, discussionVariant: 'private' }, global: { stubs: { 'var-icon': true } } })
+      await settle()
+      expect(privateWrapper.findAll('.part-save-button')).to.have.length(2)
+      expect(privateWrapper.findAll('.part-save-button').every(button => button.text() === '保存')).to.equal(true)
+      await privateWrapper.setProps({ discussionVariant: 'public' })
+      await settle()
+      expect(privateWrapper.find('.part-save-button').exists()).to.equal(false)
+    } finally { privateWrapper?.unmount(); f.wrapper.unmount() }
+  })
+
   let oldCreate; let oldRevoke
   before(() => {
     oldCreate = URL.createObjectURL; oldRevoke = URL.revokeObjectURL

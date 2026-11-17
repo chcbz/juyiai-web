@@ -3160,7 +3160,7 @@ const handleStartAgentConversation = (candidate) => {
     showToast('只可与自家好汉密议')
     return false
   }
-  if (!openPanel('chat')) return false
+  if (!openPanel('chat', { consumeAgentSelection: true })) return false
   taskWorkspaceBinding.selectExplicitActor(agent)
   playAgentSelect()
   enterPrivateConversation(agent)

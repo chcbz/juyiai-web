@@ -166,6 +166,7 @@
               />
             </template>
             <HallMessageParts
+              :discussion-variant="discussionVariant"
               :parts="message.parts"
               :conversation-id="conversationId"
               :identity-key="materialIdentityKey"

@@ -255,9 +255,9 @@ describe('JYT-MMD-W2 conversation archive operations', () => {
     const archive = { statusFor: () => ({ state: 'pending', message: '', busy: false, operationId: 'operation-1' }),
       save: () => { calls.push('save'); return Promise.resolve(null) },
       check: () => { calls.push('check'); return Promise.resolve(null) } }
-    const wrapper = mount(loadParts(archive), { props: { conversationId: 'conversation-1', identityKey: 'owner-a', parts: [part({ kind: 'text', text: '保存文本' })] } })
+    const wrapper = mount(loadParts(archive), { props: { discussionVariant: 'private', conversationId: 'conversation-1', identityKey: 'owner-a', parts: [part({ kind: 'text', text: '保存文本' })] } })
     try {
-      expect(wrapper.get('.part-save-button').text()).to.equal('继续原保存')
+      expect(wrapper.get('.part-save-button').text()).to.equal('保存')
       expect(wrapper.get('.part-archive-refresh').text()).to.equal('查询保存状态')
       await wrapper.get('.part-archive-refresh').trigger('click')
       await wrapper.get('.part-save-button').trigger('click')
@@ -268,12 +268,22 @@ describe('JYT-MMD-W2 conversation archive operations', () => {
   it('renders save only for ready persisted assets and leaves existing media controls intact', async () => {
     const saves = []
     const archive = { statusFor: () => ({ state: 'idle', message: '', busy: false, operationId: '' }), save: item => { saves.push(item); return Promise.resolve(null) }, retry: () => Promise.resolve(null) }
-    const wrapper = mount(loadParts(archive), { props: { conversationId: 'conversation-1', identityKey: 'owner-a', parts: [part({ kind: 'text', text: '可保存文本' }), part({ partId: 'ready-image' }), part({ partId: 'ready-audio', kind: 'audio' }), part({ partId: 'ready-file', kind: 'file' }), part({ partId: 'missing-asset', assetId: '' }), part({ partId: 'processing', state: 'processing' }), part({ partId: 'failed', state: 'failed' }), part({ partId: 'missing-revision', revision: '' })] } })
+    const wrapper = mount(loadParts(archive), { props: { discussionVariant: 'private', conversationId: 'conversation-1', identityKey: 'owner-a', parts: [part({ kind: 'text', text: '可保存文本' }), part({ partId: 'ready-image' }), part({ partId: 'ready-audio', kind: 'audio' }), part({ partId: 'ready-file', kind: 'file' }), part({ partId: 'missing-asset', assetId: '' }), part({ partId: 'processing', state: 'processing' }), part({ partId: 'failed', state: 'failed' }), part({ partId: 'missing-revision', revision: '' })] } })
     try {
       expect(wrapper.findAll('.part-save-button')).to.have.length(4)
+      expect(wrapper.findAll('.part-save-button').every(button => button.text() === '保存')).to.equal(true)
       expect(wrapper.findAll('.media-stub')).to.have.length(5)
       for (const button of wrapper.findAll('.part-save-button')) await button.trigger('click')
       expect(saves).to.deep.equal([part({ kind: 'text', text: '可保存文本' }), part({ partId: 'ready-image' }), part({ partId: 'ready-audio', kind: 'audio' }), part({ partId: 'ready-file', kind: 'file' })])
     } finally { wrapper.unmount() }
   })
+  for (const discussionVariant of ['bounty', 'public', undefined]) it(`does not expose file saving outside private discussion (${discussionVariant || 'default'})`, () => {
+    const archive = { statusFor: () => { throw new Error('Non-private UI must not read save state') } }
+    const wrapper = mount(loadParts(archive), { props: { ...(discussionVariant ? { discussionVariant } : {}), parts: [part(), part({ partId: 'file-2', kind: 'file' })] } })
+    try {
+      expect(wrapper.find('.part-archive').exists()).to.equal(false)
+      expect(wrapper.findAll('.media-stub')).to.have.length(2)
+    } finally { wrapper.unmount() }
+  })
+
 })

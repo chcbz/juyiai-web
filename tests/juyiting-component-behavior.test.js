@@ -3447,6 +3447,47 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
     } finally { wrapper.unmount() }
   })
 
+  for (const modeName of ['landscape-map', 'portrait-command']) {
+    for (const detailOpen of [false, true]) it(`starts private chat from agent ${detailOpen ? 'detail' : 'list'} and returns to mine in ${modeName}`, async () => {
+      const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+      const mocks = createActualHallMocks({ mode: Vue.ref(modeName), mounts: { library: 0, archive: 0 }, counters })
+      const agent = { agentId: 'agent-private-entry', name: '花荣', boundToMe: true, canOperate: true, systemAgent: false }
+      const baseData = mocks.useHallData
+      mocks.useHallData = args => {
+        const data = baseData(args)
+        data.operableRosterAgents.value = [agent]
+        data.agents.value = [agent]
+        return data
+      }
+      mocks.useHallChatContext = useHallChatContext
+      mocks.AgentPanel = Vue.defineComponent({ emits: ['start-conversation'], setup: (_props, { expose, emit }) => {
+        expose({ canGoBack: Vue.ref(detailOpen) })
+        return () => Vue.h('button', { class: 'private-entry-probe', onClick: () => emit('start-conversation', agent) }, '与这位好汉密议')
+      } })
+      const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+      try {
+        await flushPromises()
+        const state = wrapper.vm.$.setupState
+        state.openPanel('mine')
+        state.openPanel('agents')
+        await Vue.nextTick()
+        expect(state.panelDepth).to.equal(detailOpen ? 3 : 2)
+        expect(state.handleStartAgentConversation({ agentId: 'foreign-agent' })).to.equal(false)
+        expect(state.panelFrames).to.deep.equal(['mine', 'agents'])
+        await wrapper.find('.private-entry-probe').trigger('click')
+        await Vue.nextTick()
+        expect(state.activePanel).to.equal('chat')
+        expect(state.panelFrames).to.deep.equal(['mine', 'chat'])
+        expect(state.panelDepth).to.equal(2)
+        expect(state.chatContext.mode).to.equal('private')
+        expect(state.chatContext.targetAgentId).to.equal(agent.agentId)
+        state.returnPanel()
+        await Vue.nextTick()
+        expect(state.panelFrames).to.deep.equal(['mine'])
+      } finally { wrapper.unmount() }
+    })
+  }
+
   for (const modeName of ['landscape-map', 'portrait-command']) it(`consumes admitted agent selection and returns to saved task in ${modeName}`, async () => {
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
     const mocks = createActualHallMocks({ mode: Vue.ref(modeName), mounts: { library: 0, archive: 0 }, counters, actualBountyPanel: BountyPanel })
