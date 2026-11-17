@@ -86,3 +86,14 @@ H5与原生容器必须配套更新。首页“选择资料”保留系统上传
 临时文件副本仅使用严格UUID/索引自有目录；离开与启动时尽力清理该namespace，不清理其他文件。`utils/api-envelope.js` 由 `node scripts/generate-mini-program-protocol.mjs` 从H5公共解码器生成，测试核对一致。
 
 本机VM/组件测试不替代微信平台验收。配套升级前应验证：开发者工具编译、销毁事件交接顺序、真实上传域名与鉴权、32份返回、取消/部分失败/未知结果、系统返回及横竖屏。不要把真实聊天文件用于自动化fixture；开发者工具工程的项目/私人配置不入仓。
+
+
+## Android 微信小程序缩放浮层（2026-11-17，待真机验收）
+
+核对范围：Web develop `62fffa7443b3d33b2729e9dd7a1631bed8546de9` 及本次修复。线上公开入口 HTML 与此基线均仅声明 `width=device-width,initial-scale=1.0`；该声明在初始开源提交 `2ee2349a` 中已存在，不足以将本次出现时间归因于最近代码或某个微信版本。截图样式符合 Android 原生网页缩放控件，但当前没有来自报告手机的内核/版本诊断或原生树证据。
+
+H5 `index.html` 在应用前同步加载 `public/mini-program-viewport.v1.js`。仅 Android 且 UA 含 `miniProgram` 或微信注入 `__wxjs_environment=miniprogram` 时，增加 `minimum-scale=1,maximum-scale=1,user-scalable=no`；桥接环境延迟注入时在 `WeixinJSBridgeReady` / `DOMContentLoaded` 补应用。不依赖网络 SDK、登录、URL 查询参数或 Vue 挂载，不拦截触摸/键盘事件，不挪动底部导航；普通浏览器、微信普通网页、iOS/桌面及预览组件自有缩放不改。该策略有意停用 Android 小程序整页捏合缩放，不是隐藏网页 DOM 按钮。
+
+脚本文件名按不可变资源版本化；逻辑变更须换文件名并更新两个入口，避免现有 service worker 的静态资源 cache-first 返回旧策略。原型预览服务器仅映射该固定公共脚本路径，与产品共用实现，不复制策略。
+
+诊断：`node ./node_modules/mocha/bin/mocha.js --no-config --reporter spec --exit tests/mini-program-viewport.test.js`。浏览器/JSDOM只能证明环境分流和实际入口接线，不能证明微信原生按钮已消失。发布时须同时包含新 HTML 和此公共脚本（仅 H5 变化，不需要改原生包）；重新进入小程序后在问题安卓手机验收：四个底部导航无遮挡、输入键盘开合、横竖屏、下载/微信选材返回；对照普通浏览器仍可缩放。用户负责部署，本次排查不授权发布/重启。
