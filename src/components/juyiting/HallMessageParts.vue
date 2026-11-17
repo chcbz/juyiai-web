@@ -4,6 +4,7 @@
       v-for="part in parts"
       :key="part.partId"
       class="message-part"
+      :class="{ 'private-file-part': discussionVariant === 'private' && part.kind !== 'text' }"
       :data-part-id="part.partId"
     >
       <p v-if="part.kind === 'text'" class="part-text">{{ part.text }}</p>
@@ -13,12 +14,22 @@
         <span v-else-if="part.state === 'failed'" role="alert">这份内容未能生成，请在会话中继续说明。</span>
         <template v-else-if="part.state === 'ready'">
           <HallMessageMedia :part="part" :conversation-id="conversationId" :identity-key="identityKey">
-            <template #actions><slot name="output-actions" :part="part"></slot></template>
+            <template #actions="{ download, downloading }">
+              <button v-if="canSaveToWorkspace(part)" type="button" class="part-save-button"
+                :disabled="archiveStatus(part).busy || archiveStatus(part).state === 'saved'"
+                @click="saveToWorkspace(part)"
+              >{{ archiveStatus(part).state === 'saved' ? '已保存' : archiveStatus(part).busy ? '保存中…' : '保存' }}</button>
+              <button v-if="discussionVariant === 'private'" type="button" class="part-download-button"
+                :disabled="downloading" @click="download"
+              >{{ downloading ? '下载中…' : '下载' }}</button>
+              <slot name="output-actions" :part="part"></slot>
+            </template>
           </HallMessageMedia>
         </template>
       </template>
       <div v-if="canSaveToWorkspace(part)" class="part-archive">
         <button
+          v-if="part.kind === 'text'"
           type="button"
           class="part-save-button"
           :disabled="archiveStatus(part).busy || archiveStatus(part).state === 'saved'"
@@ -50,11 +61,12 @@ const refreshArchiveStatus = part => { void archives.check(part) }
 <style scoped>
 .message-parts { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
 .message-part { display: flex; flex-direction: column; gap: 6px; min-width: 135px; max-width: 100%; padding: 8px; border: 1px solid #c9d9d2; border-radius: 8px; background: #f7fbf7; overflow-wrap: anywhere; }
+.private-file-part :deep(.media-actions) { flex-wrap: nowrap; }
 .part-text { white-space: pre-wrap; margin: 0; }
 .part-title { font-weight: 600; }
 .part-archive { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.part-archive button { min-height: 34px; padding: 5px 9px; border: 1px solid #547567; border-radius: 6px; background: #fffefa; color: #315746; cursor: pointer; }
-.part-archive button:disabled { opacity: .65; cursor: not-allowed; }
+.part-save-button, .part-download-button, .part-archive button { min-height: 40px; padding: 5px 9px; border: 1px solid #547567; border-radius: 6px; background: #fffefa; color: #315746; cursor: pointer; }
+.part-save-button:disabled, .part-download-button:disabled, .part-archive button:disabled { opacity: .65; cursor: not-allowed; }
 .part-archive p { flex-basis: 100%; margin: 0; color: #597067; font-size: 12px; line-height: 1.45; }
 .part-archive .part-archive-error { color: #9e372c; }
 </style>

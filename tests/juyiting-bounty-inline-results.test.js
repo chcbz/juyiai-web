@@ -37,9 +37,9 @@ const noRender = { render: () => null }
 const directory = () => ({ items: Vue.ref([]), links: Vue.ref([]), pendingWrites: Vue.ref([]), loading: Vue.ref(false), error: Vue.ref(''),
   actionState: Vue.ref('idle'), writeNotice: Vue.ref(''), refresh: async () => true, load: async () => true,
   dispose: () => {}, retryWrite: () => {} })
-const createComponents = api => {
+const createComponents = (api, { save = () => {} } = {}) => {
   const deps = { ...historyWindowHelpers, richDocumentKind, RichDocumentPreview: noRender, projectHallTask, PdfDocumentPreview: { props: ['blob'], template: '<section class="pdf-preview-stub" />' }, ...discussionTurnHelpers, useHallExecutionAbandonment, ...outputCatalog, ...discussionContract, bountyDeliberationPresentation, useHallSkillResults, skillResultDataText, skillResultStatus, inlineSkillResults,
-    revisionProgressPending, conversationAssetContentPath, safeMediaKind, safeAssetPreviewKind, revisionOf, createApi: () => api, saveOutputBlob: () => {},
+    revisionProgressPending, conversationAssetContentPath, safeMediaKind, safeAssetPreviewKind, revisionOf, createApi: () => api, saveOutputBlob: save,
     useHallConversationArchive: () => ({ statusFor: () => ({}), save: () => {}, check: () => {} }),
     marked: Object.assign(value => value, { setOptions: () => {} }), DOMPurify: { sanitize: value => value },
     usePersonalWorkspace: directory, usePersonalWorkspaceConversationLinks: directory, usePersonalWorkspaceTaskLinks: directory,
@@ -491,6 +491,80 @@ describe('discussion retest confirmed defects', () => {
       const dialog = document.querySelector('[aria-label="会话资料预览"]')
       expect(dialog.querySelector('pre')).to.equal(null)
       expect(dialog.textContent).to.include('文件信息不一致')
+    } finally { wrapper.unmount() }
+  })
+})
+
+
+describe('private file card unified actions', () => {
+  const filePart = () => part(1, { kind: 'file', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: '原始报表.xlsx' })
+  const mountParts = components => mount(components.HallMessageParts, { props: { discussionVariant: 'private', conversationId: 'conversation-1', identityKey: 'owner-a', parts: [filePart()] } })
+  it('renders Preview, Save and Download in the same action group without changing non-private actions', async () => {
+    const components = createComponents({ execute: async () => new Blob(['xlsx bytes']) })
+    const wrapper = mountParts(components)
+    try {
+      expect(wrapper.findAll('.media-actions > button').map(button => button.text())).to.deep.equal(['预览', '保存', '下载'])
+      expect(wrapper.find('.part-archive .part-save-button').exists()).to.equal(false)
+      await wrapper.setProps({ discussionVariant: 'bounty' })
+      expect(wrapper.findAll('.media-actions > button').map(button => button.text())).to.deep.equal(['预览'])
+      await wrapper.setProps({ discussionVariant: 'public' })
+      expect(wrapper.findAll('.media-actions > button').map(button => button.text())).to.deep.equal(['预览'])
+      await wrapper.setProps({ discussionVariant: 'private', parts: [filePart(), { ...filePart(), partId: 'pending', state: 'processing' }] })
+      expect(wrapper.findAll('.part-download-button')).to.have.length(1)
+    } finally { wrapper.unmount() }
+  })
+  it('downloads exact original bytes/name through authenticated asset GET without saving personal files', async () => {
+    const calls = [], saves = [], blob = new Blob([new Uint8Array([0, 80, 75, 255])], { type: filePart().mime })
+    const components = createComponents({ execute: async options => { calls.push(options); return blob } }, { save: input => { saves.push(input) } })
+    const wrapper = mountParts(components)
+    try {
+      await wrapper.get('.part-download-button').trigger('click'); await settle()
+      expect(calls).to.have.length(1)
+      expect(calls[0]).to.include({ method: 'GET', url: '/conversations/conversation-1/assets/asset-1/content', responseType: 'blob', needAuth: true })
+      expect(saves).to.have.length(1); expect(saves[0].blob).to.equal(blob)
+      expect(saves[0].item.name).to.equal('原始报表.xlsx')
+      expect([...new Uint8Array(await saves[0].blob.arrayBuffer())]).to.deep.equal([0, 80, 75, 255])
+      expect(saves[0].isCurrent()).to.equal(false) // completed request cannot later hand off again
+      expect(wrapper.get('.part-download-button').text()).to.equal('下载')
+    } finally { wrapper.unmount() }
+  })
+  it('blocks repeat clicks, exposes transfer failure, and allows an explicit retry', async () => {
+    const saves = []; let calls = 0, reject
+    const components = createComponents({ execute: () => { calls++; return calls === 1 ? new Promise((_resolve, fail) => { reject = fail }) : Promise.resolve(new Blob(['ok'])) } }, { save: input => saves.push(input) })
+    const wrapper = mountParts(components)
+    try {
+      await wrapper.get('.part-download-button').trigger('click')
+      expect(wrapper.get('.part-download-button').text()).to.equal('下载中…')
+      await wrapper.get('.part-download-button').trigger('click'); expect(calls).to.equal(1)
+      reject(new Error('原件下载网络失败')); await settle()
+      expect(wrapper.get('[role="alert"]').text()).to.include('原件下载网络失败')
+      await wrapper.get('.part-download-button').trigger('click'); await settle()
+      expect(calls).to.equal(2); expect(saves).to.have.length(1)
+      expect(wrapper.find('[role="alert"]').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+  for (const change of ['identity', 'asset', 'unmount']) it(`cancels stale downloads on ${change} without handing off old content`, async () => {
+    let resolve, request; const saves = []
+    const components = createComponents({ execute: options => { request = options; return new Promise(done => { resolve = done }) } }, { save: input => saves.push(input) })
+    const wrapper = mountParts(components)
+    try {
+      await wrapper.get('.part-download-button').trigger('click')
+      if (change === 'identity') await wrapper.setProps({ identityKey: 'owner-b' })
+      else if (change === 'asset') await wrapper.setProps({ parts: [{ ...filePart(), assetId: 'asset-2', revision: '2' }] })
+      else wrapper.unmount()
+      expect(request.signal.aborted).to.equal(true)
+      resolve(new Blob(['stale'])); await settle()
+      expect(saves).to.have.length(0)
+    } finally { if (change !== 'unmount') wrapper.unmount() }
+  })
+  it('reports native/browser handoff errors without marking a download as saved', async () => {
+    const components = createComponents({ execute: async () => new Blob(['raw']) }, { save: async () => { throw new Error('文件桥接失败') } })
+    const wrapper = mountParts(components)
+    try {
+      await wrapper.get('.part-download-button').trigger('click'); await settle()
+      expect(wrapper.get('[role="alert"]').text()).to.include('文件桥接失败')
+      expect(wrapper.get('.part-save-button').text()).to.equal('保存')
+      expect(wrapper.get('.part-download-button').element.disabled).to.equal(false)
     } finally { wrapper.unmount() }
   })
 })

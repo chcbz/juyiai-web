@@ -29,7 +29,7 @@
     </template>
     <div class="media-actions" role="group" aria-label="文件操作">
       <button type="button" :disabled="loading" @click="expanded = true">预览</button>
-      <slot name="actions"></slot>
+      <slot name="actions" :download="download" :downloading="downloading"></slot>
     </div>
     <Teleport to="body">
       <dialog
@@ -61,6 +61,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FilePreview from '../preview/FilePreview.vue'
+import { saveOutputBlob } from '../../utils/outputDownload.js'
 import { previewMime } from '../../utils/filePreview.js'
 import { createApi } from '../../composables/useHttp.js'
 import { conversationAssetContentPath, safeAssetPreviewKind } from '../../composables/juyiting/hallMessageParts.js'
@@ -74,6 +75,8 @@ const api = createApi('/chat')
 const previewUrl = ref('')
 const previewBlob = ref(null)
 const loading = ref(false)
+const downloading = ref(false)
+let downloadController = null
 const error = ref('')
 const expanded = ref(false)
 const previewDialog = ref(null)
@@ -98,6 +101,9 @@ const discard = () => {
   requestGeneration++
   controller?.abort()
   controller = null
+  downloadController?.abort()
+  downloadController = null
+  downloading.value = false
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   previewUrl.value = ''
   previewBlob.value = null
@@ -121,6 +127,25 @@ const modalSource = computed(() => {
   }
 })
 const getBlob = signal => modalSource.value.load({ signal })
+const download = async () => {
+  if (downloading.value) return
+  const source = modalSource.value
+  const pending = new AbortController()
+  downloadController = pending
+  const current = () => !pending.signal.aborted && source.key === sourceKey.value && downloadController === pending
+  downloading.value = true
+  error.value = ''
+  try {
+    const blob = await source.load({ signal: pending.signal })
+    if (!current()) return
+    await saveOutputBlob({ blob, item: { name: source.filename }, signal: pending.signal, isCurrent: current })
+  } catch (cause) {
+    if (current()) error.value = cause?.message || '下载失败，请重试。'
+  } finally {
+    if (downloadController === pending) { downloading.value = false; downloadController = null }
+  }
+}
+
 const loadPreview = async () => {
   if (previewBlob.value || loading.value || !['image', 'audio'].includes(mediaKind.value)) return
   const generation = ++requestGeneration

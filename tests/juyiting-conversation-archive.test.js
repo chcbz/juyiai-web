@@ -20,7 +20,7 @@ const loadParts = archive => {
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const code = compileScript(descriptor, { id: 'hall-message-parts-archive', inlineTemplate: true }).content
     .replace(/^import \{([^}]+)\} from ["']vue["'];?$/m, (_line, names) => `var { ${names.replace(/\s+as\s+/g, ': ')} } = Vue`)
-    .replace(/^import HallMessageMedia from ['"].+['"];?$/m, "const HallMessageMedia = { template: '<div class=\\\"media-stub\\\" />' }")
+    .replace(/^import HallMessageMedia from ['"].+['"];?$/m, "const HallMessageMedia = { template: '<div class=\\\"media-stub\\\"><slot name=\\\"actions\\\" /></div>' }")
     .replace(/^import \{ useHallConversationArchive \} from ['"].+['"];?$/m, 'const { useHallConversationArchive } = deps')
     .replace(/^import \{ revisionOf \} from ['"].+['"];?$/m, 'const { revisionOf } = deps')
     .replace('export default', 'return')
