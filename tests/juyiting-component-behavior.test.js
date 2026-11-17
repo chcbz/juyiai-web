@@ -3015,6 +3015,27 @@ const createActualHallMocks = ({ mode, mounts, counters = {}, taskActions = null
 }
 
 describe('JuyiHall restored-identity initialization', () => {
+  it('does not activate Hall loaders after the profile request has initiated reauthentication for 401', async () => {
+    const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
+    const mocks = createActualHallMocks({ mode: Vue.ref('portrait-command'), mounts: { library: 0, archive: 0 }, counters })
+    mocks.useGlobalStore = () => Vue.reactive({
+      user: {}, getUserId: 5, getOpenid: '',
+      setTitle: () => {}, setShowBack: () => {}, setShowAppBar: () => {}, setShowMore: () => {}
+    })
+    mocks.useApiStore = () => Vue.reactive({
+      authorizationGeneration: 0, oauthClientId: 'client-a',
+      token: async () => 'retained-token',
+      getUserInfo: async () => { throw Object.assign(new Error('Unauthorized'), { status: 401 }) }
+    })
+    const wrapper = mount(loadActualJuyiHall(mocks), { attachTo: document.body, global: { stubs } })
+    try {
+      await flushPromises()
+      expect(counters.loads.agents).to.equal(0)
+      expect(counters.loads.tasks).to.equal(0)
+      expect(wrapper.emitted('onboarding-auth-ready')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+
   it('hydrates a retained token despite a cached local ID and restores the exact tenant-zero scope before Hall data loads', async () => {
     const mode = Vue.ref('portrait-command')
     const order = []

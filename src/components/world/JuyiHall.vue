@@ -3386,7 +3386,12 @@ onMounted(async () => {
     // A valid restored bearer token can survive while only the unverified local ID
     // cache remains. Hydrate the server profile before identity-scoped state opens.
     if (!hasHydratedIdentity(globalStore.user)) {
-      try { await apiStore.getUserInfo() } catch (error) { log.warn('hall identity hydration failed:', error) }
+      try { await apiStore.getUserInfo() } catch (error) {
+        log.warn('hall identity hydration failed:', error)
+        // The shared authenticated request has already initiated login; do not
+        // activate protected Hall work while navigation is pending.
+        if (error?.status === 401) return
+      }
     }
     if (!initializationIsCurrent()) { if (pageReturn.explicit) pageReturn.report(new Error('登录身份已变化，请重新读取原现场。')); return }
     if (hasHydratedIdentity(globalStore.user)) emit('onboarding-auth-ready', initializationGeneration)

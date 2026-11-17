@@ -1,8 +1,8 @@
+import { useHttp } from '../composables/useHttp.js'
 import { encodeHttpRequest, decodeHttpResponse } from '../utils/apiEnvelope.js'
 import { defineStore, getActivePinia } from 'pinia'
 import { useUtilStore } from './util'
 import { useGlobalStore } from './global'
-import { log } from '../utils/logger.js'
 import { createCodeChallenge, createOAuthTransaction, safeAppRelativePath } from '../utils/oauthTransaction.js'
 import { rememberOAuthBackNavigation } from '../utils/oauthNavigationHistory.js'
 import { registerIdentityCleanup, stopIdentityBoundWork } from '../utils/identityLifecycle.js'
@@ -254,18 +254,14 @@ export const useApiStore = defineStore('api', {
       const operation = createIdentityOperation(this, signal)
       try {
         operation.assertCurrent()
-        const token = await this.token()
-        operation.assertCurrent()
-        if (!token) throw unauthenticatedError()
-
-        const requestId = crypto.randomUUID()
-        const response = await fetch(`${this.baseUrl}/user/my`, {
+        const data = await useHttp().execute({
+          url: `${this.baseUrl}/user/my`,
           method: 'GET',
-          headers: { Authorization: `Bearer ${token}`, 'X-Request-Id': requestId },
+          authStore: this,
+          needAuth: true,
+          autoLoading: false,
           signal: operation.signal
         })
-        operation.assertCurrent()
-        const { value: data } = decodeHttpResponse(await response.text(), { status: response.status, requestId, responseRequestId: response.headers.get('X-Request-Id') })
         operation.assertCurrent()
         const globalStore = useGlobalStore()
         globalStore.setUser(data)
