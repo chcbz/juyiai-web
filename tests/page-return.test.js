@@ -49,9 +49,9 @@ function mountReturn (f, { currentDraft = '', readOnly = false, confirm, workspa
   const Page = { setup() {
     receiver = coordination.useHallReturnReceiver({ context: () => ({ ...f.context, draft: text.value }),
       scene: () => ({ draft: text.value, committedSelection: selected.value, stagedSelection: selected.value, materialContext: null, discussionContext: null }),
-      apply: scene => { text.value = scene.draft; selected.value = scene.committedSelection }, ready: () => ready.value, readOnly: () => readOnly })
+      apply: scene => { text.value = scene.draft; selected.value = scene.committedSelection }, ready: () => ready.value, readOnly: () => Vue.unref(readOnly) })
     return () => Vue.h(Picker, { modelValue: selected.value, 'onUpdate:modelValue': value => { selected.value = value }, confirmSelection: confirm,
-      wechatContext: { ...f.context, draft: text.value }, identityScope: 'owner', readOnly })
+      wechatContext: { ...f.context, draft: text.value }, identityScope: 'owner', readOnly: Vue.unref(readOnly) })
   } }
   const Host = { setup() {
     coordinator = coordination.useHallPageReturn({ host: f.host, owner: () => 'owner', epoch: () => 1, prepareTarget: prepare })
@@ -239,6 +239,25 @@ describe('page return initialization and accepted version lifecycle', () => {
       } finally { h.wrapper.unmount() }
     })
   }
+  it('keeps the picker checkpoint through a temporarily read-only restored page', async () => {
+    const f = fixture(); f.callback([], 'cancelled')
+    const readOnly = Vue.ref(true), h = mountReturn(f, { readOnly })
+    try {
+      await h.coordinator.start(); await settle()
+      expect(h.coordinator.status.value).to.equal('readonly')
+      const revision = f.store.source('owner', f.record.target).revision
+      h.selected.value = [...h.selected.value] // late material refresh, not a user edit
+      h.receiver.save()
+      expect(f.store.source('owner', f.record.target).revision).to.equal(revision)
+      expect(f.store.source('owner', f.record.target).pickerOpen).to.equal(true)
+      readOnly.value = false
+      h.receiver.save() // before the readOnly watcher delivers the writable scene
+      await settle()
+      expect(h.coordinator.status.value).to.equal('ready')
+      expect(document.querySelector('dialog[open]')).not.to.equal(null)
+      expect(h.text.value).to.equal('原草稿')
+    } finally { h.wrapper.unmount() }
+  })
   it('does not advance a source revision for an identical durable save', () => {
     const f = fixture(), old = f.store.source('owner', f.record.target)
     expect(f.store.saveSource('owner', f.record.target, old, old.revision)).to.deep.equal(old)
@@ -352,6 +371,18 @@ describe('page return completion and read races', () => {
       expect(h.text.value).to.equal('')
       expect(h.coordinator.status.value).to.equal('finished')
       expect(document.querySelector('dialog')).to.equal(null)
+    } finally { h.wrapper.unmount() }
+  })
+  it('still persists authoritative post-send text clearing after recovery has finished', async () => {
+    const f = fixture(); f.callback()
+    const readOnly = Vue.ref(false), h = mountReturn(f, { readOnly })
+    try {
+      await h.coordinator.start(); await settle()
+      h.receiver.finish({ pickerOpen: false })
+      readOnly.value = true // reply/busy state, not a pending page restoration
+      h.text.value = ''
+      await settle()
+      expect(f.store.source('owner', f.record.target).draft).to.equal('')
     } finally { h.wrapper.unmount() }
   })
   it('rejects finishing against a concurrently changed accepted source', async () => {

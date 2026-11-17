@@ -23,7 +23,7 @@ export function useHallPageReturn ({ host = window, owner, epoch, prepareTarget 
   const refreshPending = () => { try { pending.value = store.list(owner()) } catch (cause) { error.value = cause.message } }
   const matches = candidate => record.value && candidate && candidate.key() === returnTargetKey(record.value.owner, record.value.target)
   // The page is inert until restoration is accepted; reactive initialization is not an edit.
-  const canPersist = candidate => !candidate.hydrating && candidate.ready() && !!candidate.key() && !busy.value && status.value !== 'waiting'
+  const canPersist = candidate => !candidate.hydrating && candidate.ready() && !!candidate.key() && !busy.value && !['waiting', 'readonly'].includes(status.value)
   const persist = (candidate, scene) => {
     if (!canPersist(candidate)) return
     const target = returnTarget(candidate.context()), identity = candidate.context().owner
