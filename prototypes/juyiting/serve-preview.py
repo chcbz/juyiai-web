@@ -14,6 +14,8 @@ class PreviewHandler(http.server.SimpleHTTPRequestHandler):
     def translate_path(self, path):
         # Browser resolves ../doc from root-level prototype links to /doc.
         name = urlsplit(path).path.lstrip("/")
+        if name == "mini-program-viewport.v2.js":
+            return os.path.abspath(os.path.join(PROTOTYPE_ROOT, "../../public", name))
         if name in DOCS:
             return os.path.join(FEATURE_ROOT, name)
         return super().translate_path(path)
