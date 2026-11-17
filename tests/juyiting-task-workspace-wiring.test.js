@@ -221,7 +221,7 @@ describe('C07A task workspace wiring', () => {
     const assignTaskStart = hallSource.indexOf('const assignTask = async (task, agent) => {')
     const assignTaskSource = hallSource.slice(assignTaskStart, hallSource.indexOf('\n\nwatch(', assignTaskStart))
     const autoAssignTaskSource = hallSource.slice(hallSource.indexOf('const autoAssignTask'), hallSource.indexOf('const archiveTask'))
-    const conversationSource = hallSource.slice(hallSource.indexOf('const handleStartAgentConversation'), hallSource.indexOf('const canStartAgentConversation'))
+    const conversationSource = hallSource.slice(hallSource.indexOf('const handleStartAgentConversation'), hallSource.indexOf('// A local handoff is not execution admission.'))
     expect(conversationSource).not.to.include('setDraft(')
     expect(conversationSource).not.to.include('insertAgentMention(')
     expect(selectAgentSource).to.include('taskWorkspaceBinding.selectExplicitActor(agent)')
