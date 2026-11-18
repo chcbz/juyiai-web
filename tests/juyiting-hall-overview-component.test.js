@@ -74,6 +74,22 @@ const settle = async () => { await flushPromises(); await Vue.nextTick() }
 const props = { enabled: true, identityScope: 'tenant\u0000client\u0000owner-a', identityEpoch: 1 }
 
 describe('JYT-UX-W05 mounted overview and message projection', () => {
+  it('uses the card thumbnail on the overview and enters the map only on click', async () => {
+    const wrapper = mount(load({ execute: async () => response() }), { props })
+    try {
+      const card = wrapper.get('.overview-map-link')
+      expect(overviewSource).not.to.include('liangshan-hall-physical-bg-v1.png')
+      const asset = overviewSource.match(/url\('([^']+hall-overview-map-card\.webp)'\)/)?.[1]
+      expect(asset).to.be.a('string')
+      const bytes = readFileSync(new URL(asset, new URL('../src/components/juyiting/HallOverview.vue', import.meta.url)))
+      expect(bytes.toString('ascii', 8, 12)).to.equal('WEBP')
+      expect(wrapper.emitted('set-home-mode')).to.equal(undefined)
+      await card.trigger('click')
+      expect(wrapper.emitted('set-home-mode')).to.deep.equal([['map']])
+      await wrapper.setProps({ messagesOnly: true })
+      expect(wrapper.find('.overview-map-link').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
   it('hidden overview waits for activation and coalesces foreground events, then removes listeners', async () => {
     const calls = []; const api = { execute: async options => { calls.push(options); return response() } }
     const wrapper = mount(load(api), { props: { enabled: true, active: false, identityScope: 'owner-a' } })

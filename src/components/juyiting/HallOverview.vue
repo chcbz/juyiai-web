@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
 .hall-overview button:focus-visible { outline:3px solid #bb793f; outline-offset:2px; }
 .hall-overview button.primary { background:#8d402c; color:#fff9ee; border-color:#8d402c; }
 .hall-overview button:disabled { opacity:.55; cursor:default; }
-.overview-map-link { flex:0 0 220px; height:132px; background:linear-gradient(0deg,rgba(32,22,15,.9),rgba(32,22,15,.15)),url('../../assets/juyiting/liangshan-hall-physical-bg-v1.png') center/cover !important; color:#ecd7aa !important; }
+.overview-map-link { flex:0 0 220px; height:132px; }
 .overview-map-link span { display:block; font-size:28px; letter-spacing:8px; margin-bottom:18px; }
 .overview-list-heading { display:flex; justify-content:space-between; align-items:center; margin:24px 0 8px; gap:12px; }
 .overview-list-heading h3 { font-size:21px; font-weight:500; }
@@ -309,7 +309,7 @@ onBeforeUnmount(() => {
 .hall-overview .overview-map-link {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: end;
   width: 100%; height: 176px; padding: 20px 18px; text-align: left;
-  background: linear-gradient(0deg,#211b13e8,transparent 100%),url('../../assets/juyiting/liangshan-hall-physical-bg-v1.png') center 53%/cover !important;
+  background: linear-gradient(0deg,#211b13e8,transparent 100%),url('../../assets/juyiting/hall-overview-map-card.webp') center 53%/cover !important;
   color: #fff9e9 !important; border: 1px solid #cac7b5 !important; border-radius: 11px !important;
   font: 500 15px/1.5 "Noto Serif CJK SC", "Songti SC", STSong, serif !important;
 }
