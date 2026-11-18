@@ -153,7 +153,13 @@
         </template>
       </HallPortraitHome>
 
-      <div ref="landscapeTargetRef" v-show="experienceMode === 'landscape-map' && !isOverviewHome" class="hall-live-landscape-target"></div>
+      <div ref="landscapeTargetRef" v-show="experienceMode === 'landscape-map' && !isOverviewHome" class="hall-live-landscape-target">
+        <div v-if="!stageMounted" role="status" class="stage-download-status">
+          {{ stageDownload === 'error' ? '厅中实景加载失败。' : '正在加载厅中实景…' }}
+          <button v-if="stageDownload === 'error'" type="button" @click="retryLivePreview">重试加载</button>
+          <button type="button" @click="setHomeMode('overview')">返回办事概览</button>
+        </div>
+      </div>
       <Teleport :to="stageTarget" :disabled="!stageTarget">
         <HallStage
           v-if="stageMounted"
@@ -1044,7 +1050,6 @@ import { useHallDeliveryReview } from '@/composables/juyiting/useHallDeliveryRev
 import { projectHallTask } from '@/composables/juyiting/hallTaskPresentation'
 import BountyPanel from '@/components/juyiting/BountyPanel.vue'
 import HallPortraitHome from '@/components/juyiting/HallPortraitHome.vue'
-import HallStage from '@/components/juyiting/HallStage.vue'
 import HallVoiceHud from '@/components/juyiting/HallVoiceHud.vue'
 import LibraryPanel from '@/components/juyiting/LibraryPanel.vue'
 import PersonaCatalogPanel from '@/components/juyiting/PersonaCatalogPanel.vue'
@@ -1328,6 +1333,8 @@ const previewSceneError = ref('')
 const previewSceneBounds = ref({ width: 0, height: 0 })
 // The Stage is created only after a real landscape entry or observed portrait visibility,
 // then remains the sole scene owner until the Hall route unmounts.
+const HallStage = shallowRef(null)
+const stageDownload = ref('idle')
 const stageHasMounted = ref(false)
 const stageTarget = computed(() => (experienceMode.value === 'portrait-command' || isOverviewHome.value)
   ? portraitHomeRef.value?.livePreviewTarget || null
@@ -1336,10 +1343,23 @@ const stageMounted = computed(() => stageHasMounted.value)
 const previewPresentationState = computed(() => (
   previewSceneState.value === 'ready' ? previewDrawActivation.value.state : previewSceneState.value
 ))
-const permitStageMount = () => {
-  if (homeActivated.value && homeListsActive.value && !isOverviewHome.value && stageTarget.value && experienceReady.value && (experienceMode.value === 'landscape-map' || previewVisible.value)) {
-    stageHasMounted.value = true
+const mayStartStage = () => homeActivated.value && homeListsActive.value && !isOverviewHome.value &&
+  stageTarget.value && experienceReady.value && documentPreviewVisible.value && (experienceMode.value === 'landscape-map' || previewVisible.value)
+const permitStageMount = async () => {
+  if (stageHasMounted.value || !mayStartStage()) return
+  if (!HallStage.value) {
+    if (stageDownload.value !== 'idle') return
+    stageDownload.value = 'loading'
+    try {
+      HallStage.value = (await import('@/components/juyiting/HallStage.vue')).default
+      stageDownload.value = 'ready'
+    } catch {
+      stageDownload.value = 'error'
+      handlePreviewSceneError('厅中实景加载失败，请重试。')
+      return
+    }
   }
+  if (mayStartStage()) stageHasMounted.value = true
 }
 const handlePreviewVisibility = visible => {
   portraitPreviewVisible.value = Boolean(visible)
@@ -1375,9 +1395,12 @@ const retryLivePreview = () => {
     previewSceneState.value = 'loading'
     previewSceneError.value = ''
   }
-  void hallStageRef.value?.retryScene?.()
+  if (stageDownload.value === 'error') {
+    stageDownload.value = 'idle'
+    void permitStageMount()
+  } else void hallStageRef.value?.retryScene?.()
 }
-watch([experienceReady, experienceMode, previewVisible, stageTarget], permitStageMount, { immediate: true })
+watch([experienceReady, experienceMode, previewVisible, documentPreviewVisible, stageTarget], permitStageMount, { immediate: true })
 
 const panelRef = ref(null)
 const panelTitleId = 'juyiting-floating-panel-title'
@@ -3507,6 +3530,8 @@ onUnmounted(() => {
   background: #211812;
   color: #2f261c;
 }
+
+.stage-download-status { margin: auto; color: #fff; }
 
 .hall-live-landscape-target {
   display: flex;

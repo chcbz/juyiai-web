@@ -314,7 +314,7 @@ describe('JuyiHall collaboration flow contract', () => {
     expect(existsSync(publicDiscussionPanelUrl)).to.equal(true)
     expect(existsSync(bountyDiscussionPanelUrl)).to.equal(true)
     expect(existsSync(privateDiscussionPanelUrl)).to.equal(true)
-    expect(hallSource).to.include("import HallStage from '@/components/juyiting/HallStage.vue'")
+    expect(hallSource).to.include("import('@/components/juyiting/HallStage.vue')")
     expect(hallSource).to.include("import { useHallData } from '@/composables/juyiting/useHallData'")
     expect(hallSource).to.include("import { useHallConversation } from '@/composables/juyiting/useHallConversation'")
     expect(hallConversationSource).to.include("from './hallConversationMessages.js'")

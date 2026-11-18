@@ -2920,6 +2920,7 @@ const loadActualJuyiHall = (mocks) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, imports) => `var { ${imports} } = mocks`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, name) => `var ${name} = mocks.${name}`)
+    .replace("import('@/components/juyiting/HallStage.vue')", '(mocks.loadStage ? mocks.loadStage() : Promise.resolve({default: mocks.HallStage}))')
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
   .replace('export default', 'return')

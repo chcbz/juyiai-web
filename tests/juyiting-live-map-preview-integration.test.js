@@ -132,6 +132,7 @@ const loadHallPage = mocks => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, imports) => `var { ${imports} } = mocks`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, name) => `var ${name} = mocks.${name}`)
     .replace("import('@/components/juyiting/AgentPanel.vue')", 'mocks.loadRosterPanel()')
+    .replace("import('@/components/juyiting/HallStage.vue')", '(mocks.loadStage ? mocks.loadStage() : Promise.resolve({default: mocks.HallStage}))')
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace('export default', 'return')
   return new Function('Vue', 'mocks', body)(Vue, { useHallPageReturn, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, assignedTaskTarget, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
@@ -222,6 +223,8 @@ describe('live map preview Hall page bridge', () => {
   it('schedules ambient dialogue only for the active identity on a drawable, uncovered map', async () => {
     const counters = { stageMounts: 0, retries: 0 }
     const mocks = makeHallPageMocks({ mode: Vue.ref('landscape-map'), counters })
+    let stageRequests = 0
+    mocks.loadStage = async () => { stageRequests++; return { default: mocks.HallStage } }
     const rosterRetry = deferred(); let rosterLoads = 0
     mocks.loadRosterPanel = () => ++rosterLoads === 1 ? Promise.reject(new Error('offline')) : rosterRetry.promise
     const home = useHallHomeMode()
@@ -263,7 +266,9 @@ describe('live map preview Hall page bridge', () => {
       const options = { attachTo: document.body, global: { stubs: { 'var-icon': true, transition: false } } }
       wrapper = mount(Hall, options)
       await check() // Authenticated overview with an available agent.
+      expect(stageRequests).to.equal(0)
       home.setHomeMode('map'); await check(1800, 5200)
+      expect(stageRequests).to.equal(1)
       const [id, first] = [...timers.entries()][0]; timers.delete(id); first.fn()
       expect(spoken).to.deep.equal([[agent, '对白', 'speech']]); await check(5200)
       timers.values().next().value.fn(); expect(spoken).to.have.length(2)
@@ -322,7 +327,9 @@ describe('live map preview Hall page bridge', () => {
     const mode = Vue.ref('portrait-command')
     const voiceLocked = Vue.ref(false)
     const counters = { stageMounts: 0, retries: 0 }
-    const Hall = loadHallPage(makeHallPageMocks({ mode, counters, voiceLocked }))
+    const mocks = makeHallPageMocks({ mode, counters, voiceLocked }); const download = deferred(); let requests = 0
+    mocks.loadStage = () => ++requests === 1 ? Promise.reject(new Error('offline')) : download.promise
+    const Hall = loadHallPage(mocks)
     let wrapper
     try {
       wrapper = mount(Hall, { attachTo: document.body, global: { stubs: { 'var-icon': true, transition: false } } })
@@ -334,10 +341,15 @@ describe('live map preview Hall page bridge', () => {
       await flush(); await pump()
       // The real document guard prevents a hidden tab from creating Stage.
       expect(counters.stageMounts).to.equal(0)
-      hidden = false
-      document.dispatchEvent(new window.Event('visibilitychange'))
-      await flush(); await pump()
-      expect(counters.stageMounts).to.equal(1)
+      expect(requests).to.equal(0)
+      hidden = false; document.dispatchEvent(new window.Event('visibilitychange')); await flush(); await pump()
+      expect(requests).to.equal(1); expect(counters.stageMounts).to.equal(0)
+      portrait.vm.$emit('retry-live-preview'); await flush(); expect(requests).to.equal(2)
+      hidden = true; document.dispatchEvent(new window.Event('visibilitychange'))
+      download.resolve({ default: mocks.HallStage }); await flush(); await pump()
+      expect(counters.stageMounts).to.equal(0)
+      hidden = false; document.dispatchEvent(new window.Event('visibilitychange')); await flush(); await pump()
+      expect(counters.stageMounts).to.equal(1); expect(requests).to.equal(2)
       const stage = document.body.querySelector('.preview-stage')
       expect(stage?.parentElement?.classList.contains('preview-target')).to.equal(true)
       expect(stage?.dataset.preview).to.equal('true')

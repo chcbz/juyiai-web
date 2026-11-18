@@ -63,7 +63,7 @@ describe('HallPortraitHome', () => {
     expect(hallSource).to.include('v-if="stageMounted"')
     expect(hallSource).to.include('<Teleport :to="stageTarget" :disabled="!stageTarget">')
     expect(hallSource).to.include('const stageHasMounted = ref(false)')
-    expect(hallSource).to.include('watch([experienceReady, experienceMode, previewVisible, stageTarget], permitStageMount, { immediate: true })')
+    expect(hallSource).to.include('watch([experienceReady, experienceMode, previewVisible, documentPreviewVisible, stageTarget], permitStageMount, { immediate: true })')
     expect(portraitHomeSource).not.to.include('juyitingGame')
     expect(portraitHomeSource).not.to.include('<canvas')
     expect(portraitHomeSource).not.to.include('melon')
