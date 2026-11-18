@@ -120,9 +120,10 @@
                   v-if="canManagePolicy"
                   class="skill-manage-entry hall-tool"
                   type="button"
-                  @click="skillManagementOpen = true"
+                  @click="openSkillManagement"
                  aria-label="管理技能" title="管理技能"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M17 13v8m-4-4h8"/></svg></button>
               </div>
+              <p v-if="skillLoadStatus" role="status">{{ skillLoadStatus === 'loading' ? '正在加载技能管理…' : '技能管理加载失败，请再次点击管理技能重试。' }}</p>
               <p v-if="!canReadProfile" role="status">仅拥有者可查看技能</p>
               <p v-else-if="profileCapabilitiesLoading" role="status">正在核对技能…</p>
               <p v-else-if="profileCapabilitiesError" class="profile-error" role="status">{{ profileCapabilitiesError }}</p>
@@ -210,7 +211,7 @@
       </div>
     </div>
     <SkillManagement
-      v-if="canManagePolicy"
+      v-if="SkillManagement && canManagePolicy"
       v-model:show="skillManagementOpen"
       :target-agent="selectedAgent"
       :actor-scope-key="actorScopeKey"
@@ -222,8 +223,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import SkillManagement from '../economy/SkillManagement.vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 
 const props = defineProps({
   active: { type: Boolean, default: true },
@@ -264,6 +264,26 @@ const media = typeof window !== 'undefined' && typeof window.matchMedia === 'fun
 const isCompactRoster = ref(media?.matches || false)
 const mobileDetailOpen = ref(false)
 const skillManagementOpen = ref(false)
+const SkillManagement = shallowRef(null)
+const skillLoadStatus = ref('')
+let skillIntent = 0
+async function openSkillManagement () {
+  if (!profileVisible.value || !canManagePolicy.value || skillLoadStatus.value === 'loading') return
+  if (!SkillManagement.value) {
+    const intent = ++skillIntent
+    skillLoadStatus.value = 'loading'
+    try {
+      const module = await import('../economy/SkillManagement.vue')
+      if (intent !== skillIntent) return
+      SkillManagement.value = module.default
+      skillLoadStatus.value = ''
+    } catch {
+      if (intent === skillIntent) skillLoadStatus.value = 'error'
+      return
+    }
+  }
+  skillManagementOpen.value = true
+}
 const listRef = ref(null)
 const detailTitleRef = ref(null)
 const abilityEditButton = ref(null)
@@ -316,10 +336,17 @@ const back = () => {
 }
 watch(() => [props.identityKey, props.panelSessionKey], () => { mobileDetailOpen.value = false; listScrollTop = 0; focusAgentId = null }, { flush: 'sync' })
 watch(() => props.selectedAgent?.agentId, id => { if (!id) mobileDetailOpen.value = false }, { flush: 'sync' })
-watch([() => props.identityKey, () => props.selectedAgent?.agentId, () => props.active, canManagePolicy], () => { skillManagementOpen.value = false }, { flush: 'sync' })
+watch([() => props.actorScopeKey, () => props.identityKey, () => props.panelSessionKey, () => props.selectedAgent?.agentId, canManagePolicy], () => {
+  SkillManagement.value = null
+}, { flush: 'sync' })
+watch([() => props.actorScopeKey, () => props.identityKey, () => props.panelSessionKey, () => props.selectedAgent?.agentId, profileVisible, canManagePolicy], () => {
+  skillIntent++
+  skillLoadStatus.value = ''
+  skillManagementOpen.value = false
+}, { flush: 'sync' })
 const updateMedia = event => { isCompactRoster.value = event.matches }
 onMounted(() => media?.addEventListener('change', updateMedia))
-onUnmounted(() => media?.removeEventListener('change', updateMedia))
+onUnmounted(() => { skillIntent++; media?.removeEventListener('change', updateMedia) })
 defineExpose({ canGoBack, back, windowTitle, profileVisible })
 </script>
 

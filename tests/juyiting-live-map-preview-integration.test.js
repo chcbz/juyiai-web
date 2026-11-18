@@ -131,6 +131,7 @@ const loadHallPage = mocks => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, imports) => `var { ${imports} } = mocks`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, name) => `var ${name} = mocks.${name}`)
+    .replace("import('@/components/juyiting/AgentPanel.vue')", 'mocks.loadRosterPanel()')
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace('export default', 'return')
   return new Function('Vue', 'mocks', body)(Vue, { useHallPageReturn, useHallSelectedOutputReview, selectionKey, useHallDeliveryReview, useHallAgentProfileCapabilities, useHallAgentAbilitiesEditor, useExternalServicePolicy, useHallCampaignGrant, economyApi: { create: async () => ({ grants: [] }) }, assignedTaskTarget, useHallSkillCapabilities, currentBountyAssignmentRevision, ...mocks })
@@ -213,7 +214,7 @@ const makeHallPageMocks = ({ mode, counters, voiceLocked = Vue.ref(false) }) => 
     useHallLibrary: () => ({ citeLibraryItem: noop, libraryErrorMessage: text, libraryHasSearched: Vue.ref(false), libraryKeyword: text, libraryLoading: Vue.ref(false), libraryResults: list, librarySourceType: text, searchLibrary: asyncNoop }),
     isTaskWorkspaceBuildEnabled: () => false, createDisabledTaskWorkspaceBinding: () => ({ selectExplicitActor: noop, clearExplicitActor: noop, dispose: noop }), useTaskWorkspaceView: () => ({ subject: Vue.ref(null), workspace: Vue.ref(null), connectionState: text, error: Vue.ref(null), retry: noop }), useTaskWorkspace: noop, useTaskWorkspaceBinding: () => ({ selectExplicitActor: noop, clearExplicitActor: noop, dispose: noop }),
     portraitName: () => '', portraitRole: () => ({ slug: 'default' }), portraitShortName: () => '', portraitStyle: () => ({}), roleClass: () => '',
-    HallPortraitHome, HallStage, HallVoiceHud: Empty, AgentPanel: Empty, BountyDiscussionPanel: Empty, BountyPanel: Empty, TaskWorkspacePanel: Empty, PersonaCatalogPanel: Empty, PrivateDiscussionPanel: Empty, PublicDiscussionPanel: Empty, SelectedAgentCard: Empty, PersonalWorkspace: Empty, LibraryPanel: Empty
+    HallPortraitHome, HallStage, HallVoiceHud: Empty, loadRosterPanel: async () => ({ default: Empty }), BountyDiscussionPanel: Empty, BountyPanel: Empty, TaskWorkspacePanel: Empty, PersonaCatalogPanel: Empty, PrivateDiscussionPanel: Empty, PublicDiscussionPanel: Empty, SelectedAgentCard: Empty, PersonalWorkspace: Empty, LibraryPanel: Empty
   }
 }
 
@@ -221,6 +222,8 @@ describe('live map preview Hall page bridge', () => {
   it('schedules ambient dialogue only for the active identity on a drawable, uncovered map', async () => {
     const counters = { stageMounts: 0, retries: 0 }
     const mocks = makeHallPageMocks({ mode: Vue.ref('landscape-map'), counters })
+    const rosterRetry = deferred(); let rosterLoads = 0
+    mocks.loadRosterPanel = () => ++rosterLoads === 1 ? Promise.reject(new Error('offline')) : rosterRetry.promise
     const home = useHallHomeMode()
     mocks.useHallHomeMode = () => home
     const api = Vue.reactive(mocks.useApiStore())
@@ -267,8 +270,14 @@ describe('live map preview Hall page bridge', () => {
       background = true; document.dispatchEvent(new window.Event('visibilitychange')); await check()
       background = false; document.dispatchEvent(new window.Event('visibilitychange')); await check(1800, 5200)
       const portrait = wrapper.findComponent(counters.PortraitHome)
+      expect(rosterLoads).to.equal(0)
       await portrait.find('.portrait-quick-agents').trigger('click'); await check()
+      expect(wrapper.text()).to.include('好汉名册加载失败')
+      await wrapper.findAll('button').find(b => b.text() === '重试加载').trigger('click'); await check()
+      expect(wrapper.text()).to.include('正在加载好汉名册'); expect(rosterLoads).to.equal(2)
       await wrapper.get('.panel-close').trigger('click'); await check(1800, 5200)
+      rosterRetry.resolve({ default: { template: '<div class="late-roster" />' } }); await check(1800, 5200)
+      expect(wrapper.find('.late-roster').exists()).to.equal(false)
       home.setHomeMode('overview'); await check()
       home.setHomeMode('map'); await check(1800, 5200)
       data.visibleAgents.value = []; await check()

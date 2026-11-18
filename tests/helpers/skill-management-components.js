@@ -17,13 +17,14 @@ const compile = (path, id, imports) => {
   const code = compileScript(descriptor, { id, inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_m, names, path) => `const { ${names.split(',').map(x => x.trim().replace(/\s+as\s+/, ': ')).join(', ')} } = imports[${JSON.stringify(path)}]`)
     .replace(/^import\s+([^\s]+)\s+from\s+['"]([^'"]+)['"];?\s*$/gm, (_m, name, path) => `const ${name} = imports[${JSON.stringify(path)}]`)
+    .replace("import('../economy/SkillManagement.vue')", 'imports.loadManagement()')
     .replace('export default', 'return')
   return new Function('imports', code)({ vue: Vue, ...imports })
 }
-export const skillComponents = ({ useApiStore } = {}) => {
+export const skillComponents = ({ useApiStore, loadManagement } = {}) => {
   const Management = compile('src/components/economy/SkillManagement.vue', 'sm-management', { '@/composables/useSkillMarket.js': market, '@/utils/skillManagementContract.js': contract })
   const Market = compile('src/components/economy/SkillMarket.vue', 'sm-market', { './SkillManagement.vue': Management })
-  const AgentPanel = compile('src/components/juyiting/AgentPanel.vue', 'sm-agent-panel', { '../economy/SkillManagement.vue': Management })
+  const AgentPanel = compile('src/components/juyiting/AgentPanel.vue', 'sm-agent-panel', { loadManagement: loadManagement || (async () => ({ default: Management })) })
   const Route = compile('src/components/economy/SkillMarketRoute.vue', 'sm-route', { '@/stores/api': { useApiStore }, '@/utils/identityLifecycle.js': identity, './SkillMarket.vue': Market, '@/utils/skillMarketRoster.js': roster, '@/utils/wenAmount': silver, '@/utils/economyPreviewCapability': capability })
   return { Management, Market, AgentPanel, Route }
 }

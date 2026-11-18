@@ -207,7 +207,17 @@
     if (!t || t.disabled) return;
     e.preventDefault(); e.stopImmediatePropagation();
     const cmd = t.dataset.action.slice(6);
-    if (cmd === 'open') { open(state.selectedAgent?.id); return; }
+    if (cmd === 'open') {
+      // Optional offline failure fixture: the normal prototype keeps its immediate open.
+      if (new URLSearchParams(location.search).has('skill-load-error') && !t.dataset.loadRetried) {
+        t.dataset.loadRetried = 'true';
+        const hint = document.createElement('p'); hint.setAttribute('role', 'status'); hint.className = 'skill-load-hint';
+        hint.textContent = '技能管理加载失败，请再次点击管理技能重试。'; t.parentElement.after(hint);
+        return;
+      }
+      if (t.dataset.loadRetried) t.closest('section')?.querySelector('.skill-load-hint')?.remove();
+      open(state.selectedAgent?.id); return;
+    }
     if (!active || !own(active.id)) return;
     const { id } = active, m = model(id);
     if (cmd === 'select' && !locked(m) && product(t.dataset.skill) && !entry(m, t.dataset.skill) && !m.installOperations[t.dataset.skill]) { active.key = t.dataset.skill; active.screen = 'install'; active.approvals = product(active.key).permissions.map((_, i) => i); active.quote = null; }

@@ -240,6 +240,28 @@ describe('AgentPanel accepted abilities prototype fidelity', () => {
 describe('AgentPanel skill management heading alignment', () => {
   const owned = { ...agent, boundToMe: true, canOperate: true, systemAgent: false }
   const profile = { agentId: agent.agentId, observedAt: 10000, abilities: [], skills: { status: 'AVAILABLE', items: [] } }
+  it('loads management only on intent, retries failure and ignores an obsolete owner intent', async () => {
+    let calls = 0, resolve, reject
+    const { AgentPanel: Panel } = skillComponents({ loadManagement: () => {
+      calls++; return new Promise((yes, no) => { resolve = yes; reject = no })
+    } })
+    const component = { props: ['show'], template: '<i class="loaded-management" />' }
+    const wrapper = mount(Panel, { props: { ...props, selectedAgent: owned } })
+    const click = () => wrapper.get('.skill-manage-entry').trigger('click')
+    try {
+      expect(calls).to.equal(0)
+      await click(); await click(); expect(calls).to.equal(1)
+      reject(new Error('offline')); await Vue.nextTick(); await Vue.nextTick()
+      expect(wrapper.text()).to.include('技能管理加载失败')
+      await click(); expect(calls).to.equal(2)
+      await wrapper.setProps({ identityKey: 'another' }); resolve({ default: component })
+      await Vue.nextTick(); await Vue.nextTick(); expect(wrapper.findComponent(component).exists()).to.equal(false)
+      await click(); resolve({ default: component }); await Vue.nextTick(); await Vue.nextTick()
+      const manager = wrapper.getComponent(component); expect(manager.props('show')).to.equal(true)
+      manager.vm.$emit('update:show', false); await Vue.nextTick(); expect(manager.props('show')).to.equal(false)
+      await click(); expect(wrapper.getComponent(component).vm).to.equal(manager.vm); expect(calls).to.equal(3)
+    } finally { wrapper.unmount() }
+  })
   it('keeps the installation summary before the last management action', () => {
     const wrapper = mount(AgentPanel, { props: { ...props, selectedAgent: owned, profileCapabilities: profile } })
     try {

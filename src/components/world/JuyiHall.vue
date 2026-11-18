@@ -308,6 +308,10 @@
             </button>
           </div>
 
+          <div v-if="renderedPanel === 'agents' && !AgentPanel" role="status">
+            <template v-if="rosterLoadFailed">好汉名册加载失败。<button type="button" @click="loadRosterPanel">重试加载</button></template>
+            <template v-else>正在加载好汉名册…</template>
+          </div>
           <AgentPanel
             ref="agentPanelRef"
             :active="renderedPanel === 'agents' && activePanel === 'agents'"
@@ -324,7 +328,7 @@
             :profile-capabilities-error="agentProfile.error.value"
             :profile-reason-text="agentProfileReasonText"
             :ability-editor="agentAbilityEditor"
-            v-if="panelFrames.includes('agents')"
+            v-if="AgentPanel && panelFrames.includes('agents')"
             v-show="renderedPanel === 'agents'"
             :inert="renderedPanel !== 'agents' ? '' : null"
             :aria-hidden="renderedPanel !== 'agents' ? 'true' : null"
@@ -981,7 +985,7 @@ import { useHallPageReturn } from '../../composables/juyiting/useHallPageReturn.
 import HallMinePage from '@/components/juyiting/HallMinePage.vue'
 import HallHelpCenter from '@/components/juyiting/HallHelpCenter.vue'
 import HallDraftEditor from '@/components/juyiting/HallDraftEditor.vue'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useGlobalStore } from '@/stores/global'
 import { useApiStore } from '@/stores/api'
@@ -1029,7 +1033,6 @@ import TaskWorkspacePanel from '@/components/juyiting/TaskWorkspacePanel.vue'
 import ArtifactTransferPanel from '@/components/juyiting/ArtifactTransferPanel.vue'
 import ArtifactOutcomePanel from '@/components/juyiting/ArtifactOutcomePanel.vue'
 import { portraitName, portraitRole, portraitShortName, portraitStyle, roleClass } from '@/composables/juyiting/useWaterMarginRoles'
-import AgentPanel from '@/components/juyiting/AgentPanel.vue'
 import BountyDiscussionPanel from '@/components/juyiting/BountyDiscussionPanel.vue'
 import BountyAcceptancePanel from '@/components/juyiting/BountyAcceptancePanel.vue'
 import HallCompletedRecords from '@/components/juyiting/HallCompletedRecords.vue'
@@ -1190,7 +1193,22 @@ const hallReadRevision = ref(0)
 const helpPanelRef = ref(null)
 const agentPanelRef = ref(null)
 const agentPanelSessionKey = ref(0)
-watch(() => panelFrames.value.includes('agents'), (present, previous) => { if (present && !previous) agentPanelSessionKey.value++ }, { flush: 'sync' })
+const AgentPanel = shallowRef(null)
+const rosterLoadFailed = ref(false)
+async function loadRosterPanel () {
+  const session = agentPanelSessionKey.value
+  rosterLoadFailed.value = false
+  try {
+    AgentPanel.value = (await import('@/components/juyiting/AgentPanel.vue')).default
+  } catch {
+    if (session === agentPanelSessionKey.value) rosterLoadFailed.value = true
+  }
+}
+watch(() => panelFrames.value.includes('agents'), present => {
+  if (!present) return
+  agentPanelSessionKey.value++
+  if (!AgentPanel.value) void loadRosterPanel()
+}, { flush: 'sync' })
 const bountyPanelRef = ref(null)
 const panelLocations = new Map()
 const treasurePanelRef = ref(null)
