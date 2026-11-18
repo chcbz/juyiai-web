@@ -342,6 +342,8 @@
             :agents="agents"
             :filtered-agents="filteredAgents"
             :map-agents="mapAgents"
+            :map-ready="mapReady"
+            :map-error="mapError"
             :portrait-name="portraitName"
             :portrait-style="portraitStyle"
             :selected-agent="selectedAgent"
@@ -1497,6 +1499,8 @@ const {
   filteredAgents,
   hiddenAgentCount,
   loadAgents,
+  loadMapAgents,
+  mapReady,
   loadPersonaCatalog,
   loadRosterAgents,
   loadTasks,
@@ -1619,25 +1623,22 @@ const ensureEconomyPreviewCapability = async () => {
 }
 
 const loadPanelData = async (panel) => {
-  if (panel === 'agents') return Promise.all([loadRosterAgents(), loadPersonaCatalog()])
+  if (panel === 'agents') return Promise.all([loadRosterAgents(), loadPersonaCatalog(), loadMapAgents()])
   if (panel === 'catalog') return loadPersonaCatalog()
   if (panel === 'tasks') return loadTasks()
   return null
 }
 
-const refreshHall = async ({ silent = false } = {}) => {
+const refreshHall = async ({ silent = false, includeMap = true } = {}) => {
   if (hallRefreshing.value) return
   hallRefreshing.value = true
   if (!silent) playRefresh()
   try {
-    // The portrait entry exposes current-user operable agents immediately, so its
-    // initial refresh must keep the map, roster, and catalog projections in sync.
-    // Scene snapshot startup remains independent of those reads.
-    await loadAgents()
+    await loadAgents({ includeMap })
     if (simulationEnabled && hallCommandQueue.ready.value && !backendSceneStarted) {
       await startBackendSceneState()
     }
-    await loadPanelData(activePanel.value)
+    if (activePanel.value === 'tasks') await loadPanelData('tasks')
     if (!silent) showToast(mapError.value ? '厅中点将暂无法读取' : '厅中动静已点验')
   } finally {
     hallRefreshing.value = false
@@ -3334,6 +3335,14 @@ watch(ambientDialogueActive, (active, _, onCleanup) => {
     window.clearInterval(recurring)
   })
 })
+// A mode change is allowed to start a read only after this identity passed home initialization.
+let mapReadIdentity = null
+watch(mapError, message => {
+  if (message && !isOverviewHome.value && mapReadIdentity === currentHomeIdentity.value) showToast(message)
+})
+watch(homeMode, mode => {
+  if (mode === 'map' && mapReadIdentity === currentHomeIdentity.value) void loadMapAgents()
+})
 const activateHome = async () => {
   homeActivated.value = true; homeListsActive.value = true
   const identity = currentHomeIdentity.value
@@ -3342,9 +3351,10 @@ const activateHome = async () => {
   homeActivation = (async () => {
     await nextTick()
     permitStageMount()
-    await refreshHall({ silent: true })
     if (identity !== currentHomeIdentity.value || panelDisposed) return
-    if (mapError.value) throw new Error(mapError.value)
+    mapReadIdentity = identity
+    await refreshHall({ silent: true, includeMap: !isOverviewHome.value || activePanel.value === 'agents' })
+    if (identity !== currentHomeIdentity.value || panelDisposed) return
     homeActivationIdentity.value = identity
   })().catch(error => showToast(error.message || '首页读取失败，请重试。')).finally(() => { homeActivation = null })
   return homeActivation

@@ -173,7 +173,7 @@ const makeHallPageMocks = ({ mode, counters, voiceLocked = Vue.ref(false) }) => 
   counters.hallVoice = hallVoice
   const data = {
     applySceneEvent: noop, applySceneSnapshot: noop, agentFilter: text, agents: list, bindPersona: asyncNoop, canAssign: () => true,
-    filteredAgents: list, hiddenAgentCount: Vue.ref(0), loadAgents: asyncNoop, loadTasks: asyncNoop, loadTaskRecommendations: asyncNoop, loadTaskDetail: asyncNoop,
+    filteredAgents: list, hiddenAgentCount: Vue.ref(0), loadAgents: asyncNoop, loadMapAgents: asyncNoop, loadTasks: asyncNoop, loadTaskRecommendations: asyncNoop, loadTaskDetail: asyncNoop,
     mapAgents: list, personaCatalog: list, recommendedAgents: list, setAgentFilter: noop, setTaskStatusFilter: noop,
     taskAgentFilter: text, taskAgentOptions: list, taskKeyword: text, tasks: list, taskStatusCount: Vue.ref({}), taskStatusFilter: text, unbindPersona: asyncNoop, visibleAgents: list
   }
@@ -233,6 +233,8 @@ describe('live map preview Hall page bridge', () => {
     mocks.useApiStore = () => api
     mocks.isCurrentPanelGeneration = isCurrentPanelGeneration
     const data = mocks.useHallData()
+    const reads = []; data.loadAgents = async opts => reads.push(opts.includeMap ? 'all' : 'roster+catalog')
+    data.loadMapAgents = async () => reads.push('map')
     data.loadRosterAgents = data.loadPersonaCatalog = async () => true
     const agent = { agentId: 'ambient-test' }
     data.mapError = Vue.ref('')
@@ -266,8 +268,10 @@ describe('live map preview Hall page bridge', () => {
       const options = { attachTo: document.body, global: { stubs: { 'var-icon': true, transition: false } } }
       wrapper = mount(Hall, options)
       await check() // Authenticated overview with an available agent.
+      expect(reads).to.deep.equal(['roster+catalog'])
       expect(stageRequests).to.equal(0)
       home.setHomeMode('map'); await check(1800, 5200)
+      expect(reads).to.deep.equal(['roster+catalog', 'map'])
       expect(stageRequests).to.equal(1)
       const [id, first] = [...timers.entries()][0]; timers.delete(id); first.fn()
       expect(spoken).to.deep.equal([[agent, '对白', 'speech']]); await check(5200)

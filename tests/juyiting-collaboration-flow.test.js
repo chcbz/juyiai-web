@@ -50,7 +50,7 @@ describe('JuyiHall collaboration flow contract', () => {
     expect(mounted.indexOf('apiStore.getUserInfo()')).to.be.lessThan(mounted.indexOf('else await activateHome()'))
     expect(activation).to.include('if (!hallIdentityScope.value')
     expect(activation).to.include('permitStageMount()')
-    expect(activation).to.include('await refreshHall({ silent: true })')
+    expect(activation).to.include("includeMap: !isOverviewHome.value || activePanel.value === 'agents'")
     expect(activation).to.include('homeActivationIdentity.value = identity')
     expect(activation.indexOf('await refreshHall')).to.be.lessThan(activation.indexOf('homeActivationIdentity.value = identity'))
   })

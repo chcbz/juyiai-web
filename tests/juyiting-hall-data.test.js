@@ -275,6 +275,28 @@ describe('useHallData operable roster', () => {
 })
 
 describe('useHallData deferred Juyi Hall sources', () => {
+  it('keeps overview authorization reads, shares a pending map read and ignores the previous identity', async () => {
+    const calls = [], pending = [], scope = ref('first'), selected = ref(null)
+    const hall = useHallData({ identityScope: scope, selectedAgent: selected, selectedTask: ref(null),
+      normalizeStatus: x => x, log: { warn () {} }, agentApi: {
+        search: async (url, _, opts) => { calls.push(url); opts.onSuccess({ items: [] }) },
+        get: async (url, _, opts) => {
+          calls.push(url)
+          if (url !== '/map') return opts.onSuccess([])
+          return new Promise((resolve, reject) => pending.push({ finish: rows => { opts.onSuccess(rows); resolve() }, reject }))
+        }
+      } })
+    try {
+      await hall.loadAgents({ includeMap: false }); expect(calls.sort()).to.deep.equal(['/personas/catalog', '/roster'])
+      const old = hall.loadMapAgents(); expect(hall.loadMapAgents()).to.equal(old); await Promise.resolve()
+      selected.value = { agentId: 'obsolete' }; scope.value = 'second'; expect(selected.value).to.equal(null)
+      const fresh = hall.loadMapAgents(); await Promise.resolve(); pending[0].finish([{ agentId: 'old', status: 'online' }]); await old
+      expect(hall.mapReady.value).to.equal(false); expect(hall.mapLoading.value).to.equal(true); expect(hall.mapAgents.value).to.deep.equal([])
+      pending[1].reject(new Error('offline')); await fresh; expect(hall.mapError.value).to.equal('offline')
+      const retry = hall.loadMapAgents(); await Promise.resolve(); pending[2].finish([]); await retry
+      expect(hall.mapReady.value).to.equal(true); expect(hall.mapError.value).to.equal(''); expect(hall.mapAgents.value).to.deep.equal([])
+    } finally { hall.dispose() }
+  })
   it('loads map independently before optional roster, catalog, tasks, and counts', async () => {
     const calls = []
     const hallData = useHallData({

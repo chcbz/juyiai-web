@@ -12,7 +12,7 @@
         </button>
       </div>
       <button type="button" @click="$emit('open-catalog')" class="hall-action-surface">招贤令</button>
-      <span>名册 {{ agents.length }} 位 · 场景中 {{ mapAgents.length }} 位</span>
+      <span>名册 {{ agents.length }} 位 · {{ mapError ? '场景人数暂不可用' : mapReady ? `场景中 ${mapAgents.length} 位` : '场景人数待核对' }}</span>
     </div>
     <p v-if="loading" class="panel-data-state" role="status">正在加载好汉名册…</p>
     <p v-else-if="errorMessage" class="panel-data-state is-error" role="alert">{{ errorMessage }}</p>
@@ -248,6 +248,8 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   errorMessage: { type: String, default: '' },
   filteredAgents: { type: Array, default: () => [] },
+  mapReady: { type: Boolean, default: false },
+  mapError: { type: String, default: '' },
   mapAgents: { type: Array, default: () => [] },
   selectedAgent: { type: Object, default: null },
   agentFilter: { type: String, default: 'all' },

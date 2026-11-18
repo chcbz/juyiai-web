@@ -84,7 +84,7 @@ describe('HallPortraitHome', () => {
     expect(hallSource).to.include('openBabaoBox()')
     expect(hallSource).to.match(/<HallStage[\s\S]*?@open-workspace="openBabaoBox"/)
     const refresh = hallSource.match(/const refreshHall = async \([^)]*\) => \{([\s\S]*?)\n\}/)?.[1] || ''
-    expect(refresh).to.include('await loadAgents()')
+    expect(refresh).to.include('await loadAgents({ includeMap })')
     expect(refresh).not.to.include('await loadMapAgents()')
   })
 

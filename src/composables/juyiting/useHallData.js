@@ -36,6 +36,8 @@ export const useHallData = ({
   // never blocks the map or hides a successful sibling result.
   const mapLoading = ref(false)
   const mapError = ref('')
+  const mapReady = ref(false)
+  let mapEpoch = 0, mapFlight = null
   const rosterLoading = ref(false)
   const rosterError = ref('')
   const catalogLoading = ref(false)
@@ -147,6 +149,10 @@ export const useHallData = ({
     taskStatusCounts.value = {}
   }, { flush: 'sync' })
   const stopIdentity = watch(identityFingerprint, () => {
+    mapEpoch++; mapFlight = null; mapLoading.value = false; mapReady.value = false; mapError.value = ''
+    mapAgents.value = []; agents.value = []; operableRosterAgents.value = []; personaCatalog.value = []; selectedAgent.value = null
+    rosterRequest++; catalogRequest++; rosterLoading.value = false; catalogLoading.value = false
+    rosterError.value = ''; catalogError.value = ''
     listEpoch += 1
     countsEpoch += 1
     recommendationEpoch += 1
@@ -167,7 +173,7 @@ export const useHallData = ({
     tasksError.value = ''
     taskCountsError.value = ''
   }, { flush: 'sync' })
-  const dispose = () => { recommendationRefresh = null; recommendationPreparation.value = null; listEpoch += 1; countsEpoch += 1; recommendationEpoch += 1; stopFilters(); stopIdentity(); stopRecommendationTask(); recommendationRequest?.controller.abort(); stopCandidates(); stopDetailScope(); detailEpoch++; detailController?.abort(); candidatesEpoch++; candidatesController?.abort() }
+  const dispose = () => { mapEpoch++; mapFlight = null; rosterRequest++; catalogRequest++; recommendationRefresh = null; recommendationPreparation.value = null; listEpoch += 1; countsEpoch += 1; recommendationEpoch += 1; stopFilters(); stopIdentity(); stopRecommendationTask(); recommendationRequest?.controller.abort(); stopCandidates(); stopDetailScope(); detailEpoch++; detailController?.abort(); candidatesEpoch++; candidatesController?.abort() }
   // Absence/failure is not zero. Preserve decimal strings; never count the loaded page.
   const taskStatusCount = phase => taskStatusCounts.value.phaseCounts?.[phase || 'total'] ?? '—'
 
@@ -354,6 +360,9 @@ export const useHallData = ({
       return
     }
     const freshMapAgent = mapAgents.value.find(agent => agent?.agentId === selectedId)
+    // An unread/failed scene is not evidence that a read-only map selection disappeared.
+    // Never retain an operable identity on the strength of this fallback.
+    if (!freshMapAgent && !mapReady.value && !selectedAgent.value.boundToMe && !selectedAgent.value.canOperate) return
     selectedAgent.value = freshMapAgent || null
   }
 
@@ -374,23 +383,31 @@ export const useHallData = ({
     reconcileSelectedAgent()
   }
 
-  const loadMapAgents = async () => {
-    mapLoading.value = true
-    mapError.value = ''
-    try {
-      await agentApi.get('/map', {}, {
-        autoLoading: false,
-        onSuccess: (result) => {
-          mapAgents.value = result.filter(agent => ['online', 'busy'].includes(normalizeStatus(agent.status)))
-        }
-      })
-    } catch (error) {
-      log.warn('load map agents failed:', error)
-      mapError.value = error?.message || '厅中点将暂无法读取'
-      mapAgents.value = []
-    } finally {
-      mapLoading.value = false
-    }
+  const loadMapAgents = ({ fresh = false } = {}) => {
+    if (!fresh && mapFlight) return mapFlight
+    const epoch = ++mapEpoch
+    mapLoading.value = true; mapReady.value = false; mapError.value = ''
+    mapFlight = Promise.resolve().then(async () => {
+      if (epoch !== mapEpoch) return false
+      try {
+        await agentApi.get('/map', {}, { autoLoading: false, onSuccess: rows => {
+          if (epoch !== mapEpoch) return
+          mapAgents.value = rows.filter(agent => ['online', 'busy'].includes(normalizeStatus(agent.status)))
+          mapReady.value = true
+          if (selectedAgent.value && !selectedAgent.value.boundToMe && !selectedAgent.value.canOperate) reconcileSelectedAgent()
+        } })
+        return epoch === mapEpoch && mapReady.value
+      } catch (error) {
+        if (epoch !== mapEpoch) return false
+        log.warn('load map agents failed:', error)
+        mapError.value = error?.message || '厅中点将暂无法读取'
+        mapAgents.value = []
+        return false
+      } finally {
+        if (epoch === mapEpoch) { mapLoading.value = false; mapFlight = null }
+      }
+    })
+    return mapFlight
   }
 
   const loadOperableRosterAgents = async () => {
@@ -484,15 +501,16 @@ export const useHallData = ({
       throw new Error('移除结果尚未确认，请刷新租约后重试。')
     }
     if (removal.identity === identityFingerprint()) {
-      await Promise.all([loadPersonaCatalog(), loadRosterAgents({ derive: false }), loadMapAgents()])
-      deriveRosterProjections()
+      await Promise.all([loadPersonaCatalog(), loadRosterAgents({ derive: false }), loadMapAgents({ fresh: true })])
+      if (removal.identity === identityFingerprint()) deriveRosterProjections()
     }
     return true
   }
 
-  const loadAgents = async () => {
-    await Promise.all([loadMapAgents(), loadRosterAgents({ derive: false }), loadPersonaCatalog()])
-    deriveRosterProjections()
+  const loadAgents = async ({ includeMap = true } = {}) => {
+    const identity = identityFingerprint()
+    await Promise.all([includeMap && loadMapAgents({ fresh: true }), loadRosterAgents({ derive: false }), loadPersonaCatalog()])
+    if (identity === identityFingerprint()) deriveRosterProjections()
   }
 
   const loadTasks = async (options = {}) => {
@@ -622,6 +640,7 @@ export const useHallData = ({
     mapAgents,
     mapError,
     mapLoading,
+    mapReady,
     operableRosterAgents,
     personaCatalog,
     recommendedAgents,
