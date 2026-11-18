@@ -784,6 +784,25 @@ describe('RB-01/D01 real gallery native execution consumer', () => {
   const component = api => ((vue, deps) => new Function('Vue', 'deps', 'FilePreview', script)(vue, { FilePreview, filePreviewKind, previewMime, ...deps }, FilePreview))(Vue, { richDocumentKind, revisionProgressPending, useHallSkillResults, skillResultDataText, skillResultStatus, inlineSkillResults,
     createApi: () => api, exactOutputId, outputCatalogItems, outputItemKey, previewKind, scopedExecutionSteps,
     downloadMimeType, outputDownloadName, saveOutputBlob: () => {}, currentOutputDelivery, completedTextItem, completedExecutionDelivery, outputRequestPending })
+  for (const inline of [true, false]) it(`renders native ANSWER as multiline plain text (inline=${inline})`, async () => {
+    const answer = '岗位匹配初筛：\nJ01：符合要求。\nJ02：<b>需确认</b>。'
+    const api = { get: async path => {
+      if (path === '/requests/native') return nativeRequest()
+      if (path === '/requests/native/steps/native-step/outputs') return []
+      if (path === '/conversations/1/executions/native-execution/result') return { schemaVersion: 2,
+        conversationId: '1', conversationGeneration: '1', taskId: 'task', requestId: 'native', stepId: 'native-step',
+        executionId: 'native-execution', executionStateVersion: '3', state: 'RESULT_COMMITTED', phase: 'COMPLETE',
+        resultSha256: 'a'.repeat(64), data: { answer }, outputs: [] }
+      throw new Error(`unexpected GET ${path}`)
+    } }
+    const wrapper = mount(component(api), { props: { ...props(), inline } })
+    try {
+      await flushPromises()
+      const body = wrapper.get('pre')
+      expect(body.element.textContent).to.equal(answer)
+      expect(body.find('b').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
   it('loads data-only results from persisted steps with no ACTION_REQUEST and recovers after remount', async () => {
     const calls = []
     const api = { get: async path => {

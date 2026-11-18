@@ -47,7 +47,12 @@ export const skillResultProjection = (value, expected) => {
   if (value.phase === 'COMPLETE' && !complete) return null
   return Object.freeze({ ...Object.fromEntries(fields.map(key => [key, value[key]])), complete, outputs: Object.freeze(complete ? outputs : []), data: complete ? value.data : null })
 }
-export const skillResultDataText = value => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+export const skillResultDataText = value => {
+  if (typeof value === 'string') return value
+  // Native ANSWER data is exactly { answer: string }; preserve other skill schemas in full.
+  if (value && typeof value.answer === 'string' && Object.keys(value).length === 1 && Object.hasOwn(value, 'answer')) return value.answer
+  return JSON.stringify(value, null, 2)
+}
 export const skillResultAdvances = (before, after) => {
   if (before == null) return true
   if (!after || ['conversationId', 'conversationGeneration', 'taskId', 'requestId', 'stepId', 'executionId'].some(key => before[key] !== after[key]) ||

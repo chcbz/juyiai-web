@@ -54,6 +54,9 @@ describe('SE2 scoped directory and generic data-only result consumers', () => {
     assert.equal(value.complete, true); assert.deepEqual(value.outputs, []); assert.deepEqual(value.data, result().data)
     assert.match(skillResultDataText(value.data), /<script>/)
     assert.equal(skillResultDataText('文本'), '文本')
+    for (const data of [{ answer: '初筛', candidates: [1, 2] }, { answer: { count: 2 } }]) {
+      assert.deepEqual(JSON.parse(skillResultDataText(data)), data)
+    }
     assert.equal(Object.hasOwn(skillResultProjection({ ...result(), diagnosticId: 'metadata' }, expected()), 'diagnosticId'), false)
   })
   it('does not declare complete before persisted projection or permit cross-scope result substitution', () => {
