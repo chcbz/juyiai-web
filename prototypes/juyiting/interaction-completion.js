@@ -176,7 +176,7 @@ function applyTaskFilters(){
 }
 function simplifyHome(){
  $$('.workbench-create-action').forEach(e=>{e.dataset.prototypePage='create';});
- const aside=$('.overview-aside-card');if(aside)aside.innerHTML='<h3>待我处理</h3><p>查看需要补充或核对的事项。</p>'+button('查看待处理列表','complete-go','data-page=tasks');
+ const aside=$('.overview-aside-card');if(aside)aside.innerHTML='<h3>待我处理</h3><p>查看待承办、进行中、待验收等事项。</p>'+button('查看待处理列表','complete-go','data-page=tasks');
  if(aside)scoped(aside,'data-v-d13db084');
  const map=$('.overview-map-link');if(map)map.dataset.prototypePage='map';
  const heading=$('.overview-list-heading h3');if(heading)heading.textContent='接着上次办';
@@ -189,7 +189,7 @@ function simplifyHome(){
  const tab=state.overviewTab||0;
  $$('.overview-tabs button').forEach((b,i)=>{b.textContent=['最近事项','待我处理','已归档'][i];});
  // Match the home projection: select the newest five, then reverse only needs-action.
- const rows=listedMatters().filter(({ctx})=>tab===0||tab===2&&ctx.task.archived||tab===1&&!ctx.task.archived&&!ctx.pending&&ctx.operation?.stage!=='pending'&&(['待确认承办','待验收'].includes(listedMatterStatus(ctx))||!!matterAttentionReason(ctx)))
+ const rows=listedMatters().filter(({ctx})=>tab===0||tab===2&&ctx.task.archived||tab===1&&!ctx.task.archived&&(['待确认承办','进行中'].includes(listedMatterStatus(ctx))||!ctx.pending&&ctx.operation?.stage!=='pending'&&(listedMatterStatus(ctx)==='待验收'||!!matterAttentionReason(ctx))))
   .sort((a,b)=>(b.ctx.task.updatedAt||0)-(a.ctx.task.updatedAt||0)).slice(0,5);
  if(tab===1)rows.reverse();
  const section=$('.overview-section');if(section){section.innerHTML=rows.map(({key,ctx})=>`<article class="overview-item"><div class="overview-item-copy"><strong>${esc(ctx.task.title)}</strong><p>事项 · ${esc(ctx.agent?.name||'待安排')}</p><span class="overview-status">${esc(listedMatterStatus(ctx))}</span></div>${button('查看事项','complete-open-matter',`data-matter-key="${esc(key)}"`)}</article>`).join('')||`<p class="simplify-home-empty" role="status">${tab===1?'暂时没有需要你处理的事项。':tab===2?'暂无已归档事项。':'还没有事项，从上方提出第一个需求。'}</p>`;scoped(section,'data-v-d13db084');}

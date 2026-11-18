@@ -550,6 +550,23 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('shows pending assignment, in progress and pending acceptance together on the home action tab', async () => {
+    const data = response()
+    const part = data.sections.needsAction.partitions.task
+    part.items = [['open', 'PENDING_ASSIGNMENT'], ['running', 'IN_PROGRESS'], ['reviewing', 'PENDING_ACCEPTANCE']].map(([code, phase]) => {
+      const item = summary('TASK', code, 'OPEN_TASK')
+      return { ...item, phase, status: { ...item.status, code } }
+    })
+    data.sections.needsAction.partitions.private.items = []
+    data.sections.needsAction.partitions.draft.items = []
+    const wrapper = mount(load({ execute: async () => data }), { props })
+    try {
+      await settle()
+      await wrapper.get('.overview-tabs').findAll('button').find(b => b.text() === '待我处理').trigger('click')
+      expect(wrapper.findAll('.overview-item .overview-status').map(b => b.text())).to.have.members(['待承办', '进行中', '待验收'])
+    } finally { wrapper.unmount() }
+  })
+
   it('routes review evidence to the exact canonical formal task and delivery without an acceptance or private mark call', async () => {
     const review = { code: 'FORMAL_DELIVERY_SUBMITTED', deliveryId: 'delivery-1', workItemId: 'work-1', deliveryVersion: '0', taskVersion: '9007199254740993' }
     const calls = []
