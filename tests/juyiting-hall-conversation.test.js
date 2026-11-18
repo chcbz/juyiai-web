@@ -30,6 +30,36 @@ const deferred = () => {
   return { promise, resolve }
 }
 
+describe('useHallConversation pending assignee display', () => {
+  it('uses the discussion task’s public name instead of the directory selection or portrait fallback', () => {
+    const target = { agentId: 'agt_6', displayName: '张清', providerDisplayName: null, isMine: true, availability: 'online' }
+    const task = { id: 'task-1', assignedAgentIds: [target.agentId], assignedTarget: target }
+    const conversationTask = ref(task)
+    const chatContext = ref({ mode: 'bounty', conversationScopeType: 'bounty', conversationScopeKey: 'task:task-1',
+      taskId: task.id, targetAgentIds: [target.agentId], participantAgentIds: [target.agentId] })
+    const selectedAgent = ref(target)
+    const conversation = useHallConversation({
+      apiStore: {}, chatApi: {}, globalStore: {}, chatContext, conversationTask, chatMode: ref('bounty'),
+      selectedAgent, selectedTask: ref({ id: 'another-task' }),
+      portraitShortName: () => '解珍'
+    })
+    try {
+      expect(conversation.pendingAgentName.value).to.equal('张清')
+      selectedAgent.value = null
+      expect(conversation.pendingAgentName.value).to.equal('张清')
+      conversationTask.value = { ...task, assignedTarget: { ...target, displayName: target.agentId } }
+      expect(conversation.pendingAgentName.value).to.equal('')
+      conversationTask.value = { ...task, assignedTarget: null }
+      expect(conversation.pendingAgentName.value).to.equal('')
+      conversationTask.value = task
+      chatContext.value = { ...chatContext.value, targetAgentIds: ['other-agent'], participantAgentIds: ['other-agent'] }
+      expect(conversation.pendingAgentName.value).to.equal('')
+    } finally {
+      conversation.disposeHallConversation()
+    }
+  })
+})
+
 describe('useHallConversation scoped message loading', () => {
   it('retains attachment-only USER messages with exact scoped references and no invented text', () => {
     const source = { kind: 'TASK_LINKED_WORKSPACE_VERSION', fileId: 'file-1', version: '7', purpose: 'INPUT', assetId: null, assetRevision: null }

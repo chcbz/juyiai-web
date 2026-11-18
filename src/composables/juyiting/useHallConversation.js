@@ -28,6 +28,7 @@ import {
 import { typedId } from './hallTypedDeliberation.js'
 import { catalogLong, catalogPage } from './bountyRequestCatalog.js'
 import { bountyInteractionTargetId } from './useHallChatContext.js'
+import { assignedTaskTarget } from './hallAssigneeCandidates.js'
 import {
   cancellationTarget,
   deliberationBusy,
@@ -47,6 +48,7 @@ const HALL_REQUEST_READBACK_DEBOUNCE_MS = 250
 export const useHallConversation = ({
   apiStore,
   chatContext,
+  conversationTask,
   chatMode,
   chatApi,
   globalStore,
@@ -276,6 +278,15 @@ export const useHallConversation = ({
   const isConversationBusy = computed(() => isAdoptingBountyBootstrap.value || hasPendingSendSession.value || isSubmitting.value || durableBusy.value || isStreaming.value || isAwaitingReply.value || isConversationLoading.value || Boolean(conversationHistoryDeletingId.value))
 
   const pendingAgentName = computed(() => {
+    const context = chatContext?.value
+    if (context?.mode === 'bounty') {
+      const task = conversationTask?.value
+      const target = task?.id === context.taskId ? assignedTaskTarget(task) : null
+      const targetId = bountyInteractionTargetId(context)
+      if (!targetId || target?.agentId !== targetId) return ''
+      const name = target.displayName.trim()
+      return name === targetId ? '' : name
+    }
     if (!selectedAgent.value) return ''
     return portraitShortName(selectedAgent.value) || selectedAgent.value.name || selectedAgent.value.agentId || ''
   })

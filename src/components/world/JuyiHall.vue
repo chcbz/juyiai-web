@@ -2462,6 +2462,7 @@ const {
   identityScope: hallIdentityScope,
   apiStore,
   chatContext,
+  conversationTask,
   chatMode,
   chatApi,
   globalStore,

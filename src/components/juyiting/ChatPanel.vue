@@ -220,7 +220,9 @@
       <p v-if="discussionFooterStatus(deliberationStatus, isTaskDiscussion) && !serverTaskCompleted" class="deliberation-status" :role="deliberationStatus.startsWith('停止失败') ? 'alert' : 'status'">{{ deliberationStatus }}</p>
       <div v-if="isAwaitingReply && !serverTaskCompleted" class="hall-message SYSTEM is-pending">
         <strong>{{ pendingAuthor }}</strong>
-        <div class="message-content" v-html="renderMarkdown(pendingLabel)"></div>
+        <div class="message-content">
+          <p>{{ pendingLabel }}</p>
+        </div>
       </div>
       <div v-if="!messages.length && !messageWindows.length" class="empty-list">{{ emptyText }}</div>
 
@@ -780,7 +782,7 @@ const displayStatus = computed(() => {
 })
 const pendingLabel = computed(() => {
   if (props.pendingAgentName) return `${props.pendingAgentName} 正在回复…`
-  return '正在整理回报...'
+  return isTaskDiscussion.value ? '等待回复…' : '正在整理回报...'
 })
 const renderMarkdown = (content = '') => DOMPurify.sanitize(marked(String(content || '')))
 
