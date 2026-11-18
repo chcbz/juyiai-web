@@ -42,13 +42,17 @@ const hallConversationMessagesSource = readFileSync(hallConversationMessagesUrl,
 describe('JuyiHall collaboration flow contract', () => {
   it('starts OAuth before any protected hall load or background activity', () => {
     const mounted = hallSource.match(/onMounted\(async \(\) => \{([\s\S]*?)\n\}\)/)?.[1]
-    expect(mounted).to.include('if (!await apiStore.token() || !initializationIsCurrent()) return')
+    const activation = hallSource.match(/const activateHome = async \(\) => \{([\s\S]*?)\n\}/)?.[1]
+    expect(mounted).to.include('if (!await apiStore.token() || !initializationIsCurrent()) {')
     expect(mounted).to.include('initializationGeneration === apiStore.authorizationGeneration')
-    expect(mounted).to.include('if (!initializationIsCurrent()) return')
-    expect(mounted.indexOf('apiStore.getUserInfo()')).to.be.lessThan(mounted.indexOf('permitStageMount()'))
-    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('permitStageMount()'))
-    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('refreshHall({ silent: true })'))
-    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('startDialogueBubbles()'))
+    expect(mounted).to.include('else await activateHome()')
+    expect(mounted.indexOf('apiStore.token()')).to.be.lessThan(mounted.indexOf('apiStore.getUserInfo()'))
+    expect(mounted.indexOf('apiStore.getUserInfo()')).to.be.lessThan(mounted.indexOf('else await activateHome()'))
+    expect(activation).to.include('if (!hallIdentityScope.value')
+    expect(activation).to.include('permitStageMount()')
+    expect(activation).to.include('await refreshHall({ silent: true })')
+    expect(activation).to.include('homeActivationIdentity.value = identity')
+    expect(activation.indexOf('await refreshHall')).to.be.lessThan(activation.indexOf('homeActivationIdentity.value = identity'))
   })
 
   it('uses the stage header as the primary action surface without the duplicate dock', () => {

@@ -159,7 +159,6 @@ const props = defineProps({
   accountAvatar: { type: String, default: '' },
   accountDisplayName: { type: String, default: '' },
   accountEntryDisabled: { type: Boolean, default: false },
-  agentBubbles: { type: Object, default: () => ({}) },
   agentKey: { type: Function, required: true },
   agentStyle: { type: Function, required: true },
   hiddenAgentCount: { type: Number, default: 0 },

@@ -1,3 +1,4 @@
+import { useHallHomeMode } from '../src/composables/juyiting/useHallHomeMode.js'
 import { useHallPageReturn } from '../src/composables/juyiting/useHallPageReturn.js'
 import { useHallCampaignGrant } from '../src/composables/juyiting/useHallCampaignGrant.js'
 import { useHallTerminalTextHistory } from '../src/composables/juyiting/useHallTerminalTextHistory.js'
@@ -21,7 +22,7 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import { mount } from '@vue/test-utils'
 import * as Vue from 'vue'
 import { resolveLiveMapPreviewActivation } from '../src/composables/juyiting/liveMapPreviewPolicy.js'
-import { resolveHallNavigationPresentation } from '../src/composables/juyiting/useHallPanels.js'
+import { isCurrentPanelGeneration, resolveHallNavigationPresentation } from '../src/composables/juyiting/useHallPanels.js'
 import { freezePrivateMaterialRefs } from '../src/composables/juyiting/hallPrivateMaterials.js'
 import { JuyitingGame } from '../src/game/JuyitingGame.js'
 
@@ -43,7 +44,7 @@ const loadStage = game => {
 }
 const flush = async () => { for (let i = 0; i < 4; i++) { await Promise.resolve(); await Vue.nextTick() } }
 const restoreDescriptor = (target, key, descriptor) => { if (descriptor) Object.defineProperty(target, key, descriptor); else delete target[key] }
-const props = { agentBubbles: {}, agentKey: () => '', agentStyle: () => ({}), portraitName: () => '', portraitShortName: () => '', portraitStyle: () => ({}), roleClass: () => '', statusClass: () => '', statusText: () => '', experienceMode: 'portrait-command', readOnlyPreview: true, previewVisible: true }
+const props = { agentKey: () => '', agentStyle: () => ({}), portraitName: () => '', portraitShortName: () => '', portraitStyle: () => ({}), roleClass: () => '', statusClass: () => '', statusText: () => '', experienceMode: 'portrait-command', readOnlyPreview: true, previewVisible: true }
 const fixture = () => {
   const calls = { destroy: 0, draw: [], locks: [], phases: [], ready: 0, reset: 0, targets: 0, zoom: 0, returns: 0 }
   let handlers
@@ -207,7 +208,7 @@ const makeHallPageMocks = ({ mode, counters, voiceLocked = Vue.ref(false) }) => 
     useHallChatContext: () => ({ conversationAgent: Vue.ref(null), conversationTask: Vue.ref(null), chatContext: Vue.ref({}), chatMentionAgentIds: list, chatMentionAgents: list, chatMode: text, chatTargetText: text, enterBountyDiscussion: noop, enterPrivateConversation: noop, resetToPublic: noop, setMentionAgent: noop }),
     useHallSound: () => ({ playAgentSelect: noop, playError: noop, playPanelOpen: noop, playRefresh: noop, playSend: noop, playSuccess: noop, playTap: noop, setSoundEnabled: noop, setSoundSuppressed: noop, soundEnabled: Vue.ref(false) }),
     useHallTaskActions: () => ({ archiveTask: asyncNoop, autoAssignTask: asyncNoop, assignTask: asyncNoop, createTask: asyncNoop }),
-    useHallConversation: () => ({ activeRequest: Vue.ref(null), cancelHallReplyTurn: noop, chatConnectionStatus: text, conversationId: text, draft: text, eventStreamRecovering: Vue.ref(false), insertAgentMention: noop, isAwaitingReply: Vue.ref(false), isStreaming: Vue.ref(false), loadHallMessages: asyncNoop, mentionAgent: noop, messages: list, newHallConversation: noop, pendingAgentName: text, replyEventSequence: Vue.ref(0), sendHallMessage: asyncNoop, senderText: text, disposeHallConversation: noop, draftRevision: Vue.ref(0), setDraft: noop, stopHallEventStream: noop, stopHallReplyPolling: noop, stopHallReplyStreaming: noop }),
+    useHallConversation: () => ({ refreshHallProjections: asyncNoop, activeRequest: Vue.ref(null), cancelHallReplyTurn: noop, chatConnectionStatus: text, conversationId: text, draft: text, eventStreamRecovering: Vue.ref(false), insertAgentMention: noop, isAwaitingReply: Vue.ref(false), isStreaming: Vue.ref(false), loadHallMessages: asyncNoop, mentionAgent: noop, messages: list, newHallConversation: noop, pendingAgentName: text, replyEventSequence: Vue.ref(0), sendHallMessage: asyncNoop, senderText: text, disposeHallConversation: noop, draftRevision: Vue.ref(0), setDraft: noop, stopHallEventStream: noop, stopHallReplyPolling: noop, stopHallReplyStreaming: noop }),
     useHallVoiceConversation: () => hallVoice, createHallVoiceReplyCorrelation: () => ({ close: noop, closeIfCurrent: () => false, start: () => true, observe: noop, resolveConversation: noop }),
     useHallLibrary: () => ({ citeLibraryItem: noop, libraryErrorMessage: text, libraryHasSearched: Vue.ref(false), libraryKeyword: text, libraryLoading: Vue.ref(false), libraryResults: list, librarySourceType: text, searchLibrary: asyncNoop }),
     isTaskWorkspaceBuildEnabled: () => false, createDisabledTaskWorkspaceBinding: () => ({ selectExplicitActor: noop, clearExplicitActor: noop, dispose: noop }), useTaskWorkspaceView: () => ({ subject: Vue.ref(null), workspace: Vue.ref(null), connectionState: text, error: Vue.ref(null), retry: noop }), useTaskWorkspace: noop, useTaskWorkspaceBinding: () => ({ selectExplicitActor: noop, clearExplicitActor: noop, dispose: noop }),
@@ -217,6 +218,72 @@ const makeHallPageMocks = ({ mode, counters, voiceLocked = Vue.ref(false) }) => 
 }
 
 describe('live map preview Hall page bridge', () => {
+  it('schedules ambient dialogue only for the active identity on a drawable, uncovered map', async () => {
+    const counters = { stageMounts: 0, retries: 0 }
+    const mocks = makeHallPageMocks({ mode: Vue.ref('landscape-map'), counters })
+    const home = useHallHomeMode()
+    mocks.useHallHomeMode = () => home
+    const api = Vue.reactive(mocks.useApiStore())
+    mocks.useApiStore = () => api
+    mocks.isCurrentPanelGeneration = isCurrentPanelGeneration
+    const data = mocks.useHallData()
+    data.loadRosterAgents = data.loadPersonaCatalog = async () => true
+    const agent = { agentId: 'ambient-test' }
+    data.mapError = Vue.ref('')
+    data.visibleAgents = Vue.ref([agent])
+    const spoken = []
+    const scene = mocks.useHallScene()
+    mocks.useHallScene = () => ({ ...scene, markAgentSpeaking: (...args) => spoken.push(args) })
+    mocks.roleDialogues = { default: ['对白'] }
+    const hidden = Object.getOwnPropertyDescriptor(document, 'hidden')
+    const raf = Object.getOwnPropertyDescriptor(global, 'requestAnimationFrame')
+    Object.defineProperty(global, 'requestAnimationFrame', { configurable: true, value: fn => queueMicrotask(() => fn(0)) })
+    let background = false
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => background })
+    const timers = new Map(); const restore = []
+    for (const kind of ['Timeout', 'Interval']) {
+      const set = `set${kind}`, clear = `clear${kind}`
+      const originalSet = window[set], originalClear = window[clear]
+      window[set] = (fn, delay, ...args) => {
+        if (![1800, 3600, 5200].includes(delay)) return originalSet.call(window, fn, delay, ...args)
+        const id = Symbol(set); timers.set(id, { delay, fn }); return id
+      }
+      window[clear] = id => typeof id === 'symbol' ? timers.delete(id) : originalClear.call(window, id)
+      restore.push(() => { window[set] = originalSet; window[clear] = originalClear })
+    }
+    let wrapper
+    const check = async (...delays) => {
+      await flush(); expect([...timers.values()].map(t => t.delay).sort()).to.deep.equal(delays)
+    }
+    try {
+      const Hall = loadHallPage(mocks)
+      const options = { attachTo: document.body, global: { stubs: { 'var-icon': true, transition: false } } }
+      wrapper = mount(Hall, options)
+      await check() // Authenticated overview with an available agent.
+      home.setHomeMode('map'); await check(1800, 5200)
+      const [id, first] = [...timers.entries()][0]; timers.delete(id); first.fn()
+      expect(spoken).to.deep.equal([[agent, '对白', 'speech']]); await check(5200)
+      timers.values().next().value.fn(); expect(spoken).to.have.length(2)
+      background = true; document.dispatchEvent(new window.Event('visibilitychange')); await check()
+      background = false; document.dispatchEvent(new window.Event('visibilitychange')); await check(1800, 5200)
+      const portrait = wrapper.findComponent(counters.PortraitHome)
+      await portrait.find('.portrait-quick-agents').trigger('click'); await check()
+      await wrapper.get('.panel-close').trigger('click'); await check(1800, 5200)
+      home.setHomeMode('overview'); await check()
+      home.setHomeMode('map'); await check(1800, 5200)
+      data.visibleAgents.value = []; await check()
+      data.visibleAgents.value = [agent]; await check(1800, 5200)
+      expect(spoken).to.have.length(2) // Visibility transitions do not replay dialogue.
+      api.authorizationGeneration++; await check()
+      wrapper.unmount()
+      const auth = deferred(); api.token = () => auth.promise
+      wrapper = mount(Hall, options); await check() // Map intent alone cannot start activity before auth.
+      auth.resolve('preview-token'); await check(1800, 5200)
+    } finally {
+      wrapper?.unmount(); restore.forEach(fn => fn()); restoreDescriptor(document, 'hidden', hidden); restoreDescriptor(global, 'requestAnimationFrame', raf)
+    }
+    expect(timers.size).to.equal(0)
+  })
   it('waits for document and observed portrait visibility, then keeps one teleported Stage across landscape and retry', async () => {
     const originalHidden = Object.getOwnPropertyDescriptor(document, 'hidden')
     const originalVisibilityState = Object.getOwnPropertyDescriptor(document, 'visibilityState')

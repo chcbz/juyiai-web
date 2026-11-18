@@ -165,7 +165,6 @@
           :account-display-name="accountDisplayName"
           :account-entry-disabled="accountEntryDisabled"
           :preview-visible="stageDrawVisible"
-          :agent-bubbles="agentBubbles"
           :agent-key="agentKey"
           :agent-style="sceneAgentStyle"
           :hidden-agent-count="hiddenAgentCount"
@@ -1216,7 +1215,6 @@ const helpReplayVisible = computed(() => props.onboardingVisible && renderedPane
 const isPanelSessionActive = computed(() => Boolean(renderedPanel.value))
 const hallRefreshing = ref(false)
 const experienceReady = ref(false)
-const agentBubbles = ref({})
 const outgoingMetadata = ref({})
 const privateMaterialRefs = ref([])
 const effectiveSceneMode = ref('portrait')
@@ -1368,9 +1366,6 @@ const panelTitleId = 'juyiting-floating-panel-title'
 let panelSessionOrigin = null
 let panelChatLoadTimer = null
 let panelDisposed = false
-let bubbleTimer = null
-let bubbleInitialTimer = null
-let bubbleClearTimer = null
 const simulationEnabled = import.meta.env.VITE_JUYITING_SIMULATION_ENABLED === 'true'
 const hallCommandQueue = useHallCommandQueue()
 let hallBackendSceneState = null
@@ -3034,21 +3029,6 @@ const citeLibraryItem = (item) => {
   if (runCiteLibraryItem(item)) markLibraryCitation(item)
 }
 
-const startDialogueBubbles = () => {
-  stopDialogueBubbles()
-  bubbleTimer = window.setInterval(showRandomAgentBubble, 5200)
-  bubbleInitialTimer = window.setTimeout(showRandomAgentBubble, 1800)
-}
-
-const stopDialogueBubbles = () => {
-  if (bubbleTimer) window.clearInterval(bubbleTimer)
-  if (bubbleInitialTimer) window.clearTimeout(bubbleInitialTimer)
-  if (bubbleClearTimer) window.clearTimeout(bubbleClearTimer)
-  bubbleTimer = null
-  bubbleInitialTimer = null
-  bubbleClearTimer = null
-}
-
 const showRandomAgentBubble = () => {
   const pool = visibleAgents.value
   if (!pool.length || activePanel.value) return
@@ -3056,13 +3036,7 @@ const showRandomAgentBubble = () => {
   const role = portraitRole(agent)
   const lines = roleDialogues[role.slug] || roleDialogues.default
   const text = lines[Math.floor(Math.random() * lines.length)]
-  const key = agentKey(agent)
-  agentBubbles.value = { [key]: text }
   markAgentSpeaking(agent, text, 'speech')
-  if (bubbleClearTimer) window.clearTimeout(bubbleClearTimer)
-  bubbleClearTimer = window.setTimeout(() => {
-    agentBubbles.value = {}
-  }, 3600)
 }
 
 
@@ -3305,20 +3279,32 @@ const handleUnbindPersona = async (persona) => {
 }
 
 let homeActivation = null
-let homeActivationIdentity = ''
+const homeActivationIdentity = ref('')
+const currentHomeIdentity = computed(() => `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`)
+// Only ambient dialogue follows draw visibility. Business feedback and scene updates keep their own lifecycle.
+const ambientDialogueActive = computed(() => stageDrawVisible.value && !isPanelSessionActive.value &&
+  !props.onboardingVisible && homeActivationIdentity.value === currentHomeIdentity.value && visibleAgents.value.length > 0)
+watch(ambientDialogueActive, (active, _, onCleanup) => {
+  if (!active) return
+  const initial = window.setTimeout(showRandomAgentBubble, 1800)
+  const recurring = window.setInterval(showRandomAgentBubble, 5200)
+  onCleanup(() => {
+    window.clearTimeout(initial)
+    window.clearInterval(recurring)
+  })
+})
 const activateHome = async () => {
   homeActivated.value = true; homeListsActive.value = true
-  const identity = `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}`
-  if (!hallIdentityScope.value || homeActivationIdentity === identity) return
+  const identity = currentHomeIdentity.value
+  if (!hallIdentityScope.value || homeActivationIdentity.value === identity) return
   if (homeActivation) return homeActivation
   homeActivation = (async () => {
     await nextTick()
     permitStageMount()
     await refreshHall({ silent: true })
-    if (identity !== `${apiStore.authorizationGeneration}\u0000${hallIdentityScope.value}` || panelDisposed) return
+    if (identity !== currentHomeIdentity.value || panelDisposed) return
     if (mapError.value) throw new Error(mapError.value)
-    homeActivationIdentity = identity
-    startDialogueBubbles()
+    homeActivationIdentity.value = identity
   })().catch(error => showToast(error.message || '首页读取失败，请重试。')).finally(() => { homeActivation = null })
   return homeActivation
 }
@@ -3436,7 +3422,6 @@ onUnmounted(() => {
   stopHallEventStream()
   stopHallReplyStreaming()
   stopHallReplyPolling()
-  stopDialogueBubbles()
   resetSimulationLifecycle()
   hallSceneDebugBridge.stop()
   globalStore.setShowAppBar(true)
