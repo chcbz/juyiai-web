@@ -1308,6 +1308,10 @@ describe('JuyiHall component behavior', () => {
     expect(catalog.text()).to.include('移除好汉')
 
     await catalog.find('.catalog-action.primary').trigger('click')
+    expect(catalog.findAll('.catalog-actions.is-choosing')).to.have.length(1)
+    await catalog.findAll('button').find(button => button.text() === '暂不选择').trigger('click')
+    expect(catalog.find('.catalog-actions.is-choosing').exists()).to.equal(false)
+    await catalog.find('.catalog-action.primary').trigger('click')
     expect(catalog.text()).to.include('择个接应去处')
     expect(catalog.text()).to.include('平台托管')
     expect(catalog.text()).to.include('自行部署')

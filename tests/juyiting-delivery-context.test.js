@@ -68,20 +68,21 @@ const harness = (read = async () => payload()) => {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve))
 describe('bounded delivery context on the actual send path', () => {
-  it('uses one summary GET then POST, and UNKNOWN retry reuses body/key without another GET', async () => {
+  it('sends without a summary GET, and UNKNOWN retry reuses body/key without another GET', async () => {
     const h = harness()
     try {
       await h.lane.submit({ content: '继续' })
-      expect(h.calls.map(call => call[0])).to.deep.equal(['GET', 'POST'])
-      expect(h.calls[1][2].parentOutcomeId).to.equal('outcome-a')
+      expect(h.calls.map(call => call[0])).to.deep.equal(['POST'])
+      expect(h.calls[0][2].parentOutcomeId).to.equal(null)
       await h.lane.resumeUnknown()
-      expect(h.calls.map(call => call[0])).to.deep.equal(['GET', 'POST', 'POST'])
-      expect(h.calls[2]).to.deep.equal(h.calls[1])
+      expect(h.calls.map(call => call[0])).to.deep.equal(['POST', 'POST'])
+      expect(h.calls[1]).to.deep.equal(h.calls[0])
     } finally { h.lane.dispose() }
   })
   it('locks before the context read and does not create duplicate requests', async () => {
-    let finish; const h = harness(() => new Promise(resolve => { finish = resolve }))
+    let finish; const h = harness((_path, params) => params.outcomeId ? new Promise(resolve => { finish = resolve }) : payload())
     try {
+      await h.lane.refreshDeliveryChoices(); h.lane.chooseDelivery('outcome-a'); h.calls.length = 0
       const sending = h.lane.submit({ content: '继续' })
       expect(h.lane.busy.value).to.equal(true)
       expect(await h.lane.submit({ content: '重复' })).to.equal(false)
@@ -92,8 +93,9 @@ describe('bounded delivery context on the actual send path', () => {
     } finally { h.lane.dispose() }
   })
   for (const mode of ['identity', 'authorization', 'assignment', 'dispose']) it(`does not post after ${mode} changes during the context read`, async () => {
-    let finish; const h = harness(() => new Promise(resolve => { finish = resolve }))
+    let finish; const h = harness((_path, params) => params.outcomeId ? new Promise(resolve => { finish = resolve }) : payload())
     try {
+      await h.lane.refreshDeliveryChoices(); h.lane.chooseDelivery('outcome-a'); h.calls.length = 0
       const sending = h.lane.submit({ content: '继续' })
       const signal = h.calls[0][3].signal
       if (mode === 'identity') h.actor.value = 'other'
@@ -134,8 +136,9 @@ describe('bounded delivery context on the actual send path', () => {
     } finally { h.lane.dispose() }
   })
   it('reports context read failures without a full-history fallback or UNKNOWN receipt', async () => {
-    const h = harness(async () => { throw new Error('offline') })
+    const h = harness(async (_path, params) => { if (params.outcomeId) throw new Error('offline'); return payload() })
     try {
+      await h.lane.refreshDeliveryChoices(); h.lane.chooseDelivery('outcome-a'); h.calls.length = 0
       expect(await h.lane.submit({ content: '继续' })).to.equal(false)
       expect(h.calls).to.have.length(1); expect(h.lane.error.value).to.equal('offline')
       expect(h.lane.busy.value).to.equal(false); expect(h.lane.recoveryAvailable.value).to.equal(false)

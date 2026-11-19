@@ -77,7 +77,7 @@ describe('current v5 media follow-up basis', () => {
         if (mode === 'final') old.turns[0].finalMessageId = '999'
         if (mode === 'execution') old.steps = [{ kind: 'EXECUTE' }]
         if (mode === 'missing') delete old.turns[0].lastDeltaSeq
-        lane.adoptPage(values); await lane.submit({ content: '识别刚才生成的图片' })
+        lane.adoptPage(values); await lane.refreshDeliveryChoices(); lane.chooseDelivery(values[0].outcome.outcomeId); await lane.submit({ content: '识别刚才生成的图片' })
         expect(calls.length, mode).to.equal(1)
         if (calls.length) expect(calls[0].parentOutcomeId).to.equal(values[0].outcome.outcomeId)
       } finally { lane.dispose() }
@@ -93,7 +93,7 @@ describe('current v5 media follow-up basis', () => {
     getCatalogEntries: () => entries, storage, enabled: () => true })
     try {
       expect(lane.adoptPage(values)).to.equal(true); expect(gets).to.have.length(0)
-      await lane.submit({ content: '提交这一份成果' }); expect(calls).to.have.length(0); expect(lane.error.value).to.include('先选择')
+      await lane.refreshDeliveryChoices()
       lane.chooseDelivery(values[0].outcome.outcomeId); await lane.submit({ content: '提交这一份成果' })
       expect(calls).to.have.length(1); expect(calls[0].body.parentOutcomeId).to.equal(values[0].outcome.outcomeId)
       expect(calls[0].body.sourceSelectors).to.deep.equal([])

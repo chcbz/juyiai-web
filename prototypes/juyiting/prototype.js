@@ -157,7 +157,7 @@ function renderChat(){
    $$('.prototype-delivery-choices',panel).forEach(e=>e.remove());
    const picker=document.createElement('div');picker.className='mmd prototype-delivery-choices';
    const count=ctx.deliveryChoiceCount||50;
-   picker.innerHTML='<label>本轮成果 <select aria-label="本轮成果">'+Array.from({length:count},(_,i)=>'<option value="'+(i+1)+'">独立成果 '+(i+1)+'</option>').join('')+'</select></label> '+(count===50?button('加载更多成果','delivery-choice-more'):'<span>已加载全部成果</span>');
+   picker.innerHTML='<label>基于成果继续修改（可选） <select aria-label="基于成果继续修改（可选）"><option value="">不关联成果</option>'+Array.from({length:count},(_,i)=>'<option value="'+(i+1)+'">独立成果 '+(i+1)+'</option>').join('')+'</select></label> '+(count===50?button('加载更多成果','delivery-choice-more'):'<span>已加载全部成果</span>');
    $('.composer-submit')?.before(picker);
  }
  const input=$('.composer-textarea');input.disabled=!!(ctx.task?.complete||ctx.task?.cancelled);input.value=ctx.chatDraft;input.placeholder=ctx.task?.cancelled?'事项已取消，仅查看议事记录':ctx.task?.complete?'事项已完成':'补充需求，或告诉好汉哪里需要调整…';

@@ -56,15 +56,15 @@
         </button>
       </template>
       <template #after-toolbar>
-        <label v-if="typedEnabled && !taskCompleted && (deliveryChoices.length > 1 || deliveryHasMore || selectedDeliveryId)" class="media-basis-choice">
-          <span>本轮成果</span>
+        <label v-if="typedEnabled && !taskCompleted && (deliveryChoices.length > 0 || deliveryHasMore || selectedDeliveryId)" class="media-basis-choice">
+          <span>基于成果继续修改（可选）</span>
           <select
             :value="selectedDeliveryId"
-            aria-label="本轮成果"
+            aria-label="基于成果继续修改（可选）"
             :disabled="conversationBusy"
             @change="$emit('choose-delivery', $event.target.value)"
           >
-            <option value="">请选择要继续议事的成果</option>
+            <option value="">不关联成果</option>
             <option v-for="choice in deliveryChoices" :key="choice.outcomeId" :value="choice.outcomeId">{{ choice.label }}</option>
           </select>
         </label>

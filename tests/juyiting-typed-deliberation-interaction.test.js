@@ -18,6 +18,22 @@ const restoreCrypto = () => {
 describe('typed natural discussion interaction adapter', () => {
   beforeEach(() => { Object.defineProperty(globalThis, 'crypto', { configurable: true, writable: true, value: { randomUUID: () => '00000000-0000-4000-8000-000000000001' } }) })
   afterEach(restoreCrypto)
+  it('uses the explicit result once, then sends the next discussion unbound', async () => {
+    const context = { conversationId: '7', conversationGeneration: '1', taskId: 'task-1', targetAgentId: 'agent-1', assignmentRevision: '4' }
+    const posts = [], reads = [], item = { ...serverChoice(clarify('one')), kind: 'ANSWER' }
+    const lane = useHallTypedDeliberation({ serverDeliveryContext: params => { reads.push(params); return contextPage(context, [item]) },
+      chatApi: { create: async (_path, body) => { posts.push(body); return receipt('DISCUSSION', `accepted-${posts.length}`) },
+        get: async () => clarify(`accepted-${posts.length}`) }, actorScopeKey: ref('owner'), authorizationGeneration: ref(1),
+      getContext: () => context, getCatalogEntries: () => [], storage: store(), enabled: () => true })
+    try {
+      await lane.refreshDeliveryChoices(); lane.chooseDelivery(item.outcomeId)
+      expect(await lane.submit({ content: '把这份改短' })).to.equal(true)
+      expect(lane.selectedDeliveryId.value).to.equal('')
+      expect(await lane.submit({ content: '新话题' })).to.equal(true)
+      expect(posts.map(body => body.parentOutcomeId)).to.deep.equal([item.outcomeId, null])
+      expect(reads.map(params => params.outcomeId)).to.deep.equal([undefined, item.outcomeId])
+    } finally { lane.dispose() }
+  })
   it('adopts display pages without expanding accepted local receipt history', async () => {
     let reads = 0
     const context = { conversationId: '7', conversationGeneration: '1', taskId: 'task-1', targetAgentId: 'agent-1', assignmentRevision: '4' }
@@ -337,7 +353,8 @@ describe('explicit text follow-up admission basis', () => {
     actorScopeKey: ref('owner'), authorizationGeneration: ref(1), getContext: () => context.value, getContextGeneration: () => 1,
     getCatalogEntries: () => values.map(v => ({ request: { requestId: v.requestId, steps: [] } })), storage: store(), enabled: () => true })
     try {
-      expect(lane.adoptPage(values)).to.equal(true); expect(await lane.submit({ content: '把这一段改短' })).to.equal(false)
+      expect(lane.adoptPage(values)).to.equal(true); await lane.refreshDeliveryChoices(); lane.chooseDelivery(two.outcome.outcomeId)
+      expect(await lane.submit({ content: '把这一段改短' })).to.equal(false)
       expect(calls[0].body.parentOutcomeId).to.equal(two.outcome.outcomeId)
       expect(calls[0].body.expectedParentStateVersion).to.equal('0')
       two.outcome.outcomeId = 'changed-after-send'
@@ -358,12 +375,13 @@ describe('explicit text follow-up admission basis', () => {
       values[1] = { ...failed, state: 'PENDING' }
       lane.adoptPage(values)
       expect(lane.projections.value.find(v => v.requestId === 'failed').state).to.equal('FAILED')
+      await lane.refreshDeliveryChoices(); lane.chooseDelivery(initial.outcome.outcomeId)
       await lane.submit({ content: '继续改稿' })
       expect(calls).to.have.length(1)
       expect(calls[0].parentOutcomeId).to.equal(initial.outcome.outcomeId)
     } finally { lane.dispose() }
   })
-  it('uses the server choice result, not incomplete local history, and requires explicit choice for roots', async () => {
+  it('uses the server choice result, not incomplete local history, without automatically binding roots', async () => {
     const context = { conversationId: '42', conversationGeneration: '1', taskId: 'task', targetAgentId: 'agent', assignmentRevision: '3' }
     for (const mode of ['roots', 'pending', 'empty']) {
       const calls = []
@@ -374,7 +392,7 @@ describe('explicit text follow-up admission basis', () => {
         getCatalogEntries: () => { throw new Error('send must not scan history') }, storage: store(), enabled: () => true })
       try {
         await lane.submit({ content: '继续讨论' })
-        expect(calls).to.have.length(mode === 'roots' ? 0 : 1)
+        expect(calls).to.have.length(1)
         if (calls.length) expect(calls[0].parentOutcomeId).to.equal(null)
       } finally { lane.dispose() }
     }

@@ -182,7 +182,7 @@ describe('scoped bounty output actions live on the actual message cards', () => 
       await f.wrapper.setProps({ typedEnabled: true, deliveryHasMore: true, deliveryChoices: [
         { outcomeId: 'one', label: '成果一' }, { outcomeId: 'two', label: '成果二' }
       ] })
-      await f.wrapper.get('select[aria-label="本轮成果"]').setValue('two')
+      await f.wrapper.get('select[aria-label="基于成果继续修改（可选）"]').setValue('two')
       expect(f.wrapper.emitted('choose-delivery')).to.deep.equal([['two']])
       const more = f.wrapper.findAll('button').find(button => button.text() === '加载更多成果')
       await more.trigger('click'); expect(f.wrapper.emitted('load-more-deliveries')).to.deep.equal([[]])

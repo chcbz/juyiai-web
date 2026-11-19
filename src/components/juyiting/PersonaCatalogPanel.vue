@@ -89,6 +89,7 @@
         <div
           v-if="canShowActions(persona)"
           class="catalog-actions"
+          :class="{ 'is-choosing': activePersonaCode === persona.personaCode }"
         >
           <button
             v-if="activePersonaCode !== persona.personaCode"
@@ -614,6 +615,16 @@ onUnmounted(() => { mounted = false; clearRuntimeState() })
   align-items: center;
   justify-content: flex-end;
   white-space: nowrap;
+}
+
+.catalog-actions.is-choosing {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.catalog-actions.is-choosing > * {
+  flex: none;
 }
 
 .catalog-action {

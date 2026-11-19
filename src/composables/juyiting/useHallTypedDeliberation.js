@@ -245,23 +245,15 @@ export const useHallTypedDeliberation = ({ chatApi, actorScopeKey, authorization
     if (!body) { error.value = '暂时无法发送，请检查内容和资料后重试。'; return false }
     busy.value = true; error.value = ''
     try {
-      let deliveryParent = null
-      if (!pending) {
-        const selected = selectedDeliveryId.value ? selectedDelivery.value : null
-        const page = await fetchDeliveryPage(captured, { outcomeId: selected?.outcomeId })
+      if (!pending && selectedDeliveryId.value) {
+        const selected = selectedDelivery.value
+        const page = await fetchDeliveryPage(captured, { outcomeId: selected.outcomeId })
         if (!current(captured) || selectedPending.value !== pending) return false
-        if (selected) {
-          deliveryParent = page.items.find(item => item.outcomeId === selected.outcomeId && item.finalSha256 === selected.finalSha256)
-          if (!deliveryParent) { error.value = '所选成果已变化，请重新选择本轮成果。'; return false }
-        } else {
-          deliveryItems.value = page.items; deliveryPage.value = page
-          if (!page.pendingExecution) {
-            if (page.items.length > 1 || page.hasMore) { error.value = '存在多份独立成果，请先选择本轮成果。'; return false }
-            deliveryParent = page.items[0] || null
-          }
+        if (!page.items.some(item => item.outcomeId === selected.outcomeId && item.finalSha256 === selected.finalSha256)) {
+          error.value = '所选成果已变化，请重新选择本轮成果。'; return false
         }
+        body = Object.freeze({ ...body, parentOutcomeId: selected.outcomeId, expectedParentStateVersion: '0' })
       }
-      if (!pending && deliveryParent) body = Object.freeze({ ...body, parentOutcomeId: deliveryParent.outcomeId, expectedParentStateVersion: '0' })
       // A definitive startup refusal is not UNKNOWN. Reuse the same key on an
       // explicit retry of the same body, including concurrent/late receipt races.
       const records = readRecords(storage, captured.scope, context)
@@ -288,6 +280,7 @@ export const useHallTypedDeliberation = ({ chatApi, actorScopeKey, authorization
       persistRecords(captured, readRecords(storage, captured.scope, context).map(item => item.key === record.key
         ? { ...item, purpose, status: 'ACCEPTED', receipt: clone(receipt) } : item))
       if (body.intent === 'CLARIFICATION_REPLY') selectedPending.value = null
+      else if (body.parentOutcomeId && selectedDeliveryId.value === body.parentOutcomeId) selectedDelivery.value = null
       await readOne(receipt.requestId, captured, purpose)
       await onAccepted?.({ receipt, body, purpose, context: clone(context), isCurrent: () => current(captured) })
       return true
