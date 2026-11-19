@@ -280,6 +280,8 @@ const waitForStageReady = async () => {
 
 after(() => restoreGlobalDomRuntime())
 afterEach(() => {
+  restoreHallVisibility?.()
+  restoreHallVisibility = null
   for (const wrapper of mountedWrappers) wrapper.unmount()
   mountedWrappers.clear()
   stagedFrames.clear()
@@ -2911,6 +2913,21 @@ describe('O04 shared panel session contract', () => {
   })
 })
 
+// jsdom starts in prerender. Only foreground map cases opt into a visible document.
+let restoreHallVisibility
+const foregroundHall = () => {
+  const previous = ['hidden', 'visibilityState'].map(key => [key, Object.getOwnPropertyDescriptor(document, key)])
+  restoreHallVisibility = () => {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(document, key, descriptor)
+      else delete document[key]
+    }
+  }
+  Object.defineProperties(document, {
+    hidden: { configurable: true, value: false },
+    visibilityState: { configurable: true, value: 'visible' }
+  })
+}
 const loadActualJuyiHall = (mocks) => {
   const relativePath = '../src/components/world/JuyiHall.vue'
   const filename = new URL(relativePath, import.meta.url).pathname
@@ -2924,6 +2941,7 @@ const loadActualJuyiHall = (mocks) => {
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, imports) => `var { ${imports} } = mocks`)
     .replace(/^import\s+(\w+)\s+from\s+['"][^'"]+['"];?\s*$/gm, (_line, name) => `var ${name} = mocks.${name}`)
+    .replace("import('@/components/juyiting/AgentPanel.vue')", 'Promise.resolve({default: mocks.AgentPanel})')
     .replace("import('@/components/juyiting/HallStage.vue')", '(mocks.loadStage ? mocks.loadStage() : Promise.resolve({default: mocks.HallStage}))')
     .replace(/import\.meta\.env/g, 'mocks.env')
     .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
@@ -3385,6 +3403,7 @@ describe('lightweight workbench real panel navigation', () => {
   })
 
   it('reuses the Stage, exposes the four primary mobile pages, and restores map on exit', async () => {
+    foregroundHall()
     const mode = Vue.ref('portrait-command')
     const home = Vue.ref('overview')
     const mounts = { library: 0, archive: 0 }
@@ -3412,7 +3431,7 @@ describe('lightweight workbench real panel navigation', () => {
       expect(state.panelFrames).to.deep.equal(['tasks'])
       await wrapper.find('.workbench-map-entry').trigger('click')
       mode.value = 'landscape-map'
-      await Vue.nextTick()
+      await waitForStageReady()
       const stage = wrapper.find('.hall-board').element
       expect(home.value).to.equal('map')
       expect(state.activePanel).to.equal('')
@@ -3496,7 +3515,7 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
         const state = wrapper.vm.$.setupState
         state.openPanel('mine')
         state.openPanel('agents')
-        await Vue.nextTick()
+        await flushPromises()
         expect(state.panelDepth).to.equal(detailOpen ? 3 : 2)
         expect(state.handleStartAgentConversation({ agentId: 'foreign-agent' })).to.equal(false)
         expect(state.panelFrames).to.deep.equal(['mine', 'agents'])
@@ -3898,6 +3917,7 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
   })
 
   it('retains panel/state identity for five cycles and fences stale keyed leaves', async () => {
+    foregroundHall()
     const mode = Vue.ref('portrait-command')
     const mounts = { library: 0, archive: 0 }
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
@@ -3922,7 +3942,7 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
       const messages = counters.refs.messages.value
 
       for (let cycle = 0; cycle < 5; cycle += 1) {
-        mode.value = 'landscape-map'; await Vue.nextTick()
+        mode.value = 'landscape-map'; await waitForStageReady()
         expect(wrapper.find('.floating-panel').classes()).to.include('layout-full-window')
         expect(wrapper.find('.hall-board').attributes('inert')).to.equal('')
         mode.value = 'portrait-command'; await Vue.nextTick()
@@ -3984,6 +4004,7 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
   })
 
   it('converges Escape, close button, and backdrop and restores landscape/root fallbacks', async () => {
+    foregroundHall()
     const mode = Vue.ref('portrait-command')
     const mounts = { library: 0, archive: 0 }
     const counters = { panelHelpers: await import('../src/composables/juyiting/useHallPanels.js') }
@@ -4003,7 +4024,7 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
       await wrapper.find('.floating-panel').trigger('keydown', { key: 'Tab', shiftKey: true })
       expect(document.activeElement).to.equal(last)
 
-      mode.value = 'landscape-map'; await Vue.nextTick()
+      mode.value = 'landscape-map'; await waitForStageReady()
       const escapeOverlay = wrapper.find('.panel-overlay').element
       await wrapper.find('.floating-panel').trigger('keydown', { key: 'Escape' })
       expect(state.activePanel).to.equal('')
@@ -4227,6 +4248,7 @@ describe('W04 shared-source save-before-leave wiring', () => {
 
 describe('A03 real Hall low-height layout wiring', () => {
   it('enables overview before the map mounts and wires its draft action to the explicit roster while retaining the later map', async () => {
+    foregroundHall()
     const helpers = await import('../src/composables/juyiting/useHallPanels.js')
     const mode = Vue.ref('landscape-map')
     const home = Vue.ref('overview')
