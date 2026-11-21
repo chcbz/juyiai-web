@@ -299,7 +299,7 @@ const loadActualHallForIntegration = (mocks, id) => {
   const relativePath = '../src/components/world/JuyiHall.vue'
   const filename = new URL(relativePath, import.meta.url).pathname
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8')
-    .replace('</script>', 'defineExpose({ openPanel, returnPanel, panelDepth, panelFrames })\n</script>')
+    .replace('</script>', 'defineExpose({ openPanel, openWorkbenchPage, returnPanel, panelDepth, panelFrames })\n</script>')
   const { descriptor } = parse(source, { filename })
   const body = compileScript(descriptor, { id, inlineTemplate: true }).content
     .replace(/^import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?\s*$/gm, vueImportToVar)
@@ -2755,6 +2755,8 @@ describe('archive reader contract behavior', () => {
     const mode = Vue.ref('portrait-command')
     const counters = { hallLoads: 0 }
     const mocks = createHallIntegrationMocks({ mode, LibraryPanel, counters })
+    const homeMode = Vue.ref('map')
+    mocks.useHallHomeMode = () => ({ homeMode, isOverviewHome: Vue.computed(() => homeMode.value === 'overview'), setHomeMode: value => { homeMode.value = value } })
     const DraftProbe = Vue.defineComponent({
       props: ['initialContext'],
       setup: (props, { expose }) => {
@@ -2769,7 +2771,10 @@ describe('archive reader contract behavior', () => {
     try {
       await settle()
       if (entry === 'mine') {
-        expect(wrapper.vm.openPanel('mine')).to.equal(true)
+        expect(wrapper.vm.openWorkbenchPage('mine')).to.equal(true)
+        await Vue.nextTick()
+        expect(wrapper.get('.floating-panel').attributes('role')).to.equal('region')
+        expect(wrapper.vm.panelDepth).to.equal(0)
         expect(wrapper.vm.openPanel('library')).to.equal(true)
       } else {
         await wrapper.find('[data-portrait-action="library"]').trigger('click')

@@ -35,7 +35,7 @@
       >{{ item.target.kind === 'home' ? '需求草稿' : '议事 ' + item.target.conversationId }} · {{ new Date(item.createdAt).toLocaleString() }}</button>
     </details>
     <template v-if="homeActivated">
-      <aside v-show="isOverviewHome" class="hall-workbench-sidebar" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null" aria-label="工作台侧栏">
+      <aside v-show="isOverviewHome" class="hall-workbench-sidebar" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !renderedWorkbenchPage ? '' : null" aria-label="工作台侧栏">
         <button class="workbench-brand" type="button" @click="openWorkbenchPage('overview')"><span class="workbench-seal">聚</span><span>聚义<small>一起，把事情办成。</small></span></button>
         <p class="workbench-nav-caption">我的工作空间</p>
         <nav class="workbench-side-nav" aria-label="工作台主导航">
@@ -49,7 +49,7 @@
           <button class="workbench-sidebar-account" type="button" :disabled="accountEntryDisabled" aria-label="个人中心" @click="openProfile"><img v-if="accountAvatar" :src="accountAvatar" alt="" /><var-icon v-else name="account-circle-outline" aria-hidden="true" /><span>{{ accountDisplayName }}<small>个人中心</small></span><var-icon name="chevron-right" aria-hidden="true" /></button>
       </div>
       </aside>
-      <header v-show="!isImmersiveMap" class="hall-app-header" :inert="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? 'true' : null">
+      <header v-show="!isImmersiveMap" class="hall-app-header" :inert="isPanelSessionActive && !renderedWorkbenchPage || voiceInteractionLocked ? '' : null" :aria-hidden="isPanelSessionActive && !renderedWorkbenchPage ? 'true' : null">
         <nav v-if="isOverviewHome" class="workbench-breadcrumb" aria-label="当前位置"><button type="button" @click="openWorkbenchPage('overview')">我的工作空间</button><var-icon name="chevron-right" aria-hidden="true" /><strong>{{ workbenchCurrentLabel }}</strong></nav>
         <button v-else class="hall-brand" type="button" @click="setHomeMode('overview')"><span class="hall-seal">聚</span><span>聚义<small>梁山好汉 · 共成其事</small></span></button>
         <nav class="hall-main-nav" aria-label="聚义主导航">
@@ -81,7 +81,7 @@
           <button class="hall-help-action" type="button" @click="emit('open-onboarding', $event.currentTarget)">怎么开始？</button>
       </div>
       </div>
-      <nav v-show="showWorkbenchDock && (Boolean(activePanel) || !renderedPanel)" class="workbench-mobile-nav" aria-label="移动端导航" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !workbenchPrimaryPanelSet.has(renderedPanel) ? '' : null">
+      <nav v-show="showWorkbenchDock && (Boolean(activePanel) || !renderedPanel)" class="workbench-mobile-nav" aria-label="移动端导航" :inert="props.onboardingVisible || voiceInteractionLocked || isPanelSessionActive && !renderedWorkbenchPage ? '' : null">
         <button v-for="tab in workbenchMobileTabs" :key="tab.panel" type="button" :data-workbench-tab="tab.panel" :aria-label="tab.label" :aria-current="workbenchCurrentPage === tab.panel ? 'page' : null" @click="openWorkbenchPage(tab.panel)"><var-icon :name="tab.icon" /><span>{{ tab.label }}</span></button>
       </nav>
       <HallPortraitHome
@@ -260,18 +260,18 @@
         v-show="!helpReplayVisible && !returnBlocking"
         :key="panelSessionGeneration"
         class="panel-overlay"
-        :class="{ 'is-full-window': panelLayout === 'full-window', 'is-agent-overlay': renderedPanel === 'agents', 'is-low-height': isLowHeightPanel, 'is-chat-overlay': renderedPanel === 'chat', 'is-compact-chat-overlay': renderedPanel === 'chat' && isCompactChat, 'theme-workbench': isOverviewHome, 'is-workbench-panel': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel), 'is-workbench-page': isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) }"
+        :class="{ 'is-full-window': panelLayout === 'full-window', 'is-agent-overlay': renderedPanel === 'agents', 'is-low-height': isLowHeightPanel, 'is-chat-overlay': renderedPanel === 'chat', 'is-compact-chat-overlay': renderedPanel === 'chat' && isCompactChat, 'theme-workbench': isOverviewHome, 'is-workbench-panel': renderedWorkbenchPage, 'is-workbench-page': renderedWorkbenchPage }"
         :data-panel-generation="panelSessionGeneration"
-        @pointerdown.self="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : closePanel()"
+        @pointerdown.self="renderedWorkbenchPage ? null : closePanel()"
       >
         <section
           ref="panelRef"
           class="floating-panel"
           :class="[`panel-${renderedPanel}`, `layout-${panelLayout}`]"
-          :role="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? 'region' : 'dialog'"
-          :aria-modal="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : 'true'"
-          :aria-labelledby="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : panelTitleId"
-          :aria-label="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? workbenchCurrentLabel : null"
+          :role="renderedWorkbenchPage ? 'region' : 'dialog'"
+          :aria-modal="renderedWorkbenchPage ? null : 'true'"
+          :aria-labelledby="renderedWorkbenchPage ? null : panelTitleId"
+          :aria-label="renderedWorkbenchPage ? workbenchCurrentLabel : null"
           tabindex="-1"
           @wheel.stop
           @pointerdown.stop
@@ -1221,10 +1221,9 @@ const panelLocations = new Map()
 const treasurePanelRef = ref(null)
 const libraryPanelRef = ref(null)
 // Retained file/reading detail also consumes a logical layer while its source is hidden.
-// Mine is the persistent workbench tab, not a fourth dialog below a reading citation.
-// Keep its frame for Back without charging it against the library branch depth.
-const panelDepth = computed(() => panelFrames.value.length
-  - Number(panelFrames.value[0] === 'mine' && panelFrames.value[1] === 'library')
+// The workbench root remains a return destination, but its page region is not a dialog.
+const isWorkbenchRoot = (panel, index) => index === 0 && isOverviewHome.value && workbenchPrimaryPanelSet.has(panel)
+const panelDepth = computed(() => panelFrames.value.filter((panel, index) => !isWorkbenchRoot(panel, index)).length
   + Number(panelFrames.value.includes('agents') && Boolean(agentPanelRef.value?.canGoBack))
   + Number(panelFrames.value.includes('tasks') && Boolean(bountyPanelRef.value?.canGoBack))
   + Number(panelFrames.value.includes('treasure') && Boolean(treasurePanelRef.value?.canGoBack))
@@ -1262,6 +1261,7 @@ const workbenchPrimaryTabs = Object.freeze([
 ])
 const workbenchMobileTabs = workbenchPrimaryTabs
 const workbenchPrimaryPanelSet = new Set(workbenchPrimaryTabs.map(tab => tab.panel))
+const renderedWorkbenchPage = computed(() => isWorkbenchRoot(renderedPanel.value, panelFrames.value.indexOf(renderedPanel.value)))
 const workbenchMenuOpen = ref(false)
 const workbenchCurrentPage = computed(() => isOverviewHome.value
   ? (activePanel.value && panelFrames.value.slice().reverse().find(panel => workbenchPrimaryPanelSet.has(panel)) || 'overview') : '')
@@ -2235,7 +2235,7 @@ const handlePanelKeydown = (event) => {
     if (!returnPanel()) closePanel()
     return
   }
-  if (!(isOverviewHome.value && workbenchPrimaryPanelSet.has(renderedPanel.value))) {
+  if (!renderedWorkbenchPage.value) {
     trapPanelFocus(event, panelRef.value)
   }
 }
@@ -3002,7 +3002,7 @@ watch(() => deliveryReview.operation.value.receipt, receipt => {
 })
 
 
-const accountEntryDisabled = computed(() => (isPanelSessionActive.value && !workbenchPrimaryPanelSet.has(renderedPanel.value)) || voiceInteractionLocked.value)
+const accountEntryDisabled = computed(() => (isPanelSessionActive.value && !renderedWorkbenchPage.value) || voiceInteractionLocked.value)
 const hallLeaveHasMeaningfulWork = computed(() => hasMeaningfulHallLeaveWork({
   draft: draft.value,
   isAwaitingReply: isAwaitingReply.value || Boolean(isSubmitting?.value),
