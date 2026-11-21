@@ -9,12 +9,12 @@
       <div class="panel-toolbar">
         <div class="task-search">
           <input
-            :value="taskKeyword"
+            v-model.trim="searchKeyword"
             type="search"
+            enterkeyhint="search"
             aria-label="搜索事项名称或编号"
-            placeholder="搜索事项名称或编号"
-            @input="$emit('update:taskKeyword', $event.target.value.trim())"
-            @keyup.enter="$emit('load-tasks')"
+            placeholder="名称或编号"
+            @keydown.enter="submitKeyword"
           />
           <select
             :value="taskAgentFilter"
@@ -582,6 +582,15 @@ const emit = defineEmits([
   'update:taskAgentFilter',
   'update:taskKeyword'
 ])
+
+// Native v-model keeps intermediate IME text in the input until composition ends.
+const searchKeyword = computed({
+  get: () => props.taskKeyword,
+  set: value => emit('update:taskKeyword', value)
+})
+const submitKeyword = event => {
+  if (!event.isComposing && event.keyCode !== 229 && !event.repeat) emit('load-tasks')
+}
 
 const modalTask = ref(null)
 const requirementCreateInputSummary = computed(() => {

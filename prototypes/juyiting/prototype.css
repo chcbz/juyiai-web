@@ -67,6 +67,7 @@ body[data-current-page=workspace] .file-search-context { display:flex; gap:12px;
   body[data-current-page=tasks] .home-overview .bounty-panel .task-status-tabs button span { background:transparent; padding:0; margin:0 !important; font-variant-numeric:tabular-nums; }
 }
 @media (max-width:600px) {
+  body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-search input { font-size:max(16px,1rem); }
   body[data-current-page=workspace] .personal-workspace.is-hall-treasure { padding:20px 16px; }
   body[data-current-page=workspace] .is-hall-treasure :is(.treasure-intro,.treasure-file-heading) { margin-bottom:20px; }
   body[data-current-page=workspace] .is-hall-treasure .treasure-tabs { margin-bottom:18px; }

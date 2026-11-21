@@ -351,6 +351,7 @@ describe('personal workspace automatic file pagination', () => {
     const wrapper = mountList(workspace)
     try {
       await flushPromises()
+      assert.equal(wrapper.get('.treasure-search input').attributes('enterkeyhint'), 'search')
       await wrapper.get('.treasure-search input').setValue('  案卷  ')
       assert.equal(wrapper.find('.file-search-context').exists(), false)
       await wrapper.get('.treasure-search').trigger('submit')

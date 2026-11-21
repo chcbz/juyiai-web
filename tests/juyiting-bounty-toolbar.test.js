@@ -43,12 +43,36 @@ describe('Bounty task toolbar', () => {
       ])
       await toolbar.get('input').setValue(' 434 ')
       expect(wrapper.emitted('update:taskKeyword').at(-1)).to.deep.equal(['434'])
-      await toolbar.get('input').trigger('keyup.enter')
+      await toolbar.get('input').trigger('keydown.enter')
       await toolbar.get('select').setValue('agent-b')
       expect(wrapper.emitted('update:taskAgentFilter').at(-1)).to.deep.equal(['agent-b'])
       await toolbar.get('[aria-label="刷新事项"]').trigger('click')
       expect(wrapper.emitted('load-tasks')).to.have.length(3)
       expect(wrapper.emitted('create-task')).to.equal(undefined)
+    } finally { wrapper.unmount() }
+  })
+
+  it('waits for Chinese composition before changing the filter or searching', async () => {
+    const wrapper = mount(Panel, { props })
+    try {
+      const field = wrapper.get('input[type=search]')
+      expect(field.attributes('enterkeyhint')).to.equal('search')
+      await field.trigger('compositionstart')
+      field.element.value = 'ban'
+      await field.trigger('input')
+      await field.trigger('keydown.enter', { isComposing: true })
+      expect(wrapper.emitted('update:taskKeyword')).to.equal(undefined)
+      expect(wrapper.emitted('load-tasks')).to.equal(undefined)
+      field.element.value = '办理'
+      // Vue dispatches a native input on compositionend; use the mounted DOM's Event realm.
+      const EventCtor = globalThis.Event
+      try { globalThis.Event = window.Event; await field.trigger('compositionend') }
+      finally { globalThis.Event = EventCtor }
+      expect(wrapper.emitted('update:taskKeyword')).to.deep.equal([['办理']])
+      await field.trigger('keyup.enter')
+      expect(wrapper.emitted('load-tasks')).to.equal(undefined)
+      await field.trigger('keydown.enter')
+      expect(wrapper.emitted('load-tasks')).to.have.length(1)
     } finally { wrapper.unmount() }
   })
 

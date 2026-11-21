@@ -473,7 +473,12 @@ showVoiceStatus=function(kind){
  const focus=recording?$('[data-action=complete-voice-stop]',root):$('.baseline-voice-status textarea',root);focus?.focus({preventScroll:true});
 };
 function mapVoiceActions(){for(const [a,b] of [['ui-voice-stop','complete-voice-stop'],['ui-voice-cancel','complete-voice-cancel'],['ui-voice-append','complete-voice-append'],['ui-voice-replace','complete-voice-replace']])$$(`[data-action="${a}"]`).forEach(e=>e.dataset.action=b);}
-document.addEventListener('input',e=>{if(e.target.dataset.completeTaskSearch){state.taskSearch=e.target.value;applyTaskFilters();persist();}});
+function syncTaskSearch(e){
+ if(!e.target.dataset.completeTaskSearch || e.isComposing || state.taskSearch===e.target.value)return;
+ state.taskSearch=e.target.value;applyTaskFilters();persist();
+}
+document.addEventListener('input',syncTaskSearch);
+document.addEventListener('compositionend',syncTaskSearch);
 document.addEventListener('change',e=>{if(e.target.matches('[data-task-status]')){state.taskFilter=e.target.value;applyTaskFilters();persist();}});
 
 // Scoped 2026-10-13 source sync. All receipts below are explicitly local fixtures.
@@ -765,7 +770,7 @@ function syncTaskToolbar(){
  $$('.workbench-create-action').forEach(e=>{e.dataset.prototypePage='create';});
  const search=$('.task-search',bar);if(search){search.style.display='grid';search.style.gridTemplateColumns='minmax(0, 1fr) minmax(90px, 0.45fr)';search.style.gap='8px';}
  const input=$('input',search||bar),select=$('select',search||bar);
- if(input){input.style.gridColumn='auto';input.type='search';input.setAttribute('aria-label','搜索事项');input.placeholder='搜名称或编号';input.dataset.completeTaskSearch='true';}
+ if(input){input.style.gridColumn='auto';input.type='search';input.enterKeyHint='search';input.setAttribute('aria-label','搜索事项名称或编号');input.placeholder='名称或编号';input.dataset.completeTaskSearch='true';}
  if(select){select.style.gridColumn='auto';select.setAttribute('aria-label','按承办人筛选');if(select.options[0])select.options[0].textContent='全部承办人';}
  const refresh=$(':scope > button',bar);if(refresh){refresh.classList.add('task-refresh');refresh.setAttribute('aria-label','刷新事项');refresh.title='刷新事项';refresh.dataset.action='complete-task-refresh';refresh.innerHTML=uiIcon('refresh');}
  bar.style.display='grid';bar.style.gridTemplateColumns='minmax(0, 1fr) 44px';bar.style.alignItems='center';bar.style.gap='8px';
@@ -793,7 +798,7 @@ function refreshAllPageSurfaces(){
  if(page==='map'&&root){root.classList.add('all-map');document.body.append(root);root.innerHTML=`<section class="all-scene" aria-label="厅中实景静态原型"><img src="assets/hall-base-v3.webp" alt="现有梁山厅堂游戏底图；静态原型，非实时地图"><nav class="all-scene-tools" aria-label="实景工具"><strong>聚义</strong>${button('办事','complete-go','data-page="home"')}${button('消息','complete-go','data-page="messages"')}${button('资料','complete-go','data-page="workspace"')}${button('帮助','complete-go','data-page="help"')}</nav><div class="all-scene-spots">${button('点将册','complete-go','data-page="agents" class="scene-roster"')}${button('忠义堂公议','complete-go','data-page="public" class="scene-public"')}${button('悬赏榜','complete-go','data-page="tasks" class="scene-board"')}${button('典籍阁','complete-go','data-page="library" class="scene-library"')}</div><p class="all-scene-note">静态实景与入口演示 · 不运行游戏、坐标或联网好汉</p></section>`;}
  if(page==='workspace'){
   const intro=$('.treasure-intro');if(intro){$('h2',intro).textContent='我的资料';$('p',intro).textContent='按文件名查找，打开后可预览和选择版本。';}
-  const input=$('.treasure-search input');if(input){input.value=state.workspaceQuery||'';input.setAttribute('aria-label','搜索文件名称');}
+  const input=$('.treasure-search input');if(input){input.value=state.workspaceQuery||'';input.enterKeyHint='search';input.setAttribute('aria-label','搜索文件名称');}
   const upload=$('.treasure-primary');if(upload)upload.dataset.action='complete-upload-panel';
   const form=$('.treasure-search');if(form)form.addEventListener('submit',e=>{e.preventDefault();e.stopImmediatePropagation();state.workspaceQuery=$('input',form).value;render();});
  }

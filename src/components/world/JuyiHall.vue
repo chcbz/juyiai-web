@@ -5479,6 +5479,7 @@ button.hall-room {
 .selected-output-preview img{display:block;max-width:100%;max-height:280px;object-fit:contain}.selected-output-preview pre{white-space:pre-wrap;overflow-wrap:anywhere}.selected-output-preview audio{max-width:100%}
 .floating-panel.panel-help.layout-center-modal { width: min(960px, calc(100vw - 48px)); max-width: 960px; }
 @media (max-width: 600px) {
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search input) { font-size: max(16px, 1rem); }
   .panel-overlay:has(.panel-help) { padding: 0; }
   .floating-panel.panel-help { width: 100%; max-width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
 }
