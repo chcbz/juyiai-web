@@ -108,7 +108,10 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
     const wrapper = mount(load({ execute: async request => { writes.push(request); return response() } }), { props })
     try {
       await settle()
-      expect(wrapper.get('.overview-start-copy > p').text()).to.equal('可添加参考资料。点击“开始办事”先保存需求，确认承办后再交给好汉。')
+      expect(wrapper.get('.overview-hero h2').text()).to.equal('今天，想办成什么事？')
+      const form = wrapper.get('.overview-quick-request')
+      expect(form.text()).not.to.include('想办成什么事')
+      expect(form.get('.quick-request-field + p').text()).to.equal('先保存需求，确认承办后才交给好汉。')
       expect(wrapper.text()).not.to.include('免费')
       expect(wrapper.text()).not.to.include('聚义 · 内测')
       const all = wrapper.findAll('.overview-list-heading button').find(button => button.text() === '查看全部事项')

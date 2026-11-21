@@ -4,13 +4,10 @@
       <header class="overview-hero">
         <p class="overview-eyebrow">聚义 · 轻量工作台</p>
         <h2>今天，想办成什么事？</h2>
-        <p>说说你的目标，让好汉协助你完成。</p>
       </header>
       <form data-tour="workbench-request" class="overview-start-card overview-quick-request" aria-label="描述需求" @submit.prevent="submitQuickRequest">
         <span class="overview-start-mark" aria-hidden="true">事</span>
         <div class="overview-start-copy">
-          <h3>你想办成什么事？</h3>
-          <p>可添加参考资料。点击“开始办事”先保存需求，确认承办后再交给好汉。</p>
           <label class="quick-request-field">
             <span class="visually-hidden">需求描述</span>
             <span class="quick-request-input">
@@ -18,6 +15,7 @@
               <small>{{ [...quickRequest].length }}/200</small>
             </span>
           </label>
+          <p>先保存需求，确认承办后才交给好汉。</p>
           <HallMaterialPicker
             v-model="selectedMaterials"
             :identity-scope="identityScope"
@@ -228,7 +226,6 @@ onBeforeUnmount(() => {
 .overview-hero { display:flex; gap:24px; align-items:center; justify-content:space-between; padding-bottom:28px; border-bottom:1px solid #d9c5a4; }
 .overview-eyebrow { color:#94472f; font-size:14px; margin-bottom:8px !important; }
 .overview-hero h2 { font-size:28px; font-weight:500; line-height:1.4; margin-bottom:12px; }
-.overview-hero p:not(.overview-eyebrow) { font-size:14px; color:#7b634b; line-height:1.7; }
 .overview-hero-actions { display:flex; gap:12px; margin-top:20px; }
 .hall-overview button { font:inherit; padding:9px 14px; min-height:44px; color:#583e28; background:transparent; border:1px solid #d4bc97; border-radius:4px; cursor:pointer; }
 .hall-overview button:focus-visible { outline:3px solid #bb793f; outline-offset:2px; }
@@ -271,12 +268,10 @@ onBeforeUnmount(() => {
 }
 .hall-overview:not(.is-messages) .overview-eyebrow { color: #923f30; font-size: 11px; letter-spacing: .08em; margin-bottom: 8px !important; }
 .hall-overview:not(.is-messages) .overview-hero h2 { color: #242e2b; font: 500 28px/1.5 "Noto Serif CJK SC", "Songti SC", STSong, serif; letter-spacing: .8px; margin: 0 0 6px; }
-.hall-overview:not(.is-messages) .overview-hero p:not(.overview-eyebrow) { color: #68716b; font-size: 14px; }
 .hall-overview:not(.is-messages) .overview-hero { padding: 0; margin-bottom: 26px; }
 .hall-overview:not(.is-messages) .overview-start-card { display: flex; align-items: center; gap: 24px; min-width: 0; padding: 27px 28px; border: 1px solid #e3e5dc; border-radius: 12px; background: #fffefa; margin-bottom: 26px; }
 .hall-overview:not(.is-messages) .overview-start-mark { flex: 0 0 64px; display: grid; place-items: center; width: 64px; height: 72px; border: 1px solid #e9ded2; border-radius: 50% 50% 8px 8px; background: #faf4ef; color: #923f30; font: 500 34px/1 "Noto Serif CJK SC", "Songti SC", STSong, serif; }
 .hall-overview:not(.is-messages) .overview-start-copy { flex: 1 1 auto; min-width: 0; }
-.hall-overview:not(.is-messages) .overview-start-copy h3 { font-size: 17px; font-weight: 600; }
 .hall-overview:not(.is-messages) .overview-start-copy p { margin-top: 4px; font-size: 13px; color: #68716b; }
 .hall-overview:not(.is-messages) .overview-start-steps { display: flex; flex: none; align-items: center; gap: 22px; margin: 0; padding: 0; list-style: none; }
 .hall-overview:not(.is-messages) .overview-start-steps li { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 70px; color: #68716b; font-size: 12px; }
@@ -344,7 +339,6 @@ onBeforeUnmount(() => {
   .hall-overview:not(.is-messages) .overview-hero { margin-bottom: 20px; }
   .hall-overview:not(.is-messages) .overview-start-card { align-items: flex-start; gap: 12px; padding: 20px 18px; margin-bottom: 20px; }
   .hall-overview:not(.is-messages) .overview-start-mark { flex-basis: 36px; width: 36px; height: 44px; font-size: 24px; }
-  .hall-overview:not(.is-messages) .overview-start-copy h3 { font-size: 16px; }
   .hall-overview:not(.is-messages) .overview-start-copy p { font-size: 12px; }
   .hall-overview:not(.is-messages) .overview-hero-actions { flex-wrap: wrap; gap: 8px; }
   .hall-overview:not(.is-messages) .overview-hero h2 { font-size: 25px; letter-spacing: 0; }
@@ -368,5 +362,5 @@ onBeforeUnmount(() => {
 .quick-material-preview { max-height: 300px; overflow: auto; min-width: 0; }
 .quick-material-preview img, .quick-material-preview audio { max-width: 100%; }
 .quick-material-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.overview-quick-request{align-items:flex-start!important}.overview-quick-request .overview-start-copy{width:100%}.quick-request-field{display:block;margin-top:14px}.quick-request-input{position:relative;display:block}.quick-request-field textarea{display:block;width:100%;min-height:92px;box-sizing:border-box;padding:13px 14px 34px;border:1px solid #ccd2c5;border-radius:10px;background:#fff;color:#242e2b;font:400 16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;resize:none}.quick-request-field textarea:focus{outline:3px solid #923f3033;border-color:#923f30}.quick-request-field small{position:absolute;right:12px;bottom:9px;padding-left:4px;border-radius:3px;background:var(--hall-surface,#fff);color:#7a827d;font-size:12px;line-height:1;pointer-events:none}.quick-request-actions{display:flex;justify-content:space-between;gap:10px;margin-top:14px}.quick-request-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px}.quick-request-actions .primary{margin-left:auto}.quick-request-error{color:#a13f35!important}.overview-tabs button,.overview-tabs button:hover,.overview-tabs button[aria-pressed=true]{background:transparent!important;box-shadow:none!important}.overview-tabs button[aria-pressed=true]{color:var(--hall-brand,#923f30)!important;border-bottom-color:var(--hall-brand,#923f30)!important}@media(max-width:600px){.overview-quick-request{display:block!important}.overview-quick-request .overview-start-mark{display:none!important}.quick-request-actions button{flex:1 1 0;padding-inline:8px}}
+.overview-quick-request{align-items:flex-start!important}.overview-quick-request .overview-start-copy{width:100%}.quick-request-field{display:block}.quick-request-input{position:relative;display:block}.quick-request-field textarea{display:block;width:100%;min-height:92px;box-sizing:border-box;padding:13px 14px 34px;border:1px solid #ccd2c5;border-radius:10px;background:#fff;color:#242e2b;font:400 16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;resize:none}.quick-request-field textarea:focus{outline:3px solid #923f3033;border-color:#923f30}.quick-request-field small{position:absolute;right:12px;bottom:9px;padding-left:4px;border-radius:3px;background:var(--hall-surface,#fff);color:#7a827d;font-size:12px;line-height:1;pointer-events:none}.quick-request-actions{display:flex;justify-content:space-between;gap:10px;margin-top:14px}.quick-request-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px}.quick-request-actions .primary{margin-left:auto}.quick-request-error{color:#a13f35!important}.overview-tabs button,.overview-tabs button:hover,.overview-tabs button[aria-pressed=true]{background:transparent!important;box-shadow:none!important}.overview-tabs button[aria-pressed=true]{color:var(--hall-brand,#923f30)!important;border-bottom-color:var(--hall-brand,#923f30)!important}@media(max-width:600px){.overview-quick-request{display:block!important}.overview-quick-request .overview-start-mark{display:none!important}.quick-request-actions button{flex:1 1 0;padding-inline:8px}}
 </style>
