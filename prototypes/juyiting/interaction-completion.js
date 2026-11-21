@@ -171,7 +171,12 @@ function applyTaskFilters(){
   const match=!!ctx&&matchesMatterFilter(ctx,state.taskFilter)&&(!state.taskAgent||String(ctx.agent?.id??'')===state.taskAgent)&&(!query||[ctx.task.id,ctx.task.title,ctx.task.description].join(' ').toLowerCase().includes(query));
   card.hidden=!match;card.style.display=match?'':'none';if(match)visible++;
  }
- const empty=$('.baseline-empty');if(empty){empty.hidden=visible>0;empty.innerHTML=rows.length?'没有符合筛选条件的事项。'+button('清除筛选','complete-task-clear'):'暂无事项，点击右上方“提出需求”开始。';}
+ const empty=$('.baseline-empty');if(empty){
+  empty.hidden=visible>0;
+  const clear=query&&state.taskAgent?'清除关键词和承办人':query?'清除关键词':state.taskAgent?'清除承办人':'';
+  const message=clear?'没有符合当前筛选条件的事项。':state.taskFilter?`目前没有「${esc(state.taskFilter)}」事项。`:'还没有事项。可到「办事」提出需求。';
+  empty.innerHTML=`<p role="status">${message}</p>`+(clear?button(clear,'complete-task-reset-query'):'');
+ }
  const count=$('[data-task-list-count]');if(count)count.textContent=`显示 ${visible} / ${rows.length} 项 · 示例数据仅存本地，不是账号真实事项`;
 }
 function simplifyHome(){
@@ -419,7 +424,7 @@ document.addEventListener('click',event=>{
  if(action==='complete-index')location.href='pages.html';
  if(action==='complete-overview-tab'){state.overviewTab=Number(t.dataset.tab);render();}
  if(action==='complete-task-group'){state.taskGroup=t.dataset.group;state.taskFilter='';render();}
- if(action==='complete-task-clear'){state.taskGroup='全部';state.taskFilter='';state.taskSearch='';state.taskAgent='';render();}
+ if(action==='complete-task-reset-query'){state.taskSearch='';state.taskAgent='';render();($('.task-status-tabs [aria-pressed=true]')||$('.task-search select'))?.focus();}
  if(action==='complete-workspace-filter'){state.workspaceFilter=t.dataset.filter;render();}
  if(action==='complete-create-status'){state.simulation.create='ok';t.closest('dialog').close();feedback('示例核对：未受理。原草稿保留，可显式提交。');}
  if(action==='complete-reply-status'){if(unifiedTask()){state.task.phase='待你补充';}state.simulation.reply='ok';ctx.error=null;ctx.pending=false;state.baselineScenario='ready';renderChat();feedback('示例核对：未受理；核对草稿后显式发送，不自动重发。');}

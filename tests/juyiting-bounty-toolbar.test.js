@@ -88,6 +88,25 @@ describe('Bounty task toolbar', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('clears only the search and assignee on a miss, keeps the phase and reloads once', async () => {
+    const wrapper = mount(Panel, { attachTo: document.body, props: { ...props, taskKeyword: '不存在', taskAgentFilter: 'agent-a',
+      taskStatusFilter: 'IN_PROGRESS', taskStatusFilters: [{ value: 'IN_PROGRESS', label: '进行中' }] } })
+    try {
+      const clear = wrapper.get('.empty-list button')
+      expect(clear.text()).to.equal('清除关键词和承办人')
+      await clear.trigger('click')
+      expect(wrapper.emitted('update:taskKeyword')).to.deep.equal([['']])
+      expect(wrapper.emitted('update:taskAgentFilter')).to.deep.equal([['']])
+      expect(wrapper.emitted('set-status-filter')).to.equal(undefined)
+      expect(wrapper.emitted('load-tasks')).to.have.length(1)
+      expect(document.activeElement).to.equal(wrapper.get('.task-status-tabs button.active').element)
+      await wrapper.setProps({ taskKeyword: '', taskAgentFilter: '' })
+      expect(wrapper.get('.empty-list').text()).to.equal('目前没有「进行中」事项。')
+      await wrapper.setProps({ hasMore: true })
+      expect(wrapper.find('.empty-list').exists()).to.equal(false)
+    } finally { wrapper.unmount() }
+  })
+
   it('reveals a focused status within the strip without scrolling the document', async () => {
     const wrapper = mount(Panel, { props })
     try {

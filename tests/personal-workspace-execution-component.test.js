@@ -344,6 +344,31 @@ describe('personal workspace automatic file pagination', () => {
     savePersonalWorkspaceBlob: () => {}
   }), { props: { embedded: true } })
 
+  it('offers all existing files only after a category is known to be empty', async () => {
+    const workspace = workspaceMock(), requests = []
+    workspace.refresh = async filters => { requests.push(filters); return true }
+    const wrapper = mountList(workspace)
+    try {
+      await flushPromises()
+      const category = name => wrapper.findAll('.treasure-tabs button').find(b => b.text() === name)
+      await category('成果').trigger('click')
+      const callsBefore = requests.length
+      assert.equal(wrapper.get('.treasure-empty [role=status]').text(), '还没有收到 Agent 交付的文件。')
+      workspace.nextCursor.value = 'next'; await Vue.nextTick()
+      assert.equal(wrapper.find('.treasure-empty').exists(), false)
+      workspace.nextCursor.value = null; await Vue.nextTick()
+      await wrapper.get('.treasure-empty button').trigger('click')
+      assert.equal(category('全部').attributes('aria-pressed'), 'true')
+      assert.equal(wrapper.findAll('.treasure-file-row').length, 1)
+      assert.equal(requests.length, callsBefore)
+      await category('成果').trigger('click')
+      workspace.items.value = []; await Vue.nextTick()
+      assert.equal(wrapper.find('.treasure-empty button').exists(), false)
+      workspace.listState.value = 'idle'; await Vue.nextTick()
+      assert.equal(wrapper.find('.treasure-empty').exists(), false)
+    } finally { wrapper.unmount() }
+  })
+
   it('uses the submitted search until cleared, even in the recycle bin', async () => {
     const workspace = workspaceMock(), requests = []
     workspace.items.value = []

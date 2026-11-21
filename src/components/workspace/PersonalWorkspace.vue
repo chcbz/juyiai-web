@@ -8,7 +8,7 @@
     <section v-if="embedded" class="treasure-content" :data-view="treasureView">
       <template v-if="treasureView === 'list'">
         <div class="treasure-intro"><div><h2>我的资料</h2><p>按文件名查找，打开后可预览和选择版本。</p></div><button class="treasure-primary hall-tool" type="button" @click="treasureView = 'upload'" aria-label="上传资料" title="上传资料"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V4m-5 5 5-5 5 5M5 16v5h14v-5"/></svg></button></div>
-        <nav class="treasure-tabs" aria-label="百宝箱分类"><button v-for="tab in treasureTabs" :key="tab.key" type="button" :aria-pressed="treasureTab === tab.key" @click="changeTreasureTab(tab.key)">{{ tab.label }}</button></nav>
+        <nav ref="categoryNav" class="treasure-tabs" aria-label="百宝箱分类"><button v-for="tab in treasureTabs" :key="tab.key" type="button" :aria-pressed="treasureTab === tab.key" @click="changeTreasureTab(tab.key)">{{ tab.label }}</button></nav>
         <form class="treasure-search" @submit.prevent="submitTreasureSearch"><label><span class="sr-only">搜索文件名称</span><input ref="searchField" v-model="query" enterkeyhint="search" maxlength="100" placeholder="搜索文件名称" /></label><button type="submit" :disabled="workspace.loading.value" class="hall-tool" aria-label="搜索文件名称" title="搜索文件名称"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button></form>
         <div v-if="appliedSearch" class="file-search-context">
           <span>当前搜索：<strong>{{ appliedSearch }}</strong></span>
@@ -21,7 +21,10 @@
             <div class="file-list-copy"><strong>{{ file.displayName }}</strong><p>{{ originText(file.originKind) }} · v{{ file.latestVersion }}</p></div>
             <button type="button" :data-file-id="file.fileId" :disabled="!detailAllowed || workspace.actionState.value === 'loading-detail'" @click="openTreasureFile(file.fileId)" class="hall-row-link treasure-file-open" :aria-label="`查看文件：${file.displayName}`" :title="`查看文件：${file.displayName}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div>
         </div>
-        <p v-if="!workspace.loading.value && !workspace.nextCursor.value && workspace.listState.value !== 'error' && !treasureFiles.length" class="treasure-empty">{{ appliedSearch ? '没有找到匹配的文件。' : treasureTab === 'trash' ? '回收站为空。' : '这里还没有文件，可上传资料或到事项中查看成果。' }}</p>
+        <div v-if="listEmpty" class="treasure-empty">
+          <p role="status">{{ emptyListMessage }}</p>
+          <button v-if="otherFilesAvailable" type="button" @click="showAllFiles">查看全部文件</button>
+        </div>
         <p v-if="workspace.listState.value === 'error'" role="alert">文件暂未完整读取，已读取的文件会保留。<button type="button" :disabled="workspace.loading.value" @click="workspace.nextCursor.value ? loadMore() : refresh()">重试加载</button></p>
         <p
           v-else-if="workspace.nextCursor.value"
@@ -397,6 +400,19 @@ const treasureTabs = [{ key: 'all', label: '全部' }, { key: 'materials', label
 // The server supports state/query but not originKind. Never declare a category
 // empty while the unfiltered cursor still has pages; keep loading at the list end.
 const treasureFiles = computed(() => workspace.items.value.filter(file => treasureTab.value === 'materials' ? file.originKind === 'USER_UPLOAD' : treasureTab.value === 'results' ? file.originKind === 'AGENT_DELIVERY' : true))
+const categoryNav = ref(null)
+const listEmpty = computed(() => !workspace.loading.value && !workspace.nextCursor.value &&
+  ['ready', 'empty'].includes(workspace.listState.value) && !treasureFiles.value.length)
+const emptyListMessage = computed(() => appliedSearch.value ? '没有找到匹配的文件。' : ({
+  materials: '还没有自己上传的资料。', results: '还没有收到 Agent 交付的文件。', trash: '回收站为空。'
+})[treasureTab.value] || '还没有文件。可用右上角的上传按钮添加资料。')
+const otherFilesAvailable = computed(() => !appliedSearch.value &&
+  ['materials', 'results'].includes(treasureTab.value) && workspace.items.value.length > 0)
+const showAllFiles = async () => {
+  changeTreasureTab('all')
+  await nextTick()
+  categoryNav.value?.querySelector('[aria-pressed="true"]')?.focus()
+}
 const listEndRef = ref(null)
 let listObserver = null
 const stopListObserver = () => { listObserver?.disconnect(); listObserver = null }

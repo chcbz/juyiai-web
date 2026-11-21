@@ -17,6 +17,7 @@
             @keydown.enter="submitKeyword"
           />
           <select
+            ref="agentFilterControl"
             :value="taskAgentFilter"
             aria-label="按承办人筛选"
             @change="$emit('update:taskAgentFilter', $event.target.value); $emit('load-tasks')"
@@ -56,7 +57,7 @@
       <p v-if="countsLoading" class="task-data-state" role="status">榜文数目统计中…</p>
       <p v-else-if="countsErrorMessage && countsErrorMessage !== errorMessage" class="task-data-state is-error" role="alert">{{ countsErrorMessage }}</p>
 
-      <div class="task-status-tabs" aria-label="事项状态" @focusin="revealStatusFilter">
+      <div ref="statusStrip" class="task-status-tabs" aria-label="事项状态" @focusin="revealStatusFilter">
         <button
           v-for="item in primaryStatusFilters"
           :key="item.value"
@@ -127,7 +128,10 @@
             role="status"
           >{{ loading ? '正在加载更多事项…' : '向下滚动自动加载' }}</p>
           <p v-else-if="!loading && tasks.length" class="task-pagination-status" role="status">已显示全部事项</p>
-          <div v-if="!loading && !errorMessage && !tasks.length" class="empty-list">{{ taskKeyword || taskAgentFilter || (taskStatusFilter && taskStatusFilter !== 'all') ? '没有符合当前筛选条件的事项，请调整筛选后刷新。' : '还没有事项，先提出一个需求吧。' }}</div>
+          <div v-if="!loading && !errorMessage && !hasMore && !tasks.length" class="empty-list">
+            <p role="status">{{ clearFiltersLabel ? '没有符合当前筛选条件的事项。' : statusLabel ? `目前没有「${statusLabel}」事项。` : '还没有事项。可到「办事」提出需求。' }}</p>
+            <button v-if="clearFiltersLabel" type="button" class="hall-action-surface" @click="clearListFilters">{{ clearFiltersLabel }}</button>
+          </div>
         </div>
       </div>
 
@@ -755,6 +759,19 @@ const confirmMatterAgent = () => {
   const agent = matterAgent.value
   if (props.recommendationState.state === 'LOADING' || requirementEditBusy.value || !agent || props.pointAndStartBusy || pointAndStartForDetail.value || !hasTaskAction(detailTask.value, 'ASSIGN') || !props.canAssign(detailTask.value, agent) || (!isFundedTask(detailTask.value) && !isAvailableTaskQuote(agent.taskQuote))) return
   emit('assign-task', detailTask.value, agent)
+}
+const statusStrip = ref(null)
+const agentFilterControl = ref(null)
+const statusLabel = computed(() => props.taskStatusFilters.find(item => item.value === props.taskStatusFilter)?.label)
+const clearFiltersLabel = computed(() => props.taskKeyword
+  ? (props.taskAgentFilter ? '清除关键词和承办人' : '清除关键词')
+  : (props.taskAgentFilter ? '清除承办人' : ''))
+const clearListFilters = () => {
+  if (props.taskKeyword) emit('update:taskKeyword', '')
+  if (props.taskAgentFilter) emit('update:taskAgentFilter', '')
+  emit('load-tasks')
+  const control = statusStrip.value?.querySelector('[aria-pressed="true"]') || agentFilterControl.value
+  control?.focus()
 }
 const primaryStatusFilters = computed(() => props.taskStatusFilters.filter(item => !['HISTORY', 'UNKNOWN'].includes(item.value)))
 const secondaryStatusFilters = computed(() => props.taskStatusFilters.filter(item => ['HISTORY', 'UNKNOWN'].includes(item.value)))
