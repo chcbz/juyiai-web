@@ -67,13 +67,36 @@ describe('shared delivery review modal interaction', () => {
       await wrapper.findAll('input')[0].setValue(true); expect(wrapper.emitted('toggle')[0]).to.deep.equal(['old'])
       expect(wrapper.emitted('confirm')).to.equal(undefined)
       await wrapper.setProps({ selectedKeys: ['old'] }); expect(wrapper.get('.review-confirm').element.disabled).to.equal(false)
-      expect(wrapper.text()).to.include('仅验收所选 1 项成果')
+      expect(wrapper.get('.review-selection-summary p').text()).to.equal('成果 1 · 第1稿')
       expect(wrapper.text()).to.include('事项随即完成，不再继续办理')
       expect(wrapper.text()).to.include('也可以选择历史版本')
       expect(wrapper.text()).not.to.include('将确认整个提交批次')
       await wrapper.get('.review-confirm').trigger('click'); expect(wrapper.emitted('confirm')).to.have.length(1)
       await wrapper.setProps({ selectionLocked: true }); expect(wrapper.findAll('input').every(input => input.element.disabled)).to.equal(true)
       expect(wrapper.text()).not.to.include('下载')
+    } finally { wrapper.unmount() }
+  })
+  it('reads back only checked candidates, distinguishing identical filenames by their original row', async () => {
+    const filename = 'same-name-'.repeat(20) + '.svg'
+    const choices = ['old', 'new'].map(key => ({ key, filename }))
+    const wrapper = mount(Dialog, { props: { open: true, selectionMode: true, choices } })
+    try {
+      const summary = () => wrapper.get('.review-selection-summary')
+      const names = () => summary().findAll('p').map(p => p.text())
+      expect(summary().text()).to.equal('尚未选择成果')
+      await wrapper.setProps({ selectedKeys: ['new'] })
+      await wrapper.findAll('.review-selection-preview')[0].trigger('click')
+      expect(names()).to.deep.equal([`成果 2 · ${filename}`])
+      expect(wrapper.emitted('confirm')).to.equal(undefined)
+      expect(wrapper.emitted('toggle')).to.equal(undefined)
+      await wrapper.setProps({ selectedKeys: ['new', 'old'] })
+      expect(names()).to.deep.equal([`成果 1 · ${filename}`, `成果 2 · ${filename}`])
+      await wrapper.setProps({ selectedKeys: [] })
+      expect(names()).to.deep.equal([])
+      expect(wrapper.get('.review-confirm').element.disabled).to.equal(true)
+      await wrapper.setProps({ selectedKeys: ['new'], selectionLocked: true })
+      expect(wrapper.find('.review-selection-summary').exists()).to.equal(false)
+      expect(wrapper.text()).to.include('本次提交的成果已固定')
     } finally { wrapper.unmount() }
   })
   it('anchors one preview under its exact row, marks the active button and never toggles selection', async () => {

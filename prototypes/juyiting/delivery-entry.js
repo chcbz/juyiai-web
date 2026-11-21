@@ -8,7 +8,10 @@
     state.task={title:'将图片改成红色',description:'将图片改成红色',files:[],complete:false};
     state.agent={id:'4',name:'吴用'};state.selectedAgent={...state.agent};
     state.outputs=[{id:'delivery-demo-red-v1',name:'红色图片-第1稿.svg',type:'image',url:'assets/delivery-red.svg',note:'第 1 稿 · 原型示意'}];
-    if(selectedScenario==='review-preview')state.outputs.push({id:'delivery-demo-red-v2',name:'红色图片-第2稿.svg',type:'image',url:'assets/delivery-red-v2.svg',note:'第 2 稿 · 原型示意'});
+    if(selectedScenario==='review-preview'){
+      state.outputs[0].name='红色图片.svg';
+      state.outputs.push({id:'delivery-demo-red-v2',name:'红色图片.svg',type:'image',url:'assets/delivery-red-v2.svg',note:'第 2 稿 · 原型示意'});
+    }
     state.messages=[{role:'USER',text:'将图片改成红色。'},{role:'AGENT',text:'图片已生成。可以继续修改，也可以验收任意一稿。',outputs:[state.outputs[0].id]}];
     state.delivery=[];state.final=[];state.operation=null;state.pending=false;state.error=null;state.chatDraft='';state.chatFiles=[];
     state.deliveryEntry={stage:'ready',selected:[],mode:'ok',submissionWrites:0,acceptanceWrites:0,operationId:null};persist();
@@ -49,13 +52,17 @@
     panel.insertAdjacentHTML('afterbegin',`<section class="delivery-entry-demo"><span>交互原型 · 不操作真实事项</span><details><summary>演示状态</summary><div>${button('正常提交','delivery-mode','data-mode="ok"')}${button('提交失败','delivery-mode','data-mode="failed"')}${button('提交结果未知','delivery-mode','data-mode="unknown"')}${button('另一窗口已完成','delivery-mode','data-mode="conflict"')}${button('重新体验','delivery-reset')}</div><small>本机模拟，不调用模型。</small></details></section>`);
   };
   function closeOwn(){$$('dialog.delivery-entry-dialog').forEach(e=>e.close());}
+  function selectionSummary(){
+    const selected=state.outputs.flatMap((a,index)=>d().selected.includes(a.id)?[`<p>成果 ${index+1} · ${esc(a.name)}</p>`]:[]);
+    return `<strong role="status">${selected.length?`本次验收 · 已选 ${selected.length} 项`:'尚未选择成果'}</strong>${selected.join('')}`;
+  }
   function review(){
     closeOwn();const locked=frozen();
     const items=locked?state.outputs.filter(a=>d().selected.includes(a.id)):state.outputs;
     const content=items.map((a,index)=>`<section class="delivery-choice" data-choice="${esc(a.id)}"><div class="delivery-choice-row"><label><input type="checkbox" data-delivery-select="${esc(a.id)}" ${d().selected.includes(a.id)?'checked':''} ${locked?'disabled':''}><span><strong>${esc(a.name)}</strong><small>成果 ${index+1}</small></span></label>${button(previewId===a.id?'收起预览':'预览','delivery-preview',`data-id="${esc(a.id)}" aria-expanded="${previewId===a.id}" aria-controls="delivery-preview-${index}"`)}</div>${previewId===a.id?`<section id="delivery-preview-${index}" class="delivery-inline-preview" aria-label="成果 ${index+1} 预览"><strong>正在预览：成果 ${index+1} · ${esc(a.name)}</strong>${media(a)}<small>${esc(a.note||'已有成果')}</small></section>`:''}</section>`).join('');
     const actionLabel=({failed:'重试原提交',unknown:'核对原提交','accept-unknown':'核对原验收'})[d().stage]||(busy()?'处理中…':'确认验收');
     const footer=complete()?button('关闭','close-dialog'):(locked?'':button('继续修改','delivery-modify'))+button(actionLabel,'delivery-accept',`class="delivery-primary" ${busy()||!d().selected.length?'disabled':''}`);
-    const modal=dialog(complete()?'已验收成果':'选择成果并验收',`<div class="delivery-review-body"><p class="delivery-review-status" role="status">${captions[d().stage]}</p><p>将图片改成红色 · <span data-selection-count>已选 ${d().selected.length} 份</span></p><p class="delivery-review-note">可选择一份或多份，包括历史版本。仅验收勾选成果，不要求使用最新稿。</p>${content||'<p>暂无可验收成果</p>'}<p class="delivery-review-note">${locked?'本次操作的成果已固定；核对原操作不会重复提交。':'点击“确认验收”后，提交所选已有成果并完成事项。关闭窗口不提交、不验收，不重新生成。'}</p></div>`,footer);modal.classList.add('delivery-entry-dialog');
+    const modal=dialog(complete()?'已验收成果':'选择成果并验收',`<div class="delivery-review-body"><p class="delivery-review-status" role="status">${captions[d().stage]}</p><p>将图片改成红色</p>${locked?'':'<p class="delivery-review-note">勾选要验收的成果，也可以选择历史版本。预览不会勾选。</p>'}${content||'<p>暂无可验收成果</p>'}${locked?'':`<section class="delivery-selection-summary" aria-label="验收清单">${selectionSummary()}</section>`}<p class="delivery-review-note">${locked?'本次操作的成果已固定；核对原操作不会重复提交。':'确认后，事项随即完成，不再继续办理。不会重新生成成果；关闭窗口不提交。'}</p></div>`,footer);modal.classList.add('delivery-entry-dialog');
   }
   function finish(){d().stage='accepted';state.task.complete=true;state.final=[...d().selected];persist();renderChat();review();}
   function accept(){d().acceptanceWrites=1;d().stage='accepting';persist();renderChat();review();timer=setTimeout(finish,650);}
@@ -63,7 +70,7 @@
     d().operationId||='demo-submit-'+Date.now();d().submissionWrites=1;d().stage='submitting';persist();renderChat();review();
     timer=setTimeout(()=>{const mode=d().mode;d().mode='ok';if(mode!=='ok'){d().stage=mode;if(mode==='conflict')state.task.complete=true;persist();renderChat();review();return;}state.delivery=[...d().selected];accept();},800);
   }
-  document.addEventListener('change',e=>{const id=e.target.dataset.deliverySelect;if(!id||frozen())return;d().selected=e.target.checked?[...new Set([...d().selected,id])]:d().selected.filter(x=>x!==id);persist();const modal=e.target.closest('dialog');$('[data-selection-count]',modal).textContent=`已选 ${d().selected.length} 份`;$('[data-action="delivery-accept"]',modal).disabled=!d().selected.length;});
+  document.addEventListener('change',e=>{const id=e.target.dataset.deliverySelect;if(!id||frozen())return;d().selected=e.target.checked?[...new Set([...d().selected,id])]:d().selected.filter(x=>x!==id);persist();const modal=e.target.closest('dialog');$('.delivery-selection-summary',modal).innerHTML=selectionSummary();$('[data-action="delivery-accept"]',modal).disabled=!d().selected.length;});
   document.addEventListener('click',e=>{
     const t=e.target.closest('[data-action]');if(!t||!t.dataset.action.startsWith('delivery-'))return;e.preventDefault();e.stopImmediatePropagation();
     const action=t.dataset.action;

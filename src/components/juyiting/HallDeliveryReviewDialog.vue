@@ -5,18 +5,19 @@
       <h2 id="hall-review-title">{{ selectionMode ? '选择成果并验收' : '查看成果并验收' }}</h2>
     </header>
     <section v-if="selectionMode" class="review-content">
-      <p>选择要验收的成果（已选 {{ selectedKeys.length }} 项），也可以选择历史版本。</p>
+      <p v-if="selectionLocked">本次提交的成果已固定（{{ selectedKeys.length }} 项）。</p>
+      <p v-else-if="choices.length">勾选要验收的成果，也可以选择历史版本。预览不会勾选。</p>
       <p v-if="!choices.length" role="status">暂无可验收成果，请关闭后重新读取成果。</p>
-      <ul><li v-for="(item, index) in choices" :key="item.key">
+      <ul class="review-choices"><li v-for="(item, index) in choices" :key="item.key">
         <label><input type="checkbox" :checked="selectedKeys.includes(item.key)" :disabled="pending || selectionLocked" @change="$emit('toggle', item.key)" />
-          <strong>{{ item.filename || item.title || item.outputId || '文字成果' }}</strong><small>成果 {{ index + 1 }}</small></label>
+          <span><strong>{{ choiceName(item) }}</strong><small>成果 {{ index + 1 }}</small></span></label>
         <button
           type="button"
           class="review-selection-preview"
           :disabled="pending"
           :aria-expanded="activeSelectionKey === item.key"
           :aria-controls="`review-selection-preview-${index}`"
-          :aria-label="`${activeSelectionKey === item.key ? '收起' : '预览'}成果 ${index + 1}：${item.filename || item.title || item.outputId || '文字成果'}`"
+          :aria-label="`${activeSelectionKey === item.key ? '收起' : '预览'}成果 ${index + 1}：${choiceName(item)}`"
           @click="toggleSelectionPreview(item)"
         >{{ activeSelectionKey === item.key ? '收起预览' : '预览' }}</button>
         <section
@@ -25,11 +26,15 @@
           class="review-inline-preview"
           :aria-label="`成果 ${index + 1} 预览`"
         >
-          <h3>正在预览：成果 {{ index + 1 }} · {{ item.filename || item.title || item.outputId || '文字成果' }}</h3>
+          <h3>正在预览：成果 {{ index + 1 }} · {{ choiceName(item) }}</h3>
           <slot name="selection-preview" :item="item" :index="index"></slot>
         </section>
       </li></ul>
-      <p class="review-help">确认后，仅验收所选 {{ selectedKeys.length }} 项成果，事项随即完成，不再继续办理。此操作不会重新生成成果；关闭窗口不提交、不验收。</p>
+      <section v-if="!selectionLocked && choices.length" class="review-selection-summary" aria-label="验收清单">
+        <strong role="status">{{ selectedRows.length ? `本次验收 · 已选 ${selectedRows.length} 项` : '尚未选择成果' }}</strong>
+        <p v-for="row in selectedRows" :key="row.item.key">成果 {{ row.number }} · {{ choiceName(row.item) }}</p>
+      </section>
+      <p class="review-help">确认后，事项随即完成，不再继续办理。不会重新生成成果；关闭窗口不提交。</p>
       <p v-if="error" class="review-error" role="status">{{ error }}</p>
     </section>
     <section v-else-if="frozenBatch" class="review-content">
@@ -60,6 +65,9 @@ const props = defineProps({ open: { type: Boolean, default: false }, context: { 
 const emit = defineEmits(['confirm', 'preview', 'back', 'toggle', 'preview-selection'])
 const dialog = ref(null)
 const activeSelectionKey = ref(null)
+const choiceName = item => item.filename || item.title || item.outputId || '文字成果'
+const selectedRows = computed(() => props.choices.flatMap((item, index) =>
+  props.selectedKeys.includes(item.key) ? [{ item, number: index + 1 }] : []))
 const resetSelectionPreview = () => {
   if (activeSelectionKey.value === null) return
   activeSelectionKey.value = null
@@ -130,6 +138,11 @@ li p { flex-basis: 100%; }
 .review-inline-preview { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid var(--hall-border, #e3e5dc); border-radius: 8px; background: var(--hall-surface-subtle, #f3f3ed); }
 .review-inline-preview h3 { margin: 0 0 8px; font-size: 13px; overflow-wrap: anywhere; }
 .review-selection-preview[aria-expanded="true"] { color: var(--hall-brand, #923f30); border-color: currentColor; }
+.review-choices > li { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--hall-border, #e3e5dc); border-radius: 8px; }
+.review-choices > li:has(input:checked) { border-color: var(--hall-brand, #923f30); background: var(--hall-surface-subtle, #f3f3ed); }
+.review-choices input:focus-visible { outline: 2px solid var(--hall-brand, #923f30); outline-offset: 3px; }
+.review-selection-summary { padding: 8px 12px; border-inline-start: 3px solid var(--hall-brand, #923f30); background: var(--hall-surface-subtle, #f3f3ed); font-size: 14px; line-height: 1.5; }
+.review-selection-summary p { margin: 4px 0 0; }
 .review-error { color: var(--hall-danger, #a13f35); }
 @media (max-width: 600px) { .hall-review-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); } .review-confirm { width: 100%; } }
 </style>
