@@ -144,7 +144,7 @@
           </section>
           <section class="quick-material-detail-pane" aria-label="固定版本与预览">
             <div v-if="pickerDetail" class="quick-material-fields">
-              <div class="quick-material-selected-file"><strong>{{ pickerDetail.file.displayName }}</strong><span class="quick-material-version">使用版本 {{ pickerVersion }}；新版本不会替换本次引用。</span></div>
+              <div class="quick-material-selected-file"><strong>{{ pickerDetail.file.displayName }}</strong><span v-if="pickerVersion" class="quick-material-version">使用版本 {{ pickerVersion }} · {{ pickerAlreadyAdded ? '已在清单' : '尚未添加' }}</span></div>
 
             </div>
             <p v-if="workspace.error.value" class="quick-request-error" role="alert">{{ workspace.error.value }}</p>
@@ -877,14 +877,13 @@ onBeforeUnmount(() => { pickerGeneration += 1; mobileQuery?.removeEventListener?
   .quick-material-list-pane { border-right: 0; padding: 12px; }
   .quick-material-detail-pane { border-top: 1px solid #e3e5dc; }
   .quick-material-fields { padding: 10px 16px 0; }
-  .quick-material-selected-file strong { display: none; }
+  .quick-material-selected-file strong { max-height: 2.8em; line-height: 1.4; }
   .quick-material-version-actions { padding: 6px 16px 8px; }
   .quick-material-selected-file { flex-basis: 100%; }
   .quick-material-preview { display: none; }
   .is-mobile-preview .quick-material-picker-body { grid-template-rows: minmax(0, 1fr); }
   .is-mobile-preview .quick-material-list-pane { display: none; }
   .is-mobile-preview .quick-material-detail-pane { min-height: 0; border: 0; }
-  .is-mobile-preview .quick-material-selected-file strong { display: block; }
   .is-mobile-preview .quick-material-preview { display: flex; }
   .quick-material-picker header { padding: 10px 12px; gap: 10px; }
   .quick-material-picker footer { padding: 8px 16px max(12px, env(safe-area-inset-bottom)); gap: 6px; }

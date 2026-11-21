@@ -767,3 +767,6 @@ body[data-ui-revision] .material-picker-dialog .material-selection-summary butto
 
 /* Word preserves page layout; only its own reading region scrolls horizontally. */
 .nf-word-scroll{width:100%;max-width:100%;overflow:auto;max-height:48vh}.nf-word-scroll .nf-word-page{width:700px;max-width:none;margin:0;padding:24px}
+
+/* C08: keep the filename beside Add even with the mobile preview closed. */
+@media(max-width:720px){.material-picker-dialog .material-detail-heading>strong{display:block;max-height:2.8em;line-height:1.4;overflow:auto}}
