@@ -71,7 +71,23 @@ body[data-current-page=workspace] .file-search-context { display:flex; gap:12px;
   body[data-current-page=workspace] .personal-workspace.is-hall-treasure { padding:20px 16px; }
   body[data-current-page=workspace] .is-hall-treasure :is(.treasure-intro,.treasure-file-heading) { margin-bottom:20px; }
   body[data-current-page=workspace] .is-hall-treasure .treasure-tabs { margin-bottom:18px; }
-  body[data-current-page=workspace] .is-hall-treasure .treasure-search input:not([type=file]) { font-size:max(16px,1rem); }
+}
+/* The captured source has a short-height layout. A touch keyboard isn't a resize of the content column. */
+@media (max-height:500px) and (min-width:601px) and (pointer:coarse) {
+  body[data-current-page=workspace] .home-overview .panel-overlay.is-workbench-page { padding-inline:0; }
+}
+@media (max-height:500px) and (min-width:761px) and (pointer:coarse) {
+  body[data-current-page=workspace] .home-overview .panel-overlay.is-workbench-page { padding-inline:24px; }
+}
+@media (min-width:601px) and (pointer:coarse) {
+  body[data-current-page=workspace] .personal-workspace.is-hall-treasure { padding:28px 30px; }
+  body[data-current-page=workspace] .is-hall-treasure :is(.treasure-intro,.treasure-file-heading) { margin-bottom:20px; }
+  body[data-current-page=workspace] .is-hall-treasure .treasure-tabs { margin-bottom:18px; }
+}
+@media (max-width:600px), (pointer:coarse) {
+  body[data-current-page=workspace] .is-hall-treasure .treasure-search input:not([type=file]),
+  body[data-current-page=workspace] dialog.mmd-dialog input[data-upload-name],
+  body[data-current-page=file] dialog.mmd-dialog input[aria-label="文件名称"] { font-size:max(16px,1rem); }
 }
 
 body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters {

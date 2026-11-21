@@ -609,9 +609,12 @@ onBeforeUnmount(() => { disposed = true; viewGeneration++; stopListObserver(); w
 .treasure-preview-tools,.treasure-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }.treasure-actions { justify-content:flex-end; margin-top:24px; padding-top:18px; border-top:1px solid #d6bf99; }.treasure-preview-tools label { display:flex; gap:8px; align-items:center; min-width:0; }.treasure-preview-tools select { max-width:min(520px,60vw); }.treasure-version-tools{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:10px;row-gap:6px;width:100%;align-items:stretch}.treasure-version-tools label{display:contents}.treasure-version-label{grid-column:1/-1;grid-row:1}.treasure-version-tools select{grid-column:1;grid-row:2;width:100%;max-width:none;min-width:0}.treasure-version-tools>button{grid-column:2;grid-row:2;align-self:stretch;white-space:nowrap}
 .treasure-preview { min-height:140px; margin-top:14px; padding:18px; border:1px solid #dfd2bd; border-radius:8px; background:#fffdf8; }.treasure-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }.treasure-preview img { max-width:100%; height:auto; }.treasure-manage-danger { margin-top:32px; padding-top:20px; border-top:1px solid #d6bf99; }
 @media(max-width:600px) { .personal-workspace.is-hall-treasure { padding:20px 16px; }.treasure-intro { align-items:flex-start; }.treasure-content h2 { font-size:19px; }.treasure-tabs { gap:4px;overflow-x:auto; }.treasure-tabs button { flex:none;padding:8px 12px;white-space:nowrap; }.treasure-version-tools{column-gap:8px;row-gap:5px}.treasure-file-row { padding:16px 0; } }
-/* A keyboard-shortened phone is still the same list, not a wide compact panel. */
-@media(max-width:600px) { .is-hall-treasure .treasure-search input:not([type=file]) { font-size:max(16px,1rem); } }
-@media(max-height:500px) and (min-width:601px) { .personal-workspace.is-hall-treasure { padding:16px 20px; }.treasure-intro,.treasure-file-heading { margin-bottom:12px; }.treasure-tabs { margin-bottom:10px; }.treasure-file-row { padding:12px 0; } }
+/* Opening a touch keyboard must not switch the document to a denser layout. */
+@media (max-width:600px), (pointer:coarse) {
+  .is-hall-treasure .treasure-content input:not([type=file]),
+  .is-hall-treasure .treasure-content textarea { font-size:max(16px,1rem); }
+}
+@media (max-height:500px) and (min-width:601px) and (hover:hover) and (pointer:fine) { .personal-workspace.is-hall-treasure { padding:16px 20px; }.treasure-intro,.treasure-file-heading { margin-bottom:12px; }.treasure-tabs { margin-bottom:10px; }.treasure-file-row { padding:12px 0; } }
 
 .is-hall-treasure .treasure-file-list:not(:empty) { border:1px solid #d9dfd7; border-radius:12px; background:#fffefa; }
 .is-hall-treasure .treasure-file-list .treasure-file-row { gap:12px; padding:9px 12px; border-bottom:1px solid #e0e4dc; }
