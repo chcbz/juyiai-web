@@ -114,7 +114,7 @@ describe('JUYITING-HELP-20261109 help content and navigation', () => {
     }
     const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
     expect(hall).to.include('@help="openHelp"')
-    expect(hall).to.include('v-show="!helpReplayVisible"')
+    expect(hall).to.include('v-show="!helpReplayVisible && !returnBlocking"')
     expect(hall).to.include("renderedPanel: helpReplayVisible.value ? '' : renderedPanel.value")
     expect(hall).to.include("panelFrames.includes('help')")
     expect(hall).to.include("renderedPanel.value === 'help' ? helpPanelRef.value")
