@@ -49,3 +49,7 @@
 /* 好汉身份信息内的模型：长名称完整换行，不独立成区。 */
 .detail-head > div { min-width: 0; }
 .detail-head .profile-model, .persona-main .persona-model { display: block; margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--hall-text-muted, #68716b); white-space: normal; overflow-wrap: anywhere; }
+
+body[data-current-page=workspace] .file-search-context { display:flex; gap:12px; align-items:center; justify-content:space-between; margin:0 0 10px; padding:0 8px 0 12px; background:#f0f3ee; color:#374e41; border-radius:8px; font-size:14px; }
+.file-search-context span { min-width:0; overflow-wrap:anywhere; }
+.file-search-context button { flex:none; min-height:44px; padding:0 8px; border:0; background:transparent; color:#80402e; text-decoration:underline; }

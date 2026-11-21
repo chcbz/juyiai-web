@@ -192,7 +192,14 @@ function renderChat(){
  const scrollEnd=()=>{if(messages.isConnected)messages.scrollTop=messages.scrollHeight;};requestAnimationFrame(scrollEnd);$$('img',messages).forEach(img=>img.addEventListener('load',scrollEnd,{once:true}));
 }
 function renderWorkspace(){const list=$('.treasure-file-list');if(!list)return;const all=[...catalog,...state.localFiles,...state.saved.map(asset)].filter((a,i,arr)=>arr.findIndex(x=>x.id===a.id)===i),filter=state.workspaceFilter||'全部';const items=all.filter(a=>filter==='回收站'?state.fileMeta[a.id]?.recycled:!state.fileMeta[a.id]?.recycled&&(filter==='全部'||filter==='资料'&&!state.saved.includes(a.id)||filter==='成果'&&state.saved.includes(a.id)));
- const rows=items.filter(a=>!state.workspaceQuery||a.name.toLowerCase().includes(state.workspaceQuery.trim().toLowerCase()));
+ const term=(state.workspaceQuery||'').trim();
+ if(term){
+  const active=document.createElement('div');active.className='file-search-context';
+  active.innerHTML=`<span>当前搜索：<strong>${esc(term)}</strong></span><button type="button">清除搜索</button>`;
+  active.querySelector('button').addEventListener('click',()=>{state.workspaceQuery='';render();$('.treasure-search input')?.focus();});
+  list.before(active);
+ }
+ const rows=items.filter(a=>!term||a.name.toLowerCase().includes(term.toLowerCase()));
  list.innerHTML=rows.map(a=>{const meta=state.fileMeta[a.id],family=({document:'文档',pdf:'PDF',image:'图片',audio:'音频',text:'文本'})[a.type]||'文件';const version=meta?.demoHistory?102:(meta?.versions?.length||0)+1;
  return `<div class="treasure-file-row" data-file-id="${esc(a.id)}"><span class="file-family-label" data-family="${esc(String(a.type||'').toUpperCase())}">${family}</span><div class="file-list-copy"><strong>${esc(a.name)}</strong><p>${state.saved.includes(a.id)?'成果':'资料'} · v${version}</p></div>${button('查看','complete-file',`data-id="${esc(a.id)}" class="treasure-file-open" aria-label="查看资料：${esc(a.name)}"`)}</div>`;}).join('')||`<p class="mmd" role="status">${state.workspaceQuery?.trim()?'没有找到匹配的文件。':filter==='回收站'?'回收站为空。':'此分类暂无资料。'}</p>`;scoped(list,'data-v-a1bd66a6');const tabs=$('.treasure-tabs');if(tabs)tabs.innerHTML=['全部','资料','成果','回收站'].map(label=>button(label,'complete-workspace-filter',`data-filter="${label}" aria-pressed="${filter===label}"`)).join('');}
 function submitRequest(){startUnifiedConversation();}

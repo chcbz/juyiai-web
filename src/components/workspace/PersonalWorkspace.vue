@@ -9,7 +9,11 @@
       <template v-if="treasureView === 'list'">
         <div class="treasure-intro"><div><h2>我的资料</h2><p>按文件名查找，打开后可预览和选择版本。</p></div><button class="treasure-primary hall-tool" type="button" @click="treasureView = 'upload'" aria-label="上传资料" title="上传资料"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V4m-5 5 5-5 5 5M5 16v5h14v-5"/></svg></button></div>
         <nav class="treasure-tabs" aria-label="百宝箱分类"><button v-for="tab in treasureTabs" :key="tab.key" type="button" :aria-pressed="treasureTab === tab.key" @click="changeTreasureTab(tab.key)">{{ tab.label }}</button></nav>
-        <form class="treasure-search" @submit.prevent="refresh"><label><span class="sr-only">搜索文件名称</span><input v-model="query" maxlength="100" placeholder="搜索文件名称" /></label><button type="submit" :disabled="workspace.loading.value" class="hall-tool" aria-label="搜索文件名称" title="搜索文件名称"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button></form>
+        <form class="treasure-search" @submit.prevent="submitTreasureSearch"><label><span class="sr-only">搜索文件名称</span><input ref="searchField" v-model="query" maxlength="100" placeholder="搜索文件名称" /></label><button type="submit" :disabled="workspace.loading.value" class="hall-tool" aria-label="搜索文件名称" title="搜索文件名称"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button></form>
+        <div v-if="appliedSearch" class="file-search-context">
+          <span>当前搜索：<strong>{{ appliedSearch }}</strong></span>
+          <button type="button" @click="clearTreasureSearch">清除搜索</button>
+        </div>
         <p v-if="workspace.listState.value === 'loading'" role="status">正在翻看资料…</p>
         <div ref="fileListRef" class="treasure-file-list">
           <div v-for="file in treasureFiles" :key="file.fileId" class="treasure-file-row">
@@ -17,7 +21,7 @@
             <div class="file-list-copy"><strong>{{ file.displayName }}</strong><p>{{ originText(file.originKind) }} · v{{ file.latestVersion }}</p></div>
             <button type="button" :data-file-id="file.fileId" :disabled="!detailAllowed || workspace.actionState.value === 'loading-detail'" @click="openTreasureFile(file.fileId)" class="hall-row-link treasure-file-open" :aria-label="`查看文件：${file.displayName}`" :title="`查看文件：${file.displayName}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div>
         </div>
-        <p v-if="!workspace.loading.value && !workspace.nextCursor.value && workspace.listState.value !== 'error' && !treasureFiles.length" class="treasure-empty">{{ treasureTab === 'trash' ? '回收站为空。' : query.trim() ? '没有找到匹配的文件。' : '这里还没有文件，可上传资料或到事项中查看成果。' }}</p>
+        <p v-if="!workspace.loading.value && !workspace.nextCursor.value && workspace.listState.value !== 'error' && !treasureFiles.length" class="treasure-empty">{{ appliedSearch ? '没有找到匹配的文件。' : treasureTab === 'trash' ? '回收站为空。' : '这里还没有文件，可上传资料或到事项中查看成果。' }}</p>
         <p v-if="workspace.listState.value === 'error'" role="alert">文件暂未完整读取，已读取的文件会保留。<button type="button" :disabled="workspace.loading.value" @click="workspace.nextCursor.value ? loadMore() : refresh()">重试加载</button></p>
         <p
           v-else-if="workspace.nextCursor.value"
@@ -225,6 +229,8 @@ const executionIdentityScope = computed(() => {
 const workspace = usePersonalWorkspace({ identityEpoch })
 const execution = usePersonalWorkspaceExecutionHistory({ identityEpoch, identityScope: executionIdentityScope })
 const query = ref('')
+const appliedSearch = ref('')
+const searchField = ref(null)
 const mediaFamily = ref('')
 const state = ref('ACTIVE')
 const activeModal = ref(embedded ? 'library' : 'home')
@@ -262,8 +268,17 @@ const familyText = value => ({ IMAGE: '图片', AUDIO: '音频', TEXT: '文本',
 const originText = value => ({ USER_UPLOAD: '本人上传', AGENT_DELIVERY: 'Agent 生成' })[value] || '来源待确认'
 const executionStateText = value => ({ QUEUED: '已接受，等待结果', OUTPUT_COMMITTED: '历史结果已保存', RESULT_COMMITTED: '历史结果已提交', FAILED: '处理失败', CANCELLED: '已取消', INPUTS_REVOKED: '输入已撤销', UNKNOWN: '提交结果待确认' })[value] || '状态待确认'
 const iconFor = value => ({ IMAGE: '🖼', AUDIO: '🎵', TEXT: '📝', DOCUMENT: '📄', SPREADSHEET: '📊', PRESENTATION: '📽', PDF: '📕' })[value] || '📁'
-const currentFilters = () => ({ q: query.value.trim(), mediaFamily: mediaFamily.value, state: state.value })
+const currentFilters = () => ({ q: embedded ? appliedSearch.value : query.value.trim(), mediaFamily: mediaFamily.value, state: state.value })
 const refresh = () => workspace.refresh(currentFilters())
+const submitTreasureSearch = () => {
+  appliedSearch.value = query.value.trim()
+  return refresh()
+}
+const clearTreasureSearch = () => {
+  query.value = ''
+  searchField.value?.focus()
+  return submitTreasureSearch()
+}
 const loadMore = () => workspace.loadMore(currentFilters())
 const switchState = next => { if (state.value === next) return; state.value = next; closeDetail(); void refresh() }
 const openModal = modal => { activeModal.value = modal; if (modal !== 'detail') closeDetail() }
@@ -421,7 +436,7 @@ const uploadTreasure = async () => {
   if (uploadFile.value === file) uploadFile.value = null
   if (uploadDisplayName.value === name) uploadDisplayName.value = ''
   treasureView.value = 'list'; activeModal.value = 'library'
-  treasureTab.value = 'all'; state.value = 'ACTIVE'; query.value = ''; await refresh()
+  treasureTab.value = 'all'; state.value = 'ACTIVE'; query.value = ''; appliedSearch.value = ''; await refresh()
 }
 const prepareTrash = async () => { const snapshot = viewSnapshot(); const usage = await workspace.usage(); if (ownsView(snapshot)) trashUsage.value = usage }
 const confirmTrash = async () => {
@@ -446,7 +461,7 @@ const back = () => {
   nextTick(() => { if (workspaceRoot.value) workspaceRoot.value.scrollTop = treasureListScroll })
   return true
 }
-watch(identityEpoch, () => { executionInstruction.value = ''; generationInstruction.value = ''; executionMaterials.value = []; treasureView.value = 'list'; treasureTab.value = 'all'; trashUsage.value = null; uploadFile.value = null; versionFile.value = null; query.value = ''; uploadDisplayName.value = ''; renameValue.value = ''; selectedId.value = ''; activeModal.value = embedded ? 'library' : 'home' })
+watch(identityEpoch, () => { executionInstruction.value = ''; generationInstruction.value = ''; executionMaterials.value = []; treasureView.value = 'list'; treasureTab.value = 'all'; trashUsage.value = null; uploadFile.value = null; versionFile.value = null; query.value = ''; appliedSearch.value = ''; uploadDisplayName.value = ''; renameValue.value = ''; selectedId.value = ''; activeModal.value = embedded ? 'library' : 'home' })
 defineExpose({ canGoBack, back, logicalDepth, windowTitle })
 
 onMounted(() => {
@@ -576,6 +591,9 @@ onBeforeUnmount(() => { disposed = true; viewGeneration++; stopListObserver(); w
 .is-hall-treasure .treasure-intro p { margin:6px 0 0; color:#59665c; }
 
 
+.file-search-context { display:flex; gap:12px; align-items:center; justify-content:space-between; margin:0 0 10px; padding:0 8px 0 12px; background:#f0f3ee; color:#374e41; border-radius:8px; font-size:14px; }
+.file-search-context span { min-width:0; overflow-wrap:anywhere; }
+.file-search-context button { flex:none; min-height:44px; padding:0 8px; border:0; background:transparent; color:#80402e; text-decoration:underline; }
 </style>
 
 <style scoped>

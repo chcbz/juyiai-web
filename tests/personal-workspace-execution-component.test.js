@@ -344,6 +344,30 @@ describe('personal workspace automatic file pagination', () => {
     savePersonalWorkspaceBlob: () => {}
   }), { props: { embedded: true } })
 
+  it('uses the submitted search until cleared, even in the recycle bin', async () => {
+    const workspace = workspaceMock(), requests = []
+    workspace.items.value = []
+    workspace.refresh = async filters => { requests.push(filters); return true }
+    const wrapper = mountList(workspace)
+    try {
+      await flushPromises()
+      await wrapper.get('.treasure-search input').setValue('  案卷  ')
+      assert.equal(wrapper.find('.file-search-context').exists(), false)
+      await wrapper.get('.treasure-search').trigger('submit')
+      assert.equal(wrapper.get('.file-search-context strong').text(), '案卷')
+      await wrapper.get('.treasure-search input').setValue('尚未提交')
+      await wrapper.findAll('.treasure-tabs button').at(-1).trigger('click')
+      assert.equal(requests.at(-1).q, '案卷')
+      assert.equal(requests.at(-1).state, 'TRASHED')
+      assert.equal(wrapper.get('.treasure-empty').text(), '没有找到匹配的文件。')
+      await wrapper.get('.file-search-context button').trigger('click')
+      assert.equal(wrapper.get('.treasure-search input').element.value, '')
+      assert.equal(requests.at(-1).q, '')
+      assert.equal(requests.at(-1).state, 'TRASHED')
+      assert.equal(wrapper.get('.treasure-empty').text(), '回收站为空。')
+    } finally { wrapper.unmount() }
+  })
+
   for (const label of ['全部', '资料', '成果', '回收站']) {
     it(`automatically appends, pauses on error and retries the same cursor in ${label}`, async () => {
       const previous = globalThis.IntersectionObserver
@@ -367,10 +391,12 @@ describe('personal workspace automatic file pagination', () => {
         assert.equal(wrapper.find('.treasure-empty').exists(), false)
         const first = observers.at(-1)
         first.callback([{ isIntersecting: false }]); assert.equal(calls.length, 0)
+        await wrapper.get('.treasure-search input').setValue('未提交')
         first.callback([{ isIntersecting: true }])
         first.callback([{ isIntersecting: true }])
         await flushPromises()
         assert.equal(calls.length, 1)
+        assert.equal(calls[0].q, '')
         assert.equal(calls[0].state, label === '回收站' ? 'TRASHED' : 'ACTIVE')
         assert.equal(first.disconnected, true)
         assert.equal(wrapper.get('.treasure-list-status').text(), '正在加载更多资料…')
