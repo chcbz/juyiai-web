@@ -2734,7 +2734,8 @@ describe('archive reader contract behavior', () => {
     expect(source).not.to.include('/agent/active')
   })
 
-  it('keeps actual JuyiHall, LibraryPanel, and ArchiveReader identity/state across five cycles', async () => {
+  for (const entry of ['map', 'mine']) it(`keeps actual JuyiHall, LibraryPanel, and ArchiveReader identity/state across five cycles from ${entry}`, async () => {
+    const frames = entry === 'mine' ? ['mine', 'library'] : ['library']
     const api = makeApi()
     let readerState
     let readerMounts = 0
@@ -2767,8 +2768,12 @@ describe('archive reader contract behavior', () => {
     const wrapper = mount(JuyiHall, { attachTo: document.body, global: { stubs: { 'var-icon': true, teleport: true } } })
     try {
       await settle()
-      expect(wrapper.vm.openPanel('mine')).to.equal(true)
-      expect(wrapper.vm.openPanel('library')).to.equal(true)
+      if (entry === 'mine') {
+        expect(wrapper.vm.openPanel('mine')).to.equal(true)
+        expect(wrapper.vm.openPanel('library')).to.equal(true)
+      } else {
+        await wrapper.find('[data-portrait-action="library"]').trigger('click')
+      }
       await settle()
       const floating = wrapper.find('.floating-panel').element
       const library = wrapper.findComponent(LibraryPanel)
@@ -2805,7 +2810,7 @@ describe('archive reader contract behavior', () => {
       await wrapper.get('button[aria-label="引用当前段落起草交办"]').trigger('click')
       await settle()
       expect(hall.panelDepth).to.equal(3)
-      expect(hall.panelFrames).to.deep.equal(['mine', 'library', 'formalDraft'])
+      expect(hall.panelFrames).to.deep.equal([...frames, 'formalDraft'])
       expect(wrapper.findAll('[role="dialog"]')).to.have.length(1)
       const citation = wrapper.findComponent(DraftProbe).props('initialContext')
       expect(citation.originRef).to.equal('juyiting:archive')
@@ -2814,7 +2819,7 @@ describe('archive reader contract behavior', () => {
       expect(wrapper.findComponent(LibraryPanel).attributes('inert')).to.equal('')
       await wrapper.find('.panel-return').trigger('click')
       await settle()
-      expect(hall.panelFrames).to.deep.equal(['mine', 'library'])
+      expect(hall.panelFrames).to.deep.equal(frames)
       expect(wrapper.findComponent(ArchiveReader).vm).to.equal(reader.vm)
       expect(readerState.currentLocation.value).to.equal(location)
       expect(readerState.progress.value).to.equal(progress)
@@ -2837,7 +2842,7 @@ describe('archive reader contract behavior', () => {
       await settle()
       expect(wrapper.find('.archive-reader-fullscreen').exists()).to.equal(false)
       expect(wrapper.find('.archive-book-open').exists()).to.equal(true)
-      expect(hall.panelFrames).to.deep.equal(['mine', 'library'])
+      expect(hall.panelFrames).to.deep.equal(frames)
       expect(readerUnmounts).to.equal(0)
       // At a third source frame, entering another reading detail is unavailable.
       hall.openPanel('agents')
