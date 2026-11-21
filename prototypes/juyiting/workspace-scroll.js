@@ -11,7 +11,7 @@
     if (page !== 'workspace') return;
     const list = $('.treasure-file-list');
     if (!list) return;
-    const seed = [...list.children];
+    const seed = [...list.querySelectorAll('.treasure-file-row')];
     if (!seed.length) return;
     const footer = document.createElement('p');
     footer.setAttribute('role', 'status');

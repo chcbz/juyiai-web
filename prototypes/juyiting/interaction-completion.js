@@ -199,7 +199,7 @@ function renderInteractiveList(){
  if(page!=='tasks')return;
  const rows=listedMatters(),list=$('.task-list');
  if(list){
-  list.innerHTML=rows.map(({key,ctx,current})=>`<article class="task-card${current?' selected':''}" data-matter-key="${esc(key)}" data-action="complete-open-matter" tabindex="0" role="button" aria-label="查看事项：${esc(ctx.task.title)}"><div class="task-head"><strong>${esc(ctx.task.title)}</strong><span class="${listedMatterClass(ctx)}">${esc(listedMatterStatus(ctx))}</span></div><p>${esc(ctx.task.description)}</p>${matterAttentionReason(ctx)?`<p class="matter-attention-reason">${esc(matterAttentionReason(ctx))}</p>`:''}<div class="task-meta"><span>${esc(ctx.task.id||key)}</span>${ctx.agent?`<span>领令：${esc(ctx.agent.name)}</span>`:''}${ctx.task.archived?'<span>已归档</span>':''}<span>${ctx.task.example?'离线示例':'本地演示事项'}</span></div><div class="ability-tags">${(ctx.task.requiredAbilities?.length?ctx.task.requiredAbilities:['不拘本领']).map(a=>`<span>${esc(a)}</span>`).join('')}</div></article>`).join('')+'<div class="mmd baseline-empty empty-list" role="status" hidden></div>';
+  list.innerHTML=rows.map(({key,ctx,current})=>`<article class="task-card${current?' selected':''}" data-matter-key="${esc(key)}" data-action="complete-open-matter" tabindex="0" role="button" aria-label="查看事项：${esc(ctx.task.title)}"><div class="task-head"><strong>${esc(ctx.task.title)}</strong><span class="${listedMatterClass(ctx)}">${esc(listedMatterStatus(ctx))}</span></div>${ctx.task.description?.trim()&&ctx.task.description.trim()!==ctx.task.title?.trim()?`<p class="task-excerpt">${esc(ctx.task.description)}</p>`:''}${matterAttentionReason(ctx)?`<p class="matter-attention-reason">${esc(matterAttentionReason(ctx))}</p>`:''}<div class="task-meta">${ctx.agent?`<span>承办：${esc(ctx.agent.name)}</span>`:''}<span>#${esc(ctx.task.id||key)}</span>${ctx.task.archived?'<span>已归档</span>':''}${(ctx.task.requiredAbilities||[]).map(a=>`<span class="task-skill">${esc(a)}</span>`).join('')}</div></article>`).join('')+'<div class="mmd baseline-empty empty-list" role="status" hidden></div>';
   scoped(list,'data-v-9209fea5');
  }
  const tabs=$('.task-status-tabs');
@@ -214,8 +214,8 @@ function renderInteractiveList(){
  const agentFilter=$('.task-search select');if(agentFilter){
   const agents=new Map();for(const {ctx} of rows){if(ctx.agent?.id!=null)agents.set(String(ctx.agent.id),ctx.agent.name||String(ctx.agent.id));}
   if(state.taskAgent&&!agents.has(state.taskAgent))state.taskAgent='';
-  agentFilter.innerHTML='<option value="">全部承接 Agent</option>'+[...agents].map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');
-  agentFilter.value=state.taskAgent||'';agentFilter.dataset.completeTaskAgent='true';agentFilter.setAttribute('aria-label','按承接 Agent 筛选');
+  agentFilter.innerHTML='<option value="">全部承办人</option>'+[...agents].map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');
+  agentFilter.value=state.taskAgent||'';agentFilter.dataset.completeTaskAgent='true';agentFilter.setAttribute('aria-label','按承办人筛选');
  }
 
  applyTaskFilters();
@@ -765,8 +765,8 @@ function syncTaskToolbar(){
  $$('.workbench-create-action').forEach(e=>{e.dataset.prototypePage='create';});
  const search=$('.task-search',bar);if(search){search.style.display='grid';search.style.gridTemplateColumns='minmax(0, 1fr) minmax(90px, 0.45fr)';search.style.gap='8px';}
  const input=$('input',search||bar),select=$('select',search||bar);
- if(input){input.style.gridColumn='auto';input.type='search';input.setAttribute('aria-label','搜索事项');input.placeholder='查榜号';input.dataset.completeTaskSearch='true';}
- if(select){select.style.gridColumn='auto';select.setAttribute('aria-label','筛选所需本领');if(select.options[0])select.options[0].textContent='不拘本领';}
+ if(input){input.style.gridColumn='auto';input.type='search';input.setAttribute('aria-label','搜索事项');input.placeholder='搜名称或编号';input.dataset.completeTaskSearch='true';}
+ if(select){select.style.gridColumn='auto';select.setAttribute('aria-label','按承办人筛选');if(select.options[0])select.options[0].textContent='全部承办人';}
  const refresh=$(':scope > button',bar);if(refresh){refresh.classList.add('task-refresh');refresh.setAttribute('aria-label','刷新事项');refresh.title='刷新事项';refresh.dataset.action='complete-task-refresh';refresh.innerHTML=uiIcon('refresh');}
  bar.style.display='grid';bar.style.gridTemplateColumns='minmax(0, 1fr) 44px';bar.style.alignItems='center';bar.style.gap='8px';
 }
@@ -792,6 +792,7 @@ function refreshAllPageSurfaces(){
  if(page==='account'&&root){root.classList.add('all-account');root.innerHTML=`<section class="all-account-card"><span class="all-persona-avatar" aria-hidden="true">我</span><h2>个人中心</h2><p>这是聚义外的账户模块入口。</p><section aria-label="文钱袋示例"><h3>钱袋 · 文</h3><p>可用 <strong>3500文</strong> · 已预占 <strong>0文</strong></p><p>收支记录：内测进厅活动 +3500文（离线示例，未真实发放）。</p><p>活动按使用当前系统领取，不区分注册时间；同活动每人一次。活动处理失败不妨碍进入聚义，下次进入可重试。</p><p>1人民币元＝100文；这里只展示整数文，不提供充值或提现。</p></section><p role="status">生产源码支持从首页进入个人中心；面板打开或语音交互锁定时暂不可进入。真实设置页面尚待核验。</p><div class="all-account-options">${['账户信息','授权管理','隐私设置'].map(x=>`<button disabled>${x}<small>原型暂未展示</small></button>`).join('')}</div><p class="all-boundary-note">此处仅说明入口边界，不代表生产账户功能不可用；不模拟未经核验的设置，也不读取或修改凭据。</p>${button('返回我的','complete-go','data-page="mine"')}</section>`;}
  if(page==='map'&&root){root.classList.add('all-map');document.body.append(root);root.innerHTML=`<section class="all-scene" aria-label="厅中实景静态原型"><img src="assets/hall-base-v3.webp" alt="现有梁山厅堂游戏底图；静态原型，非实时地图"><nav class="all-scene-tools" aria-label="实景工具"><strong>聚义</strong>${button('办事','complete-go','data-page="home"')}${button('消息','complete-go','data-page="messages"')}${button('资料','complete-go','data-page="workspace"')}${button('帮助','complete-go','data-page="help"')}</nav><div class="all-scene-spots">${button('点将册','complete-go','data-page="agents" class="scene-roster"')}${button('忠义堂公议','complete-go','data-page="public" class="scene-public"')}${button('悬赏榜','complete-go','data-page="tasks" class="scene-board"')}${button('典籍阁','complete-go','data-page="library" class="scene-library"')}</div><p class="all-scene-note">静态实景与入口演示 · 不运行游戏、坐标或联网好汉</p></section>`;}
  if(page==='workspace'){
+  const intro=$('.treasure-intro');if(intro){$('h2',intro).textContent='我的资料';$('p',intro).textContent='按文件名查找，打开后可预览和选择版本。';}
   const input=$('.treasure-search input');if(input){input.value=state.workspaceQuery||'';input.setAttribute('aria-label','搜索文件名称');}
   const upload=$('.treasure-primary');if(upload)upload.dataset.action='complete-upload-panel';
   const form=$('.treasure-search');if(form)form.addEventListener('submit',e=>{e.preventDefault();e.stopImmediatePropagation();state.workspaceQuery=$('input',form).value;render();});

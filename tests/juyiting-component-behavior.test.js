@@ -1674,7 +1674,16 @@ describe('JuyiHall component behavior', () => {
       taskStateClass: () => '', taskStatusText: () => '待承办', taskStatusCount: () => 1, taskStatusFilters: []
     } })
     try {
-      await wrapper.find('.task-card').trigger('click')
+      const card = wrapper.get('.task-card')
+      expect(card.find('.task-excerpt').exists()).to.equal(false)
+      expect(card.text()).not.to.include('未指定能力要求')
+      await wrapper.setProps({ detailAllowed: false })
+      expect(card.attributes('tabindex')).to.equal(undefined)
+      await card.trigger('keydown.enter')
+      expect(wrapper.find('.bounty-modal').exists()).to.equal(false)
+      await wrapper.setProps({ detailAllowed: true })
+      expect(card.attributes('tabindex')).to.equal('0')
+      await card.trigger('keydown.space')
       expect(wrapper.find('[aria-label="刷新承办候选"]').exists()).to.equal(false)
       expect(wrapper.find('.matter-candidate-card').exists()).to.equal(false)
       expect(wrapper.get('.matter-selected-reason').text()).to.equal('理由0')

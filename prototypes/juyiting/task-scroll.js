@@ -29,6 +29,7 @@
       batch += 1;
       seed.forEach(row => {
         const clone = row.cloneNode(true);
+        clone.inert = true;
         clone.style.pointerEvents = 'none';
         const title = clone.querySelector('strong');
         if (title) title.textContent = `分页示例 ${batch} · ${title.textContent}`;

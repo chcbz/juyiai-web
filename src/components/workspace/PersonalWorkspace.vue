@@ -7,12 +7,15 @@
 
     <section v-if="embedded" class="treasure-content" :data-view="treasureView">
       <template v-if="treasureView === 'list'">
-        <div class="treasure-intro"><div><h2>管理和复用你的资料</h2><p>上传、查找和管理资料，也可以选入事项中使用。</p></div><button class="treasure-primary hall-tool" type="button" @click="treasureView = 'upload'" aria-label="上传资料" title="上传资料"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V4m-5 5 5-5 5 5M5 16v5h14v-5"/></svg></button></div>
+        <div class="treasure-intro"><div><h2>我的资料</h2><p>按文件名查找，打开后可预览和选择版本。</p></div><button class="treasure-primary hall-tool" type="button" @click="treasureView = 'upload'" aria-label="上传资料" title="上传资料"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V4m-5 5 5-5 5 5M5 16v5h14v-5"/></svg></button></div>
         <nav class="treasure-tabs" aria-label="百宝箱分类"><button v-for="tab in treasureTabs" :key="tab.key" type="button" :aria-pressed="treasureTab === tab.key" @click="changeTreasureTab(tab.key)">{{ tab.label }}</button></nav>
         <form class="treasure-search" @submit.prevent="refresh"><label><span class="sr-only">搜索文件名称</span><input v-model="query" maxlength="100" placeholder="搜索文件名称" /></label><button type="submit" :disabled="workspace.loading.value" class="hall-tool" aria-label="搜索文件名称" title="搜索文件名称"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button></form>
         <p v-if="workspace.listState.value === 'loading'" role="status">正在翻看资料…</p>
         <div ref="fileListRef" class="treasure-file-list">
-          <div v-for="file in treasureFiles" :key="file.fileId" class="treasure-file-row"><div><strong>{{ file.displayName }}</strong><p>{{ originText(file.originKind) }} · {{ familyText(file.mediaFamily) }} · v{{ file.latestVersion }}</p></div><button type="button" :data-file-id="file.fileId" :disabled="!detailAllowed || workspace.actionState.value === 'loading-detail'" @click="openTreasureFile(file.fileId)" class="hall-row-link treasure-file-open" :aria-label="`查看文件：${file.displayName}`" :title="`查看文件：${file.displayName}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div>
+          <div v-for="file in treasureFiles" :key="file.fileId" class="treasure-file-row">
+            <span class="file-family-label" :data-family="file.mediaFamily">{{ familyText(file.mediaFamily) }}</span>
+            <div class="file-list-copy"><strong>{{ file.displayName }}</strong><p>{{ originText(file.originKind) }} · v{{ file.latestVersion }}</p></div>
+            <button type="button" :data-file-id="file.fileId" :disabled="!detailAllowed || workspace.actionState.value === 'loading-detail'" @click="openTreasureFile(file.fileId)" class="hall-row-link treasure-file-open" :aria-label="`查看文件：${file.displayName}`" :title="`查看文件：${file.displayName}`"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div>
         </div>
         <p v-if="!workspace.loading.value && !workspace.nextCursor.value && workspace.listState.value !== 'error' && !treasureFiles.length" class="treasure-empty">{{ treasureTab === 'trash' ? '回收站为空。' : query.trim() ? '没有找到匹配的文件。' : '这里还没有文件，可上传资料或到事项中查看成果。' }}</p>
         <p v-if="workspace.listState.value === 'error'" role="alert">文件暂未完整读取，已读取的文件会保留。<button type="button" :disabled="workspace.loading.value" @click="workspace.nextCursor.value ? loadMore() : refresh()">重试加载</button></p>
@@ -456,7 +459,23 @@ onMounted(() => {
 onBeforeUnmount(() => { disposed = true; viewGeneration++; stopListObserver(); workspace.dispose(); execution.dispose() })
 </script>
 
-<style scoped src="../juyiting/hall-view-tabs.css"></style>
+<style scoped src="../juyiting/hall-view-tabs.css">
+.is-hall-treasure .treasure-file-list:not(:empty) { border:1px solid #d9dfd7; border-radius:12px; background:#fffefa; }
+.is-hall-treasure .treasure-file-list .treasure-file-row { gap:12px; padding:9px 12px; border-bottom:1px solid #e0e4dc; }
+.is-hall-treasure .treasure-file-row:last-child { border-bottom:0; }
+.is-hall-treasure .treasure-file-row:first-child { border-radius:11px 11px 0 0; }
+.is-hall-treasure .treasure-file-row:last-child { border-radius:0 0 11px 11px; }
+.is-hall-treasure .file-family-label { display:grid; place-content:center; flex:0 0 52px; min-height:38px; box-sizing:border-box; padding:3px; border-radius:8px; background:#eaf0e9; color:#345643; text-align:center; font:600 12px/1.3 system-ui,sans-serif; }
+.is-hall-treasure [data-family="PDF"] { background:#f8eae4; color:#843e30; }
+.is-hall-treasure [data-family="IMAGE"] { background:#e6eff5; color:#2e526a; }
+.is-hall-treasure [data-family="AUDIO"] { background:#efeaf5; color:#5e4973; }
+.is-hall-treasure .file-list-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
+.is-hall-treasure .file-list-copy strong { font-size:16px; line-height:1.45; }
+.is-hall-treasure .file-list-copy p { margin:3px 0 0; color:#59665c; font-size:13px; }
+.is-hall-treasure .treasure-intro h2 { margin:0; font-size:clamp(21px,2vw,26px); line-height:1.3; }
+.is-hall-treasure .treasure-intro p { margin:6px 0 0; color:#59665c; }
+
+</style>
 
 <style scoped>
 .treasure-list-status { padding: 16px; text-align: center; color: var(--hall-text-muted, #68716b); }

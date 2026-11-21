@@ -58,7 +58,8 @@ describe('workspace document category and upload selector', () => {
     try {
       await flushPromises()
       for (const row of wrapper.findAll('.treasure-file-row')) {
-        assert.ok(row.text().includes('本人上传 · 文档 · v1'))
+        assert.equal(row.get('.file-family-label').text(), '文档')
+        assert.equal(row.get('.file-list-copy p').text(), '本人上传 · v1')
         assert.ok(!row.text().includes('Word'))
       }
       await wrapper.get('button[aria-label="上传资料"]').trigger('click')

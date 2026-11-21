@@ -18,10 +18,10 @@
           />
           <select
             :value="taskAgentFilter"
-            aria-label="筛选承接Agent"
+            aria-label="按承办人筛选"
             @change="$emit('update:taskAgentFilter', $event.target.value); $emit('load-tasks')"
           >
-            <option value="">全部承接Agent</option>
+            <option value="">全部承办人</option>
             <option v-for="agent in taskAgentOptions" :key="agent.agentId" :value="agent.agentId">{{ agent.displayName }}</option>
           </select>
         </div>
@@ -94,20 +94,27 @@
             :key="task.id"
             class="task-card"
             :class="{ selected: selectedTask?.id === task.id }"
+            :role="embeddedHall ? 'button' : undefined"
+            :tabindex="embeddedHall && detailAllowed ? 0 : undefined"
+            :aria-disabled="embeddedHall && !detailAllowed ? 'true' : undefined"
+            :aria-label="embeddedHall ? `查看事项：${task.title}，${taskStatusText(task)}` : undefined"
+            @keydown.enter.self.prevent="embeddedHall && openTask(task)"
+            @keydown.space.self.prevent="embeddedHall && openTask(task)"
             @click="openTask(task)"
           >
             <div class="task-head">
               <strong>{{ task.title }}</strong>
               <span :class="taskStateClass(task)">{{ taskStatusText(task) }}</span>
             </div>
-            <p>{{ task.description || '榜文尚未写明缘由' }}</p>
+            <p v-if="!embeddedHall || (task.description?.trim() && task.description.trim() !== task.title?.trim())" class="task-excerpt">{{ task.description || '榜文尚未写明缘由' }}</p>
             <div class="task-meta">
-              <span>{{ task.id }}</span>
-              <span v-if="task.assignedAgentName">领令：{{ task.assignedAgentName }}</span>
+              <span v-if="task.assignedAgentName">承办：{{ task.assignedAgentName }}</span>
+              <span>{{ embeddedHall ? '#' : '' }}{{ task.id }}</span>
               <span v-if="task.updatedAt">{{ formatTime(task.updatedAt) }}</span>
+              <template v-if="embeddedHall"><span v-for="ability in task.requiredAbilities" :key="ability" class="task-skill">{{ ability }}</span></template>
             </div>
             <p v-if="isFundedTask(task)" class="funding-summary">已托管：{{ formatMoney(task.funding.remainingWen || task.funding.grossBountyAmountWen) }}</p>
-            <div class="ability-tags">
+            <div v-if="!embeddedHall" class="ability-tags">
               <span v-for="ability in task.requiredAbilities || []" :key="ability">{{ ability }}</span>
               <span v-if="!(task.requiredAbilities || []).length">未指定能力要求</span>
             </div>
@@ -1650,6 +1657,19 @@ button:disabled {
 .matter-selected-reason{margin:0;color:var(--hall-muted,#68716b);font-size:13px;line-height:1.65;overflow-wrap:anywhere}
 .matter-advice-card dd,.matter-primary-action{overflow-wrap:anywhere;white-space:normal}
 .matter-edit-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}.matter-edit-row h3,.matter-edit-row .matter-request{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}.matter-description-row{align-items:flex-start}.matter-edit-button{flex:none;display:inline-flex;align-items:center;justify-content:center;width:38px;min-height:38px;padding:8px}
+
+.is-hall-embedded .task-panel-body { container-type: inline-size; }
+.is-hall-embedded .task-head strong { font-size:16px; line-height:1.45; white-space:normal; overflow-wrap:anywhere; }
+.is-hall-embedded .task-head span { align-self:start; }
+.is-hall-embedded .task-card .task-excerpt { margin:6px 0; font-size:13px; line-height:1.5; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.is-hall-embedded .task-meta { align-items:center; gap:4px 10px; margin-top:8px; overflow-wrap:anywhere; }
+.is-hall-embedded .task-skill { padding:2px 7px; border-radius:5px; background:#edf2ec; color:#395644; }
+.is-hall-embedded .task-card:focus-visible { outline:2px solid #964637; outline-offset:-3px; }
+@container (min-width: 850px) {
+  .is-hall-embedded .task-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-content:start; gap:0 12px; }
+  .is-hall-embedded .task-list > :not(.task-card) { grid-column:1 / -1; }
+}
+
 </style>
 
 <style scoped>
