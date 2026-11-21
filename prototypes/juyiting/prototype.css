@@ -73,3 +73,24 @@ body[data-current-page=workspace] .file-search-context { display:flex; gap:12px;
   body[data-current-page=workspace] .is-hall-treasure .treasure-tabs { margin-bottom:18px; }
   body[data-current-page=workspace] .is-hall-treasure .treasure-search input:not([type=file]) { font-size:max(16px,1rem); }
 }
+
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters {
+  display:grid; grid-template-columns:repeat(2,minmax(0,9rem)); gap:8px;
+  margin:0 20px 8px; padding:0; min-width:0; border:0;
+}
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters button {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; min-width:0;
+  min-height:44px; margin:0; padding:4px 8px; color:var(--hall-text-muted,#59665c);
+}
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters button::before {
+  content:''; box-sizing:border-box; width:6px; height:10px; border-radius:0; background:transparent; border:solid transparent;
+  border-width:0 2px 2px 0; transform:translateY(-1px) rotate(45deg);
+}
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters button[aria-pressed="true"] { font-weight:600; }
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters button[aria-pressed="true"]::before { border-color:currentColor; }
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters small { font-variant-numeric:tabular-nums; }
+@media(max-width:760px) { body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters { margin-inline:16px; } }
+@media(max-width:480px) { body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters button { margin-inline:0; border:1px solid #dde2d8; border-radius:999px; background:#fffefa; }
+body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-secondary-filters button[aria-pressed="true"] { background:#f6eee8; border-color:#e1c9bd; color:#923f30; }

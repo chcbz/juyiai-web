@@ -78,8 +78,8 @@
          class="hall-filter">其他状态</button>
       </div>
 
-      <div v-if="secondaryStatusActive" class="task-secondary-filters" aria-label="异常与历史分类">
-        <span>其他状态</span>
+      <div v-if="secondaryStatusActive" class="task-secondary-filters" role="group" aria-label="其他事项状态">
+        <span v-if="!embeddedHall">其他状态</span>
         <button
           v-for="item in secondaryStatusFilters"
           :key="item.value"
@@ -1718,6 +1718,25 @@ button:disabled {
   .is-hall-embedded .task-list > :not(.task-card) { grid-column:1 / -1; }
 }
 
+
+/* Secondary choices share the list gutter and stay compact on wide screens. */
+.is-hall-embedded .task-secondary-filters {
+  display:grid; grid-template-columns:repeat(2,minmax(0,9rem)); gap:8px;
+  margin:0 20px 8px; padding:0; min-width:0; border:0;
+}
+.is-hall-embedded .task-secondary-filters button {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; min-width:0;
+  min-height:44px; margin:0; padding:4px 8px; color:var(--hall-text-muted,#59665c);
+}
+.is-hall-embedded .task-secondary-filters button::before {
+  content:''; box-sizing:border-box; width:6px; height:10px; border:solid transparent;
+  border-width:0 2px 2px 0; transform:translateY(-1px) rotate(45deg);
+}
+.is-hall-embedded .task-secondary-filters button[aria-pressed="true"] { font-weight:600; }
+.is-hall-embedded .task-secondary-filters button[aria-pressed="true"]::before { border-color:currentColor; }
+.is-hall-embedded .task-secondary-filters small { font-variant-numeric:tabular-nums; }
+@media(max-width:760px) { .is-hall-embedded .task-secondary-filters { margin-inline:16px; } }
+@media(max-width:480px) { .is-hall-embedded .task-secondary-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>
 
 <style scoped>

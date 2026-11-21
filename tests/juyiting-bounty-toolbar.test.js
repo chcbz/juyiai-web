@@ -129,6 +129,24 @@ describe('Bounty task toolbar', () => {
     } finally { w.unmount() }
   })
 
+  it('groups history and reconciliation with their own counts and mutually exclusive selection', async () => {
+    const taskStatusFilters = [{ value: 'COMPLETED', label: '已完成' }, { value: 'HISTORY', label: '历史' }, { value: 'UNKNOWN', label: '待核对' }]
+    const w = mount(Panel, { props: { ...props, taskStatusFilters, taskStatusFilter: 'HISTORY', taskStatusCount: phase => phase === 'HISTORY' ? 123 : 0 } })
+    try {
+      const group = w.get('[role="group"][aria-label="其他事项状态"]')
+      expect(group.find(':scope > span').exists()).to.equal(false)
+      const [history, unknown] = group.findAll('button')
+      expect(history.get('small').text()).to.equal('123')
+      expect(unknown.get('small').text()).to.equal('0')
+      await unknown.trigger('click')
+      expect(w.emitted('set-status-filter')).to.deep.equal([['UNKNOWN']])
+      await w.setProps({ taskStatusFilter: 'UNKNOWN' })
+      expect(group.findAll('[aria-pressed="true"]').map(b => b.element)).to.deep.equal([unknown.element])
+      await w.setProps({ taskStatusFilter: 'COMPLETED' })
+      expect(w.find('.task-secondary-filters').exists()).to.equal(false)
+    } finally { w.unmount() }
+  })
+
   it('reveals a focused status within the strip without scrolling the document', async () => {
     const wrapper = mount(Panel, { props })
     try {

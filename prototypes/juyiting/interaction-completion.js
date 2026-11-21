@@ -228,8 +228,12 @@ function renderInteractiveList(){
  if(['待开工（已点将）','筹划中','议事中','办理中','需处理','受阻','待澄清'].includes(state.taskFilter))state.taskFilter='进行中';
  if(['已取消','已归档','失败'].includes(state.taskFilter))state.taskFilter='异常/历史';
  if(state.taskFilter&&!statuses.includes(state.taskFilter))state.taskFilter='';
- if(tabs){tabs.setAttribute('aria-label','事项状态');tabs.innerHTML=statuses.map(name=>button(`${name} <span>${rows.filter(r=>matchesMatterFilter(r.ctx,name)).length}</span>`,'complete-production-status',`data-status="${name}" aria-pressed="${state.taskFilter===name}" class="${state.taskFilter===name?'active':''} ${name==='异常/历史'?'task-status-secondary':''}"`)).join('');}
- if(tabs){const old=$('.task-secondary-filters');if(old)old.remove();if(state.taskFilter==='异常/历史'){tabs.insertAdjacentHTML('afterend',`<div class="task-secondary-filters" aria-label="异常与历史分类"><span>分类</span>${button('待核对','complete-secondary-status',`data-kind="unknown" aria-pressed="${state.secondaryMatterFilter==='unknown'}"`)}${button('历史','complete-secondary-status',`data-kind="history" aria-pressed="${state.secondaryMatterFilter!=='unknown'}"`)}</div>`);}}
+ if(tabs){tabs.setAttribute('aria-label','事项状态');tabs.innerHTML=statuses.map(name=>button(name==='异常/历史'?'其他状态':`${name} <span>${rows.filter(r=>matchesMatterFilter(r.ctx,name)).length}</span>`,'complete-production-status',`data-status="${name}" aria-pressed="${state.taskFilter===name}" class="${state.taskFilter===name?'active':''} ${name==='异常/历史'?'task-status-secondary':''}"`)).join('');}
+ if(tabs){const old=$('.task-secondary-filters');if(old)old.remove();if(state.taskFilter==='异常/历史'){
+  tabs.scrollLeft=tabs.scrollWidth;
+  const kind=state.secondaryMatterFilter||'history';const controls=[['history','历史'],['unknown','待核对']].map(([key,label])=>button(`${label} <small>${rows.filter(r=>matchesMatterFilter(r.ctx,'异常/历史',key)).length}</small>`,'complete-secondary-status',`data-kind="${key}" aria-pressed="${key===kind}"`)).join('');
+  tabs.insertAdjacentHTML('afterend',`<div class="task-secondary-filters" role="group" aria-label="其他事项状态">${controls}</div>`);
+ }}
  const search=$('.task-search input');if(search){search.value=state.taskSearch||'';search.dataset.completeTaskSearch='true';}
  const agentFilter=$('.task-search select');if(agentFilter){
   const agents=new Map();for(const {ctx} of rows){if(ctx.agent?.id!=null)agents.set(String(ctx.agent.id),ctx.agent.name||String(ctx.agent.id));}
@@ -434,7 +438,7 @@ document.addEventListener('click',event=>{
  if(action==='complete-agent-confirm'){confirmMatterAgent();return;}
  if(handleDraftAction(action,t))return;
  if(handleSyncedAction(action,t))return;
- if(action==='complete-secondary-status'){state.secondaryMatterFilter=t.dataset.kind;render();persist();return;}
+ if(action==='complete-secondary-status'){state.secondaryMatterFilter=t.dataset.kind;render();$('.task-secondary-filters [aria-pressed=true]')?.focus({preventScroll:true});persist();return;}
  if(action==='complete-production-status'){state.taskFilter=state.taskFilter===t.dataset.status?'':t.dataset.status;render();return;}
  if(action==='complete-task-refresh'){render();feedback('已重读同一份离线事项，没有创建或修改。');return;}
  if(action==='complete-material-library'){ctx.materialActionsOpen=false;renderComposerMaterialActions($('.chat-panel'),ctx.pending||!!(ctx.task?.complete||ctx.task?.cancelled));persist();openMaterials('chat');return;}
@@ -876,9 +880,9 @@ document.addEventListener('change',e=>{if(e.target.matches('[data-workspace-vers
 document.addEventListener('input',event=>{if(event.target.matches('.composer-textarea')){const count=document.querySelector('[data-draft-count]');if(count)count.textContent=event.target.value.length+'/1200';}});
 
 // Page-recheck corrections: local fixtures only; no API, execution or authorization inference.
-function matchesMatterFilter(ctx,filter){
+function matchesMatterFilter(ctx,filter,kind=state.secondaryMatterFilter){
  const historical=!!(ctx.task.archived||ctx.task.cancelled||ctx.task.phase==='失败');
- return filter==='异常/历史'?(state.secondaryMatterFilter==='unknown'?ctx.task.phase==='待核对':historical):!filter||(!ctx.task.archived&&listedMatterStatus(ctx)===filter);
+ return filter==='异常/历史'?(kind==='unknown'?ctx.task.phase==='待核对':historical):!filter||(!ctx.task.archived&&listedMatterStatus(ctx)===filter);
 }
 function renderTaskSkills(panel){
  $('.task-skill-strip',panel)?.remove();if(page!=='chat'||!state.task)return;
