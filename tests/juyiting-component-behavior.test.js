@@ -377,9 +377,9 @@ describe('JuyiHall component behavior', () => {
   it('exposes accessible modal dialog wiring and focus lifecycle hooks', () => {
     const source = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
 
-    expect(source).to.include(`:role="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? 'region' : 'dialog'"`)
-    expect(source).to.include(`:aria-modal="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : 'true'"`)
-    expect(source).to.include(`:aria-labelledby="isOverviewHome && workbenchPrimaryPanelSet.has(renderedPanel) ? null : panelTitleId"`)
+    expect(source).to.include(`:role="renderedWorkbenchPage ? 'region' : 'dialog'"`)
+    expect(source).to.include(`:aria-modal="renderedWorkbenchPage ? null : 'true'"`)
+    expect(source).to.include(`:aria-labelledby="renderedWorkbenchPage ? null : panelTitleId"`)
     expect(source).to.include('aria-label="关闭面板"')
     expect(source).to.include('@keydown="handlePanelKeydown"')
     expect(source).to.include('restorePanelFocus')
@@ -3663,6 +3663,8 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
         const state = wrapper.vm.$.setupState
         state.openPanel('tasks')
         await Vue.nextTick()
+        expect(state.panelDepth).to.equal(0)
+        expect(wrapper.get('.floating-panel').attributes('role')).to.equal('region')
         const bounty = wrapper.findComponent(BountyPanel)
         await bounty.find('input[type="search"]').setValue('428')
         const source = bounty.element
@@ -3670,6 +3672,8 @@ describe('O04 actual-mounted JuyiHall panel identity', () => {
         await Vue.nextTick()
         expect(state.renderedPanel).to.equal('formalDraft')
         expect(state.panelFrames).to.deep.equal(['tasks', 'formalDraft'])
+        expect(state.panelDepth).to.equal(1)
+        expect(wrapper.get('.floating-panel').attributes('role')).to.equal('dialog')
         expect(wrapper.get('.panel-title').text()).to.include('提出需求')
         expect(wrapper.get('.panel-overlay').classes()).not.to.include('is-workbench-page')
         expect(wrapper.find('.requirement-page-probe').exists()).to.equal(true)
