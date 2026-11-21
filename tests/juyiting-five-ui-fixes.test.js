@@ -302,11 +302,14 @@ describe('mine help entry', () => {
     const Mine = compile('HallMinePage', {})
     const wrapper = mount(Mine)
     try {
-      const trigger = wrapper.get('.mine-help button')
+      const entries = wrapper.findAll('.mine-grid button')
+      const trigger = entries.find(entry => entry.get('strong').text() === '使用帮助')
+      expect(trigger).to.exist
       await trigger.trigger('click')
       expect(wrapper.emitted('help')).to.have.length(1)
       expect(wrapper.emitted('help')[0][0]).to.equal(trigger.element)
-      expect(wrapper.findAll('.mine-grid button')).to.have.length(5)
+      expect(entries.filter(entry => entry !== trigger).map(entry => entry.get('strong').text()))
+        .to.have.members(['好汉名册', '典籍阁', '待办提醒', '厅中实景', '个人中心'])
     } finally { wrapper.unmount() }
   })
 })
