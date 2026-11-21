@@ -856,7 +856,7 @@ function handleAllPageAction(action,t){
  if(action==='complete-reader-notes'){state.reader.notesOpen=!state.reader.notesOpen;render();return true;}
  if(action==='complete-reader-save'){state.reader.notes=$('[aria-label="手札草稿"]').value;persist();feedback('手札已保存在本原型，不上传。');$('.reader-note-status').textContent='手札已保存（本地示例）';return true;}
  if(action==='complete-reader-cite'){state.draft=[state.draft,'请根据典籍第'+state.reader.chapter+'回的阅读示例，整理要点与待办。'].filter(Boolean).join('\n');go('create');return true;}
- if(action==='complete-upload-panel'){dialog('上传资料',`<p>上传本身不交办，也不会把资料发给好汉。本原型仅保存在当前标签页。</p><label>选择资料<input type="file" data-workspace-upload aria-label="选择本地资料"></label><label>显示名称（可选）<input data-upload-name aria-label="显示名称" placeholder="留空使用文件名称"></label><p data-upload-status role="status">尚未选择文件</p>`,button('取消','close-dialog')+button('保存到原型资料','complete-upload-confirm','disabled class="mmd-primary"'));return true;}
+ if(action==='complete-upload-panel'){const d=dialog('上传资料',`<p>选择文件后不会自动保存或交办。取消会丢弃本次选择；本原型只在当前标签页保存。</p><label>选择资料<input type="file" data-workspace-upload aria-label="选择本地资料"></label><label>显示名称（可选）<input data-upload-name aria-label="显示名称" placeholder="留空使用文件名称"></label><p data-upload-status role="status">尚未选择文件</p>`,button('取消','close-dialog')+button('保存到原型资料','complete-upload-confirm','disabled class="mmd-primary"'));$('[data-workspace-upload]',d).focus();return true;}
  if(action==='complete-upload-confirm'){
   const input=$('[data-workspace-upload]'),f=input?.files?.[0];if(!f)return true;
   const d=t.closest('dialog'),name=$('[data-upload-name]',d).value.trim()||f.name;t.disabled=true;

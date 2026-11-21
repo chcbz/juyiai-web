@@ -49,6 +49,56 @@ describe('workspace document category and upload selector', () => {
   it('ships the file type markers through an inline scoped style, not an external style import', () => {
     assert.ok(descriptor.styles.some(style => !style.src && style.scoped && style.content.includes('.file-family-label')))
   })
+  it('discards only the upload form on cancel or work-window back without submitting', async () => {
+    const workspace = workspaceMock(), submitted = []
+    workspace.upload = async (...args) => { submitted.push(args); return null }
+    const component = new Function('Vue', 'deps', 'FilePreview', script)(Vue, {
+      workspaceByteText, validMaterialVersion, deliveryTypeText,
+      useApiStore: () => ({ authorizationGeneration: 1 }), useGlobalStore: () => ({ user: { id: 'owner' } }),
+      usePersonalWorkspace: () => workspace, usePersonalWorkspaceExecutionHistory: executionMock
+    }, FilePreview)
+    const wrapper = mount(component, { attachTo: document.body, props: { embedded: true } })
+    try {
+      const open = () => wrapper.get('[aria-label="上传资料"]')
+      await wrapper.findAll('.treasure-tabs button')[2].trigger('click')
+      for (const viaButton of [true, false]) {
+        wrapper.element.scrollTop = 33
+        await open().trigger('click')
+        const form = wrapper.get('.treasure-form'), file = form.get('[type=file]')
+        assert.equal(document.activeElement, file.element)
+        assert.equal(form.get('[maxlength="255"]').element.value, '')
+        assert.equal(form.get('[type=submit]').element.disabled, true)
+        await form.trigger('submit')
+        Object.defineProperty(file.element, 'files', { value: [new window.File(['fixture'], 'test.txt')] })
+        await file.trigger('change')
+        await form.get('[maxlength="255"]').setValue('临时名称')
+        assert.equal(form.get('[type=submit]').element.disabled, false)
+        if (viaButton) await form.get('[type=button]').trigger('click')
+        else { assert.equal(wrapper.vm.back(), true); await Vue.nextTick() }
+        assert.equal(document.activeElement, open().element)
+        assert.equal(wrapper.element.scrollTop, 33)
+        assert.equal(wrapper.get('.treasure-tabs [aria-pressed="true"]').text(), '成果')
+      }
+      await open().trigger('click')
+      assert.equal(wrapper.get('.treasure-form [type=submit]').element.disabled, true)
+      assert.deepEqual(submitted, [])
+
+      // Navigating away from a submitted upload must not replay it or dismiss the next form.
+      let finish
+      workspace.upload = (...args) => { submitted.push(args); workspace.actionState.value = 'uploading'; return new Promise(resolve => { finish = resolve }) }
+      const field = wrapper.get('.treasure-form [type=file]')
+      Object.defineProperty(field.element, 'files', { value: [new window.File(['sent'], 'sent.txt')] })
+      await field.trigger('change')
+      await wrapper.get('.treasure-form').trigger('submit')
+      assert.equal(wrapper.get('.treasure-form [type=button]').text(), '返回列表')
+      await wrapper.get('.treasure-form [type=button]').trigger('click')
+      await open().trigger('click')
+      await wrapper.get('.treasure-form [maxlength="255"]').setValue('新的名称')
+      workspace.actionState.value = 'ready'; finish({ file: { fileId: 'accepted' } }); await flushPromises()
+      assert.equal(wrapper.get('.treasure-form [maxlength="255"]').element.value, '新的名称')
+      assert.equal(submitted.length, 1)
+    } finally { wrapper.unmount() }
+  })
   it('labels DOCUMENT generically and offers supported JSON in the actual upload input', async () => {
     const workspace = workspaceMock(), execution = executionMock()
     workspace.items.value = ['a.json', 'a.md', 'a.html', 'a.docx'].map((name, i) => ({ fileId: `doc_${i}`, displayName: name, mediaFamily: 'DOCUMENT', originKind: 'USER_UPLOAD', latestVersion: '1', state: 'ACTIVE' }))
