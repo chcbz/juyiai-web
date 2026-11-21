@@ -1221,7 +1221,10 @@ const panelLocations = new Map()
 const treasurePanelRef = ref(null)
 const libraryPanelRef = ref(null)
 // Retained file/reading detail also consumes a logical layer while its source is hidden.
+// Mine is the persistent workbench tab, not a fourth dialog below a reading citation.
+// Keep its frame for Back without charging it against the library branch depth.
 const panelDepth = computed(() => panelFrames.value.length
+  - Number(panelFrames.value[0] === 'mine' && panelFrames.value[1] === 'library')
   + Number(panelFrames.value.includes('agents') && Boolean(agentPanelRef.value?.canGoBack))
   + Number(panelFrames.value.includes('tasks') && Boolean(bountyPanelRef.value?.canGoBack))
   + Number(panelFrames.value.includes('treasure') && Boolean(treasurePanelRef.value?.canGoBack))

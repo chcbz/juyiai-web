@@ -852,7 +852,7 @@ function matchesMatterFilter(ctx,filter){
 function renderTaskSkills(panel){
  $('.task-skill-strip',panel)?.remove();if(page!=='chat'||!state.task)return;
  const skills=state.task.demoSkills||[],toolbar=$('.panel-toolbar',panel);
- toolbar?.insertAdjacentHTML('afterend',`<details class="task-skill-strip"><summary>本任务可调用技能（${skills.length}）</summary><p>${skills.length?skills.map(esc).join('、'):'暂无可调用技能。'} · 离线展示，不代表已获执行授权。</p></details>`);
+ toolbar?.insertAdjacentHTML('afterend',`<details class="task-skill-strip"><summary>本任务可调用技能${Array.isArray(state.task.demoSkills)?`（${skills.length}）`:'（尚未核对）'}</summary><p>${skills.length?skills.map(esc).join('、'):Array.isArray(state.task.demoSkills)?'暂无可调用技能。':'尚未核对当前目录。'} · 离线展示，不代表已获执行授权。</p></details>`);
 }
 function pdfPreview(a){
  const n=state.pdfPages?.[a.id]||1;

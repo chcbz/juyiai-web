@@ -878,6 +878,8 @@ describe('material picker screenshot feedback: directory, preview and layout con
       expect(refreshes).to.equal(2)
       expect(wrapper.get('.quick-material-files button').text()).to.include('new.txt')
       expect(wrapper.get('.quick-material-count').text()).to.include('已选 1')
+      await input.trigger('cancel', { bubbles: true }); await settle()
+      expect(wrapper.get('.quick-material-count').text()).to.include('已选 1')
     } finally { wrapper.unmount() }
   })
 
@@ -887,13 +889,21 @@ describe('material picker screenshot feedback: directory, preview and layout con
       workspace.detail.value = { file: { fileId, displayName: 'fixed.txt', state: 'ACTIVE' }, latestVersion: { version: '2' }, versions: [{ version: '1' }, { version: '2' }] }; return workspace.detail.value
     }, previewVersion: async v => { expect(v).to.equal('1'); workspace.preview.value = originalFilePreview('text/plain', '固定版本原文') }, revokePreview: () => { workspace.preview.value = { kind: 'none' } } }
     const materials = [{ fileId: 'fixed', version: '1', displayName: 'fixed.txt' }]
-    const wrapper = mount(loadMaterialPicker(workspace), { props: { identityScope: 'owner-a', modelValue: materials }, global: { stubs: { teleport: true } } })
+    const wrapper = mount(loadMaterialPicker(workspace), { attachTo: document.body, props: { identityScope: 'owner-a', modelValue: materials }, global: { stubs: { teleport: true } } })
     try {
       await wrapper.get('.quick-material-summary button').trigger('click'); await settle()
       expect(refreshes).to.equal(0)
       expect(wrapper.find('.quick-material-picker').exists()).to.equal(false)
       expect(wrapper.get('.quick-material-standalone pre').text()).to.equal('固定版本原文')
       expect(wrapper.get('.quick-material-close').attributes('aria-label')).to.equal('关闭预览')
+      const close = wrapper.get('.quick-material-close').element
+      close.getClientRects = () => [{}]
+      close.focus()
+      for (const shiftKey of [false, true]) {
+        const tab = new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true, shiftKey })
+        close.dispatchEvent(tab)
+        expect(tab.defaultPrevented).to.equal(true)
+      }
       expect(wrapper.emitted('update:modelValue')).to.equal(undefined)
       await wrapper.get('.quick-material-standalone').trigger('cancel'); await settle()
       expect(wrapper.find('.quick-material-standalone').exists()).to.equal(false)

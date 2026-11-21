@@ -1,6 +1,6 @@
 <template>
   <details class="task-skills">
-    <summary>本任务可调用技能（{{ projection?.items?.filter(item => item.state === 'CALLABLE').length || 0 }}）</summary>
+    <summary>本任务可调用技能（{{ projection ? projection.items.filter(item => item.state === 'CALLABLE').length : loading ? '读取中' : '尚未核对' }}）</summary>
     <button type="button" :disabled="loading" @click="$emit('refresh')">刷新技能目录</button>
     <p v-if="error" role="status">{{ error }}</p>
     <p v-if="!projection && !error">{{ loading ? '正在读取…' : '尚未核对当前目录' }}</p>

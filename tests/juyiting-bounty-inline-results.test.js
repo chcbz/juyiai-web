@@ -33,6 +33,15 @@ const load = (name, deps) => {
     .replace('export default', 'return')
   return ((vue, deps) => new Function('Vue', 'deps', 'FilePreview', code)(vue, { FilePreview, filePreviewKind, previewMime, ...pageReturn, ...returnState, ...deps }, FilePreview))(Vue, deps)
 }
+it('distinguishes an unread task skill catalog from a confirmed empty catalog', async () => {
+  const wrapper = mount(load('TaskSkillCapabilities', { skillCostText: () => '' }))
+  try {
+    expect(wrapper.get('summary').text()).to.include('尚未核对')
+    await wrapper.setProps({ loading: true }); expect(wrapper.get('summary').text()).to.include('读取中')
+    await wrapper.setProps({ loading: false, projection: { items: [] } }); expect(wrapper.get('summary').text()).to.include('（0）')
+    await wrapper.setProps({ projection: { items: [{ skillKey: 'k', skillVersion: '1', state: 'CALLABLE' }] } }); expect(wrapper.get('summary').text()).to.include('（1）')
+  } finally { wrapper.unmount() }
+})
 const noRender = { render: () => null }
 const directory = () => ({ items: Vue.ref([]), links: Vue.ref([]), pendingWrites: Vue.ref([]), loading: Vue.ref(false), error: Vue.ref(''),
   actionState: Vue.ref('idle'), writeNotice: Vue.ref(''), refresh: async () => true, load: async () => true,

@@ -85,7 +85,7 @@
         class="quick-material-picker"
         :class="{ 'is-mobile-preview': mobilePreviewOpen, 'has-context': !!$slots.context }"
         aria-labelledby="hall-material-picker-title"
-        @cancel.prevent="backFromPicker"
+        @cancel.self.prevent="backFromPicker"
         @keydown="handlePickerKeydown"
       >
         <header>
@@ -317,7 +317,8 @@
         ref="selectedPreviewDialog"
         class="quick-material-standalone"
         aria-labelledby="selected-material-title"
-        @cancel.prevent="closeSelectedPreview"
+        @cancel.self.prevent="closeSelectedPreview"
+        @keydown="handlePickerKeydown"
         @click="event => { if (event.target === selectedPreviewDialog) closeSelectedPreview() }"
       >
         <header><h3 id="selected-material-title">{{ selectedPreview.displayName }}</h3><button
@@ -450,7 +451,7 @@ const backFromPicker = () => {
 const handlePickerKeydown = event => {
   event.stopPropagation()
   if (event.key !== 'Tab') return
-  const targets = [...(pickerDialog.value?.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, audio[controls]') || [])]
+  const targets = [...(event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, audio[controls], video[controls], [tabindex="0"]') || [])]
     .filter(element => element.getClientRects().length && !element.closest('[hidden]'))
   if (!targets.length) return
   const first = targets[0], last = targets[targets.length - 1]

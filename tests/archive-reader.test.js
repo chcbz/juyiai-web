@@ -2767,7 +2767,8 @@ describe('archive reader contract behavior', () => {
     const wrapper = mount(JuyiHall, { attachTo: document.body, global: { stubs: { 'var-icon': true, teleport: true } } })
     try {
       await settle()
-      await wrapper.find('[data-portrait-action="library"]').trigger('click')
+      expect(wrapper.vm.openPanel('mine')).to.equal(true)
+      expect(wrapper.vm.openPanel('library')).to.equal(true)
       await settle()
       const floating = wrapper.find('.floating-panel').element
       const library = wrapper.findComponent(LibraryPanel)
@@ -2804,7 +2805,7 @@ describe('archive reader contract behavior', () => {
       await wrapper.get('button[aria-label="引用当前段落起草交办"]').trigger('click')
       await settle()
       expect(hall.panelDepth).to.equal(3)
-      expect(hall.panelFrames).to.deep.equal(['library', 'formalDraft'])
+      expect(hall.panelFrames).to.deep.equal(['mine', 'library', 'formalDraft'])
       expect(wrapper.findAll('[role="dialog"]')).to.have.length(1)
       const citation = wrapper.findComponent(DraftProbe).props('initialContext')
       expect(citation.originRef).to.equal('juyiting:archive')
@@ -2813,7 +2814,7 @@ describe('archive reader contract behavior', () => {
       expect(wrapper.findComponent(LibraryPanel).attributes('inert')).to.equal('')
       await wrapper.find('.panel-return').trigger('click')
       await settle()
-      expect(hall.panelFrames).to.deep.equal(['library'])
+      expect(hall.panelFrames).to.deep.equal(['mine', 'library'])
       expect(wrapper.findComponent(ArchiveReader).vm).to.equal(reader.vm)
       expect(readerState.currentLocation.value).to.equal(location)
       expect(readerState.progress.value).to.equal(progress)
@@ -2836,7 +2837,7 @@ describe('archive reader contract behavior', () => {
       await settle()
       expect(wrapper.find('.archive-reader-fullscreen').exists()).to.equal(false)
       expect(wrapper.find('.archive-book-open').exists()).to.equal(true)
-      expect(hall.panelFrames).to.deep.equal(['library'])
+      expect(hall.panelFrames).to.deep.equal(['mine', 'library'])
       expect(readerUnmounts).to.equal(0)
       // At a third source frame, entering another reading detail is unavailable.
       hall.openPanel('agents')
