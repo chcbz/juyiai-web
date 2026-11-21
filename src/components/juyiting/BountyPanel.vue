@@ -129,7 +129,7 @@
           >{{ loading ? '正在加载更多事项…' : '向下滚动自动加载' }}</p>
           <p v-else-if="!loading && tasks.length" class="task-pagination-status" role="status">已显示全部事项</p>
           <div v-if="!loading && !errorMessage && !hasMore && !tasks.length" class="empty-list">
-            <p role="status">{{ clearFiltersLabel ? '没有符合当前筛选条件的事项。' : statusLabel ? `目前没有「${statusLabel}」事项。` : '还没有事项。可到「办事」提出需求。' }}</p>
+            <p role="status">{{ clearFiltersLabel ? '没有符合当前筛选条件的事项。' : statusLabel ? `目前没有「${statusLabel}」事项。` : '还没有事项。可在「办事」页开始第一件事。' }}</p>
             <button v-if="clearFiltersLabel" type="button" class="hall-action-surface" @click="clearListFilters">{{ clearFiltersLabel }}</button>
           </div>
         </div>

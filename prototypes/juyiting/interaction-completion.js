@@ -174,8 +174,8 @@ function applyTaskFilters(){
  const empty=$('.baseline-empty');if(empty){
   empty.hidden=visible>0;
   const clear=query&&state.taskAgent?'清除关键词和承办人':query?'清除关键词':state.taskAgent?'清除承办人':'';
-  const message=clear?'没有符合当前筛选条件的事项。':state.taskFilter?`目前没有「${esc(state.taskFilter)}」事项。`:'还没有事项。可到「办事」提出需求。';
-  empty.innerHTML=`<p role="status">${message}</p>`+(clear?button(clear,'complete-task-reset-query'):'');
+  const message=clear?'没有符合当前筛选条件的事项。':state.taskFilter?`目前没有「${esc(state.taskFilter)}」事项。`:'还没有事项。可在「办事」页开始第一件事。';
+  empty.innerHTML=`<p>${message}</p>`+(clear?button(clear,'complete-task-reset-query'):'');
  }
  const count=$('[data-task-list-count]');if(count)count.textContent=`显示 ${visible} / ${rows.length} 项 · 示例数据仅存本地，不是账号真实事项`;
 }
