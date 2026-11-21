@@ -274,7 +274,7 @@ describe('JYT-UX-W05 mounted overview and message projection', () => {
       expect(overviewSource).to.include('padding:13px 14px 34px')
       expect(overviewSource).to.include('resize:none')
       expect(overviewSource).to.include('.overview-tabs button:hover')
-      expect(wrapper.text()).to.include('可添加参考资料')
+      expect(wrapper.get('.quick-material-open').element.disabled).to.equal(false)
       const request = wrapper.find('.overview-quick-request textarea')
       const create = wrapper.findAll('button').find(button => button.text() === '开始办事')
       expect(create.attributes('disabled')).to.equal('')
