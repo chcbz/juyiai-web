@@ -99,9 +99,9 @@
             :tabindex="embeddedHall && detailAllowed ? 0 : undefined"
             :aria-disabled="embeddedHall && !detailAllowed ? 'true' : undefined"
             :aria-label="embeddedHall ? `查看事项：${task.title}，${taskStatusText(task)}` : undefined"
-            @keydown.enter.self.prevent="embeddedHall && openTask(task)"
-            @keydown.space.self.prevent="embeddedHall && openTask(task)"
-            @click="openTask(task)"
+            @keydown.enter.self.prevent="embeddedHall && openTask(task, $event.currentTarget)"
+            @keydown.space.self.prevent="embeddedHall && openTask(task, $event.currentTarget)"
+            @click="openTask(task, $event.currentTarget)"
           >
             <div class="task-head">
               <strong>{{ task.title }}</strong>
@@ -140,7 +140,7 @@
       <div v-if="detailTask" class="bounty-modal-overlay" :class="{ 'is-embedded-page': embeddedHall }" @click.self="embeddedHall ? null : closeTask()">
         <section class="bounty-modal" :role="embeddedHall ? 'region' : 'dialog'" :aria-label="embeddedHall ? '事项详情' : null" :aria-modal="embeddedHall ? null : 'true'">
           <div class="bounty-modal-header">
-            <button v-if="embeddedHall" type="button" class="bounty-back-button hall-tool" @click="closeTask" aria-label="返回事项列表" title="返回事项列表"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
+            <button v-if="embeddedHall" ref="detailBackButton" type="button" class="bounty-back-button hall-tool" @click="closeTask" aria-label="返回事项列表" title="返回事项列表"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
             <h3>{{ embeddedHall ? '事项详情' : '榜文点将' }}</h3>
             <button v-if="!embeddedHall" class="modal-close hall-tool" @click="closeTask" aria-label="关闭事项详情" title="关闭事项详情"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
           </div>
@@ -597,12 +597,15 @@ const submitKeyword = event => {
 }
 
 const modalTask = ref(null)
+const detailBackButton = ref(null)
+let listOpener = null
 const requirementCreateInputSummary = computed(() => {
   const intent = props.requirementCreateState?.intent
   const refs = (intent?.schemaVersion === 2 ? intent.body?.attachments : intent?.body?.inputRefs) || []
   return refs.length ? refs.map(item => `${item.fileId} v${item.version}`).join('、') : '无资料'
 })
 watch(() => [props.identityScope, props.authorizationGeneration], () => {
+  listOpener = null
   modalTask.value = null
 }, { flush: 'sync' })
 const detailTask = computed(() => modalTask.value)
@@ -811,16 +814,35 @@ const taskAssigneeIds = (task) => {
   return task.assignedAgentId ? [task.assignedAgentId] : []
 }
 
-const openTask = (task) => {
+const openTask = (task, trigger) => {
   if (props.embeddedHall && !props.detailAllowed && !modalTask.value) return false
+  listOpener = props.embeddedHall ? trigger ?? null : null
   modalTask.value = task
   emit('select-task', task)
+  if (listOpener) nextTick(() => {
+    if (props.resourcesActive && listOpener === trigger && modalTask.value?.id === task.id) {
+      detailBackButton.value?.focus({ preventScroll: true })
+    }
+  })
 }
 
 const closeTask = () => {
+  const origin = listOpener
   modalTask.value = null
-  emit('select-task', null)
+  if (!origin) {
+    emit('select-task', null)
+    return
+  }
+  emit('select-task', null, { fromTaskList: true })
+  nextTick(() => {
+    if (listOpener !== origin || modalTask.value) return
+    listOpener = null
+    if (!props.resourcesActive || !props.detailAllowed) return
+    const target = origin.isConnected ? origin : statusStrip.value?.querySelector('[aria-pressed="true"]') || agentFilterControl.value
+    target?.focus({ preventScroll: true })
+  })
 }
+watch(() => props.resourcesActive, active => { if (!active) listOpener = null }, { flush: 'sync' })
 
 watch(() => props.selectedTask, (task) => {
   if (!task) {

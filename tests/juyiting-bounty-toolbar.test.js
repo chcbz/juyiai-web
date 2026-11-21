@@ -107,6 +107,28 @@ describe('Bounty task toolbar', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('focuses the detail return button and restores the originating row, not the first row', async () => {
+    const tasks = ['a', 'b'].map(id => ({ id, title: id, status: 'open' }))
+    const w = mount(Panel, { attachTo: document.body, props: { ...props, tasks } })
+    try {
+      const row = w.findAll('.task-card')[1]
+      await row.trigger('keydown.space')
+      expect(document.activeElement).to.equal(w.get('.bounty-back-button').element)
+      w.vm.back()
+      await Vue.nextTick()
+      expect(document.activeElement).to.equal(row.element)
+      expect(w.emitted('select-task').at(-1)).to.deep.equal([null, { fromTaskList: true }])
+      await row.trigger('click')
+      await w.setProps({ tasks: [] })
+      await w.get('.bounty-back-button').trigger('click')
+      expect(document.activeElement).to.equal(w.get('select').element)
+      w.vm.openTask(tasks[0])
+      await Vue.nextTick()
+      w.vm.back()
+      expect(w.emitted('select-task').at(-1)).to.deep.equal([null])
+    } finally { w.unmount() }
+  })
+
   it('reveals a focused status within the strip without scrolling the document', async () => {
     const wrapper = mount(Panel, { props })
     try {

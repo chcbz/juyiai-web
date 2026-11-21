@@ -64,7 +64,7 @@ syncCurrentComposer=function(panel){optimizedComposer(panel);const ctx=conversat
 const completionMore=showMore;
 showMore=function(){closeDiscussionTools($('.composer-more'));completionMore();$('.composer-more-panel .composer-add-materials')?.remove();const more=$('.composer-more');if(more)more.setAttribute('aria-expanded',String(!!$('.composer-more-panel')));};
 const optimizedSupplement=renderSupplement;
-renderSupplement=function(){optimizedSupplement();document.title=labels[page]+' · 界面优化基准（离线交互）';const note=$('.baseline-provenance');if(note)note.textContent='四阶段办事 · 2026-10-17 · 离线示例';
+renderSupplement=function(){if(page!=='detail')matterListReturn=null;optimizedSupplement();document.title=labels[page]+' · 界面优化基准（离线交互）';const note=$('.baseline-provenance');if(note)note.textContent='四阶段办事 · 2026-10-17 · 离线示例';
  $$('.workbench-account-action,.workbench-sidebar-account').forEach(e=>{e.disabled=false;e.dataset.prototypePage='account';});
  const brand=$('.workbench-brand');if(brand){brand.dataset.prototypePage='home';}
  if(page==='create'||unifiedTask()&&['chat','detail','results'].includes(page)){const crumb=$('.workbench-breadcrumb strong');if(crumb)crumb.textContent=page==='create'?'提出需求':'议事';if(page==='chat'){const title=$('#juyiting-floating-panel-title');if(title)title.textContent='议事';}}
@@ -156,6 +156,19 @@ function matterAttentionReason(ctx){
  return ctx.task?.phase==='受阻'?'办理受阻，请查看原因':'';
 }
 function listedMatterClass(ctx){return 'task-state-'+({'待确认承办':'open','进行中':'running','待验收':'reviewing','已完成':'done','已取消':'cancelled'}[listedMatterStatus(ctx)]||'unknown');}
+let matterListReturn=null;
+function taskScrollHost(list){
+ for(let el=list;el;el=el.parentElement){if(/auto|scroll/.test(getComputedStyle(el).overflowY)&&el.scrollHeight>el.clientHeight)return el;}
+ return document.scrollingElement;
+}
+function openListedMatterFrom(trigger){
+ const key=trigger.dataset.matterKey,list=trigger.closest('.task-list');
+ const origin=page==='tasks'&&list?{key,top:taskScrollHost(list).scrollTop}:null;
+ openListedMatter(key);
+ if(page!=='detail')return;
+ matterListReturn=origin;
+ if(origin)$('.production-page-header .bounty-back-button')?.focus({preventScroll:true});
+}
 function openListedMatter(key){
  ensureMatterLibrary();
  if(state.task&&key===currentMatterKey()){go('detail');return;}
@@ -202,7 +215,9 @@ function simplifyHome(){
 function renderInteractiveList(){
  if(page==='home'){simplifyHome();return;}
  if(page!=='tasks')return;
- const rows=listedMatters(),list=$('.task-list');
+ // Opening an existing fixture does not move it to the top of the task list.
+ const rows=listedMatters(),keys=Object.keys(state.matterLibrary),list=$('.task-list');
+ rows.sort((a,b)=>keys.indexOf(a.key)-keys.indexOf(b.key));
  if(list){
   list.innerHTML=rows.map(({key,ctx,current})=>`<article class="task-card${current?' selected':''}" data-matter-key="${esc(key)}" data-action="complete-open-matter" tabindex="0" role="button" aria-label="查看事项：${esc(ctx.task.title)}"><div class="task-head"><strong>${esc(ctx.task.title)}</strong><span class="${listedMatterClass(ctx)}">${esc(listedMatterStatus(ctx))}</span></div>${ctx.task.description?.trim()&&ctx.task.description.trim()!==ctx.task.title?.trim()?`<p class="task-excerpt">${esc(ctx.task.description)}</p>`:''}${matterAttentionReason(ctx)?`<p class="matter-attention-reason">${esc(matterAttentionReason(ctx))}</p>`:''}<div class="task-meta">${ctx.agent?`<span>承办：${esc(ctx.agent.name)}</span>`:''}<span>#${esc(ctx.task.id||key)}</span>${ctx.task.archived?'<span>已归档</span>':''}${(ctx.task.requiredAbilities||[]).map(a=>`<span class="task-skill">${esc(a)}</span>`).join('')}</div></article>`).join('')+'<div class="mmd baseline-empty empty-list" role="status" hidden></div>';
   scoped(list,'data-v-9209fea5');
@@ -406,7 +421,12 @@ document.addEventListener('click',event=>{
  if(action==='complete-record-reload'){state.completedReadState='loading';renderFormalResults();setTimeout(()=>{if(!state.task?.complete)return;state.completedReadState='ready';if(page==='results')renderFormalResults();},500);return;}
  if(action==='complete-record-archive'){dialog('收入案卷','<p>仅将本事项收入个人案卷，不改变已完成状态、成果或验收记录。</p>',button('确认收入案卷','complete-record-archive-confirm','class="mmd-primary"'));return;}
  if(action==='complete-record-archive-confirm'){state.task.archived=true;$('dialog[open]')?.close();persist();render();feedback('已收入案卷（仅离线演示）');return;}
- if(action==='complete-page-back'){go(t.dataset.page);return;}
+ if(action==='complete-page-back'){
+  const origin=page==='detail'&&t.dataset.page==='tasks'?matterListReturn:null;
+  go(t.dataset.page);
+  if(origin){const list=$('.task-list');if(list){taskScrollHost(list).scrollTop=origin.top;const card=[...list.querySelectorAll('.task-card:not([inert]):not([hidden])')].find(row=>row.dataset.matterKey===origin.key);(card||$('.task-search select'))?.focus({preventScroll:true});}}
+  return;
+ }
  if(action==='complete-recommend-agent'){if(!awaitingAssignment()||!demoAgents.some(([id])=>id===t.dataset.agent))return;state.task.assignmentCandidate=t.dataset.agent;renderDetail();$('.recommendation-alternative').open=true;$(`[data-action=complete-recommend-agent][data-agent="${state.task.assignmentCandidate}"]`)?.focus();persist();return;}
  if(action==='complete-acceptance-review'){reviewAcceptance();return;}
  if(action==='complete-acceptance-record'){finalDraft=[...state.final];dialog('已验收成果',`<p>以下为本事项已确认的固定版本。</p><div class="mmd-attachments">${deliveryList()}</div>`);return;}
@@ -827,7 +847,7 @@ function handleAllPageAction(action,t){
 
  if(action.startsWith('complete-workspace-')&&['complete-workspace-history-demo','complete-workspace-history-more','complete-workspace-partial-demo','complete-workspace-detail-demo','complete-workspace-detail-retry'].includes(action)){const id=state.fileId||'ref-brief',meta=state.fileMeta[id]||(state.fileMeta[id]={});if(action==='complete-workspace-history-demo'){meta.demoHistory=true;meta.demoHistoryLoaded=false;meta.demoVersion='102';}if(action==='complete-workspace-history-more')meta.demoHistoryLoaded=true;if(action==='complete-workspace-partial-demo')meta.demoPartial=!meta.demoPartial;if(action==='complete-workspace-detail-demo')meta.demoDetailError=true;if(action==='complete-workspace-detail-retry'){meta.demoDetailError=false;feedback('已重新读取详情（离线示例），未再次上传。');}render();return true;}
 
- if(action==='complete-open-matter'){openListedMatter(t.dataset.matterKey);return true;}
+ if(action==='complete-open-matter'){openListedMatterFrom(t);return true;}
  if(action==='complete-agent-filter'){state.agentFilter=t.dataset.filter;renderAgents();persist();return true;}
  if(action==='complete-file-manage'){state.fileManage=!state.fileManage;render();return true;}
  if(action==='complete-help-step'){state.helpStep=Number(t.dataset.step);render();return true;}
@@ -848,7 +868,7 @@ document.addEventListener('change',e=>{if(e.target.matches('[data-library-source
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('dialog[open]')&&!['chat','private'].includes(page)){const back=$('.production-page-header [data-action=complete-page-back]');if(back){e.preventDefault();back.click();}}});
 
 document.addEventListener('change',e=>{if(e.target.matches('[data-complete-task-agent]')){state.taskAgent=e.target.value;applyTaskFilters();persist();}});
-document.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.matches('.task-card[data-matter-key]')){e.preventDefault();openListedMatter(e.target.dataset.matterKey);}});
+document.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.matches('.task-card[data-matter-key]')){e.preventDefault();e.target.click();}});
 
 document.addEventListener('change',e=>{if(e.target.matches('[data-workspace-version]')){const id=state.fileId||'ref-brief',meta=state.fileMeta[id]||(state.fileMeta[id]={});meta.demoVersion=e.target.value;render();}});
 

@@ -1678,7 +1678,7 @@ const {
   simulationEnabled
 })
 
-const selectTask = async (task) => {
+const selectTask = async (task, { fromTaskList = false } = {}) => {
   const returningToList = !task && Boolean(selectedTask.value) && activePanel.value === 'tasks'
   selectedTask.value = task
   if (task) {
@@ -1689,7 +1689,7 @@ const selectTask = async (task) => {
     if (identity !== hallIdentityScope.value || generation !== apiStore.authorizationGeneration || selectedTask.value?.id !== task.id) return false
     await loadTaskRecommendations(selectedTask.value)
     markRecommendedAgents(recommendedAgents.value.filter(agent => ['HIGH', 'MEDIUM'].includes(agent.recommendationLevel)))
-  } else if (returningToList) {
+  } else if (returningToList && !fromTaskList) {
     // Overview opens an exact detail without loading the underlying list.
     // On back, query the existing filters rather than exposing an uninitialized list.
     await loadTasks()
