@@ -146,23 +146,6 @@ describe('JuyiHall collaboration flow contract', () => {
     expect(chatSource).not.to.include("$emit('apply-template'")
   })
 
-  it('keeps both agent and task context in outgoing chat metadata', () => {
-    expect(hallConversationSource).to.include("const selectedAgentId = isVoiceSend ? sendContext.selectedAgentId : (Object.hasOwn(sendContext, 'selectedAgentId') ? sendContext.selectedAgentId : selectedAgent.value?.agentId)")
-    expect(hallConversationSource).to.include('const mentionAgentIds = Array.isArray(sendContext.mentionAgentIds)')
-    expect(hallConversationSource).to.include("const selectedTaskId = isVoiceSend ? sendContext.selectedTaskId : (Object.hasOwn(sendContext, 'selectedTaskId') ? sendContext.selectedTaskId : selectedTask.value?.id)")
-    expect(hallConversationSource).to.include('selectedAgentId,')
-    expect(hallConversationSource).to.include('mentionAgentIds,')
-    expect(hallConversationSource).to.include('selectedTaskId')
-    expect(hallConversationSource).to.include('const metadataSource = isVoiceSend ? (sendContext.outgoingMetadata || {}) : (outgoingMetadata?.value || {})')
-    // Metadata is allowlisted at the transport boundary, so legacy display fields
-    // cannot be propagated into the durable chat request.
-    expect(hallConversationSource).to.include('const safeOutgoingMetadata = metadata => {')
-    expect(hallConversationSource).to.include("for (const key of ['libraryCitationId', 'librarySourceType'])")
-    expect(hallConversationSource).to.include('const safeMetadata = safeOutgoingMetadata(metadataSource)')
-    expect(hallConversationSource).to.include('...safeMetadata,')
-    expect(hallConversationSource).not.to.include('...metadataSource,')
-  })
-
   it('sends hall messages with durable public bounty and private conversation scopes', () => {
     expect(hallSource).to.include('useHallChatContext')
     expect(hallChatContextSource).to.include("const chatMode = ref('public')")

@@ -404,7 +404,7 @@ describe('useHallConversation scoped message loading', () => {
       globalStore: { getJiacn: 'jia-user', user: { name: 'legacy-name', nickname: '  Test\u0000er  ', username: 'account-name' } },
       log: { warn: () => {}, error: () => {} },
       openPanel: () => {},
-      outgoingMetadata: ref({ senderName: '旧客户端显示名', senderType: 'agent' }),
+      outgoingMetadata: ref({ libraryCitationId: 'paragraph-7', librarySourceType: 'archive', senderName: '旧客户端显示名', senderType: 'agent', unlisted: 'not authorized' }),
       portraitShortName: agent => agent?.name || agent?.agentId || '',
       selectedAgent: ref({ agentId: 'wuyong', name: 'Wu Yong' }),
       selectedTask: ref({ id: 'task-2', title: 'Task 2' }),
@@ -423,6 +423,8 @@ describe('useHallConversation scoped message loading', () => {
     })
     expect(payloads[0]).not.to.have.property('taskId')
     expect(payloads[0].targetAgentIds).to.deep.equal(['wuyong'])
+    expect(payloads[0].metadata).to.include({ selectedAgentId: 'wuyong', selectedTaskId: 'task-2', libraryCitationId: 'paragraph-7', librarySourceType: 'archive' })
+    expect(payloads[0].metadata).not.to.have.property('unlisted')
     expect(payloads[0].metadata.mentionAgentIds).to.deep.equal(['wuyong'])
     expect(payloads[0].metadata).not.to.have.any.keys('senderName', 'senderType')
     expect(payloads[0]).not.to.have.any.keys('senderName', 'senderType')
