@@ -5264,6 +5264,8 @@ button.hall-room {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) 44px;
     gap: 8px;
+    padding: 12px 16px 4px;
+    border-bottom: 0;
   }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search) { display: contents; }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button) {
@@ -5286,8 +5288,27 @@ button.hall-room {
     flex: 0 0 auto;
   }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
-    padding-left: 16px;
-    padding-right: 42px;
+    /* Inset the scrolling viewport itself, not just its first and last items. */
+    margin-inline: 16px;
+    padding: 4px 0 8px;
+    scroll-padding-inline: 0;
+    gap: 6px;
+    background: none;
+    border-bottom: 0;
+  }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button) {
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    font-size: 14px;
+  }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button.active) { font-weight: 600; }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button:focus-visible) { outline-offset: -2px; }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs small) {
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    font-variant-numeric: tabular-nums;
   }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-panel-body) { padding-top: 10px; }
 

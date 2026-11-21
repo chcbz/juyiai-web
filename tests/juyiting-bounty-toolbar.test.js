@@ -64,6 +64,18 @@ describe('Bounty task toolbar', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('reveals a focused status within the strip without scrolling the document', async () => {
+    const wrapper = mount(Panel, { props })
+    try {
+      const strip = wrapper.get('.task-status-tabs')
+      const last = strip.findAll('button').at(-1)
+      strip.element.getBoundingClientRect = () => ({ left: 16, right: 353 })
+      last.element.getBoundingClientRect = () => ({ left: 317, right: 401 })
+      await last.trigger('focusin')
+      expect(strip.element.scrollLeft).to.equal(48)
+    } finally { wrapper.unmount() }
+  })
+
   it('gives toolbar controls independent grid cells without obsolete creation styles', () => {
     const css = descriptor.styles[0].content
     expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 44px')

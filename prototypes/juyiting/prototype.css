@@ -53,3 +53,22 @@
 body[data-current-page=workspace] .file-search-context { display:flex; gap:12px; align-items:center; justify-content:space-between; margin:0 0 10px; padding:0 8px 0 12px; background:#f0f3ee; color:#374e41; border-radius:8px; font-size:14px; }
 .file-search-context span { min-width:0; overflow-wrap:anywhere; }
 .file-search-context button { flex:none; min-height:44px; padding:0 8px; border:0; background:transparent; color:#80402e; text-decoration:underline; }
+
+/* A single, inset filter strip: only the current status needs emphasis. */
+@media (max-width:760px) {
+  body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .panel-toolbar { padding:12px 16px 4px; border-bottom:0; }
+  body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-status-tabs {
+    margin-inline:16px; width:auto; min-width:0; padding:4px 0 8px !important; scroll-padding-inline:0; background:none; border-bottom:0;
+  }
+  body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-status-tabs button {
+    padding:0 8px !important; border:0; border-radius:8px; background:transparent; box-shadow:none; font-size:14px !important; color:#536057;
+  }
+  body[data-current-page=tasks] .home-overview .panel-overlay.theme-workbench .bounty-panel .task-status-tabs button.active { background:#f6e9e3; color:#803e2e; font-weight:600; }
+  body[data-current-page=tasks] .home-overview .bounty-panel .task-status-tabs button span { background:transparent; padding:0; margin:0 !important; font-variant-numeric:tabular-nums; }
+}
+@media (max-width:600px) {
+  body[data-current-page=workspace] .personal-workspace.is-hall-treasure { padding:20px 16px; }
+  body[data-current-page=workspace] .is-hall-treasure :is(.treasure-intro,.treasure-file-heading) { margin-bottom:20px; }
+  body[data-current-page=workspace] .is-hall-treasure .treasure-tabs { margin-bottom:18px; }
+  body[data-current-page=workspace] .is-hall-treasure .treasure-search input:not([type=file]) { font-size:max(16px,1rem); }
+}
