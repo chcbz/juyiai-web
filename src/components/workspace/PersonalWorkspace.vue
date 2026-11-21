@@ -459,23 +459,7 @@ onMounted(() => {
 onBeforeUnmount(() => { disposed = true; viewGeneration++; stopListObserver(); workspace.dispose(); execution.dispose() })
 </script>
 
-<style scoped src="../juyiting/hall-view-tabs.css">
-.is-hall-treasure .treasure-file-list:not(:empty) { border:1px solid #d9dfd7; border-radius:12px; background:#fffefa; }
-.is-hall-treasure .treasure-file-list .treasure-file-row { gap:12px; padding:9px 12px; border-bottom:1px solid #e0e4dc; }
-.is-hall-treasure .treasure-file-row:last-child { border-bottom:0; }
-.is-hall-treasure .treasure-file-row:first-child { border-radius:11px 11px 0 0; }
-.is-hall-treasure .treasure-file-row:last-child { border-radius:0 0 11px 11px; }
-.is-hall-treasure .file-family-label { display:grid; place-content:center; flex:0 0 52px; min-height:38px; box-sizing:border-box; padding:3px; border-radius:8px; background:#eaf0e9; color:#345643; text-align:center; font:600 12px/1.3 system-ui,sans-serif; }
-.is-hall-treasure [data-family="PDF"] { background:#f8eae4; color:#843e30; }
-.is-hall-treasure [data-family="IMAGE"] { background:#e6eff5; color:#2e526a; }
-.is-hall-treasure [data-family="AUDIO"] { background:#efeaf5; color:#5e4973; }
-.is-hall-treasure .file-list-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
-.is-hall-treasure .file-list-copy strong { font-size:16px; line-height:1.45; }
-.is-hall-treasure .file-list-copy p { margin:3px 0 0; color:#59665c; font-size:13px; }
-.is-hall-treasure .treasure-intro h2 { margin:0; font-size:clamp(21px,2vw,26px); line-height:1.3; }
-.is-hall-treasure .treasure-intro p { margin:6px 0 0; color:#59665c; }
-
-</style>
+<style scoped src="../juyiting/hall-view-tabs.css"></style>
 
 <style scoped>
 .treasure-list-status { padding: 16px; text-align: center; color: var(--hall-text-muted, #68716b); }
@@ -575,6 +559,23 @@ onBeforeUnmount(() => { disposed = true; viewGeneration++; stopListObserver(); w
 .treasure-preview { min-height:140px; margin-top:14px; padding:18px; border:1px solid #dfd2bd; border-radius:8px; background:#fffdf8; }.treasure-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }.treasure-preview img { max-width:100%; height:auto; }.treasure-manage-danger { margin-top:32px; padding-top:20px; border-top:1px solid #d6bf99; }
 @media(max-width:600px) { .personal-workspace.is-hall-treasure { padding:20px 16px; }.treasure-intro { align-items:flex-start; }.treasure-content h2 { font-size:19px; }.treasure-tabs { gap:4px;overflow-x:auto; }.treasure-tabs button { flex:none;padding:8px 12px;white-space:nowrap; }.treasure-version-tools{column-gap:8px;row-gap:5px}.treasure-file-row { padding:16px 0; } }
 @media(max-height:500px) { .personal-workspace.is-hall-treasure { padding:16px 20px; }.treasure-intro,.treasure-file-heading { margin-bottom:12px; }.treasure-tabs { margin-bottom:10px; }.treasure-file-row { padding:12px 0; } }
+
+.is-hall-treasure .treasure-file-list:not(:empty) { border:1px solid #d9dfd7; border-radius:12px; background:#fffefa; }
+.is-hall-treasure .treasure-file-list .treasure-file-row { gap:12px; padding:9px 12px; border-bottom:1px solid #e0e4dc; }
+.is-hall-treasure .treasure-file-row:last-child { border-bottom:0; }
+.is-hall-treasure .treasure-file-row:first-child { border-radius:11px 11px 0 0; }
+.is-hall-treasure .treasure-file-row:last-child { border-radius:0 0 11px 11px; }
+.is-hall-treasure .file-family-label { display:grid; place-content:center; flex:0 0 52px; min-height:38px; box-sizing:border-box; padding:3px; border-radius:8px; background:#eaf0e9; color:#345643; text-align:center; font:600 12px/1.3 system-ui,sans-serif; }
+.is-hall-treasure [data-family="PDF"] { background:#f8eae4; color:#843e30; }
+.is-hall-treasure [data-family="IMAGE"] { background:#e6eff5; color:#2e526a; }
+.is-hall-treasure [data-family="AUDIO"] { background:#efeaf5; color:#5e4973; }
+.is-hall-treasure .file-list-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
+.is-hall-treasure .file-list-copy strong { font-size:16px; line-height:1.45; }
+.is-hall-treasure .file-list-copy p { margin:3px 0 0; color:#59665c; font-size:13px; }
+.is-hall-treasure .treasure-intro h2 { margin:0; font-size:clamp(21px,2vw,26px); line-height:1.3; }
+.is-hall-treasure .treasure-intro p { margin:6px 0 0; color:#59665c; }
+
+
 </style>
 
 <style scoped>

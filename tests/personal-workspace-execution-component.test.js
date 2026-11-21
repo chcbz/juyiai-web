@@ -46,6 +46,9 @@ const executionMock = () => ({
 })
 
 describe('workspace document category and upload selector', () => {
+  it('ships the file type markers through an inline scoped style, not an external style import', () => {
+    assert.ok(descriptor.styles.some(style => !style.src && style.scoped && style.content.includes('.file-family-label')))
+  })
   it('labels DOCUMENT generically and offers supported JSON in the actual upload input', async () => {
     const workspace = workspaceMock(), execution = executionMock()
     workspace.items.value = ['a.json', 'a.md', 'a.html', 'a.docx'].map((name, i) => ({ fileId: `doc_${i}`, displayName: name, mediaFamily: 'DOCUMENT', originKind: 'USER_UPLOAD', latestVersion: '1', state: 'ACTIVE' }))
