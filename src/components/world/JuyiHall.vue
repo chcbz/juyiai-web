@@ -4963,7 +4963,6 @@ button.hall-room {
 .home-overview .panel-overlay.theme-workbench :deep(.library-tabs) { min-height: var(--hall-control-height); border-bottom: 1px solid var(--hall-border); overflow-x: auto; }
 .home-overview .panel-overlay.theme-workbench :deep(.overview-tabs button[aria-pressed="true"]),
 .home-overview .panel-overlay.theme-workbench :deep(.library-tabs button.active) { color: var(--hall-brand); border-bottom: 2px solid var(--hall-brand); }
-.home-overview .panel-overlay.theme-workbench :deep(.task-status-tabs),
 .home-overview .panel-overlay.theme-workbench :deep(.status-filter) { overflow-x: auto; flex-wrap: nowrap; }
 @media (max-width: 760px) {
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel),
@@ -5193,12 +5192,6 @@ button.hall-room {
   box-shadow: 0 5px 14px rgba(36, 46, 43, .07);
   transform: translateY(-1px);
 }
-.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
-  scroll-padding-inline: 16px 44px;
-  padding-right: 44px;
-  background: linear-gradient(90deg, var(--work-paper) 0, var(--work-paper) calc(100% - 28px), rgba(255,254,250,0) 100%);
-}
-
 .home-overview .panel-overlay.theme-workbench :deep(.treasure-content select) {
   border-color: var(--hall-border-strong);
   border-radius: var(--hall-radius-sm);
