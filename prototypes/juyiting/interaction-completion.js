@@ -177,6 +177,8 @@ function openListedMatter(key){
  saveMatterContext();Object.assign(state,matterContextSnapshot(ctx));state.matterSelectionKey=key;state.selectedAgent=state.agent?{...state.agent}:null;
  state.recommendation=null;persist();go('detail');
 }
+let taskSearchDraft=null,taskSecondaryExpanded=null;
+const taskStatusLabel=name=>name==='待确认承办'?'待承办':name;
 function applyTaskFilters(){
  const rows=listedMatters(),query=(state.taskSearch||'').trim().toLowerCase();let visible=0;
  for(const card of $$('.task-card')){
@@ -187,24 +189,25 @@ function applyTaskFilters(){
  const empty=$('.baseline-empty');if(empty){
   empty.hidden=visible>0;
   const clear=query&&state.taskAgent?'清除关键词和承办人':query?'清除关键词':state.taskAgent?'清除承办人':'';
-  const message=clear?'没有符合当前筛选条件的事项。':state.taskFilter?`目前没有「${esc(state.taskFilter)}」事项。`:'还没有事项。可在「办事」页开始第一件事。';
+  const statusLabel=state.taskFilter==='异常/历史'?(state.secondaryMatterFilter==='unknown'?'待核对':'历史'):taskStatusLabel(state.taskFilter);
+  const message=clear?'没有符合当前筛选条件的事项。':state.taskFilter?`目前没有「${esc(statusLabel)}」事项。`:'还没有事项。可在「办事」页开始第一件事。';
   empty.innerHTML=`<p>${message}</p>`+(clear?button(clear,'complete-task-reset-query'):'');
  }
+ const applied=$('.task-search-applied');if(applied)applied.textContent=state.taskSearch?`已搜索：${state.taskSearch}`:'';
  const count=$('[data-task-list-count]');if(count)count.textContent=`显示 ${visible} / ${rows.length} 项 · 示例数据仅存本地，不是账号真实事项`;
 }
 function simplifyHome(){
  $$('.workbench-create-action').forEach(e=>{e.dataset.prototypePage='create';});
- const aside=$('.overview-aside-card');if(aside)aside.innerHTML='<h3>待我处理</h3><p>查看待承办、进行中、待验收等事项。</p>'+button('查看待处理列表','complete-go','data-page=tasks');
- if(aside)scoped(aside,'data-v-d13db084');
+ const aside=$('.overview-aside-card');if(aside){aside.innerHTML='<h3>待我处理</h3><p>查看需要你继续处理的事项。</p>'+button('查看待处理列表','complete-needs-action','class="overview-aside-link"');scoped(aside,'data-v-d13db084');}
  const map=$('.overview-map-link');if(map)map.dataset.prototypePage='map';
- const heading=$('.overview-list-heading h3');if(heading)heading.textContent='接着上次办';
+ const tab=state.overviewTab||0;
+ const heading=$('.overview-list-heading h3');if(heading){heading.textContent=['接着上次办','待我处理','已归档'][tab];heading.tabIndex=-1;}
  const title=$('.overview-start-copy h2,.overview-start-copy h3');if(title)title.textContent='你想办成什么事？';
  const next=$('.overview-quick-request button.primary');if(next)next.textContent='开始办事';
 
  const intro=$('.overview-start-copy>p');if(intro)intro.textContent='点击“开始办事”先保存需求，确认承办后再交给好汉。补充要求、查看成果和验收都在议事中完成。';
  const all=$('.overview-list-heading [data-prototype-page="tasks"]');if(all)all.textContent='查看全部事项';
  const refresh=$$('.overview-list-heading button').find(b=>b.textContent==='刷新');if(refresh)refresh.dataset.action='complete-task-refresh';
- const tab=state.overviewTab||0;
  $$('.overview-tabs button').forEach((b,i)=>{b.textContent=['最近事项','待我处理','已归档'][i];});
  // Match the home projection: select the newest five, then reverse only needs-action.
  const rows=listedMatters().filter(({ctx})=>tab===0||tab===2&&ctx.task.archived||tab===1&&!ctx.task.archived&&(['待确认承办','进行中'].includes(listedMatterStatus(ctx))||!ctx.pending&&ctx.operation?.stage!=='pending'&&(listedMatterStatus(ctx)==='待验收'||!!matterAttentionReason(ctx))))
@@ -223,19 +226,23 @@ function renderInteractiveList(){
   scoped(list,'data-v-9209fea5');
  }
  const tabs=$('.task-status-tabs');
- const statuses=[...visibleMatterStatuses,'异常/历史'];
- if(state.taskFilter==='待确认承办')state.taskFilter='待承办'; // Preserve an existing saved status filter after the label change.
+ const activeSecondary=state.taskFilter==='异常/历史';
+ if(['待承办','待确认承办',''].includes(state.taskFilter||''))state.taskFilter='待确认承办';
  if(['待开工（已点将）','筹划中','议事中','办理中','需处理','受阻','待澄清'].includes(state.taskFilter))state.taskFilter='进行中';
  if(['已取消','已归档','失败'].includes(state.taskFilter))state.taskFilter='异常/历史';
- if(state.taskFilter&&!statuses.includes(state.taskFilter))state.taskFilter='';
- if(tabs){tabs.setAttribute('aria-label','事项状态');tabs.innerHTML=statuses.map(name=>button(name==='异常/历史'?'其他状态':`${name} <span>${rows.filter(r=>matchesMatterFilter(r.ctx,name)).length}</span>`,'complete-production-status',`data-status="${name}" aria-pressed="${state.taskFilter===name}" class="${state.taskFilter===name?'active':''} ${name==='异常/历史'?'task-status-secondary':''}"`)).join('');}
- if(tabs){const old=$('.task-secondary-filters');if(old)old.remove();if(state.taskFilter==='异常/历史'){
-  tabs.scrollLeft=tabs.scrollWidth;
-  const kind=state.secondaryMatterFilter||'history';const controls=[['history','历史'],['unknown','待核对']].map(([key,label])=>button(`${label} <small>${rows.filter(r=>matchesMatterFilter(r.ctx,'异常/历史',key)).length}</small>`,'complete-secondary-status',`data-kind="${key}" aria-pressed="${key===kind}"`)).join('');
-  tabs.insertAdjacentHTML('afterend',`<div class="task-secondary-filters" role="group" aria-label="其他事项状态">${controls}</div>`);
- }}
- const search=$('.task-search input');if(search){search.value=state.taskSearch||'';search.dataset.completeTaskSearch='true';}
- const agentFilter=$('.task-search select');if(agentFilter){
+ if(![...visibleMatterStatuses,'异常/历史'].includes(state.taskFilter))state.taskFilter='待确认承办';
+ if(tabs){
+  const kind=state.secondaryMatterFilter||'history',selected=state.taskFilter==='异常/历史';
+  const expanded=taskSecondaryExpanded??activeSecondary;
+  const chevron='<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  tabs.setAttribute('role','group');tabs.setAttribute('aria-label','事项状态');
+  tabs.innerHTML=visibleMatterStatuses.map(name=>button(`<span class="task-status-label">${taskStatusLabel(name)}</span><small>${rows.filter(r=>matchesMatterFilter(r.ctx,name)).length}</small>`,'complete-production-status',`data-status="${name}" aria-pressed="${state.taskFilter===name}" class="${state.taskFilter===name?'active':''}"`)).join('')+button(`其他状态${selected?' · '+(kind==='unknown'?'待核对':'历史'):''}${chevron}`,'complete-toggle-secondary',`aria-controls="prototype-task-secondary" aria-expanded="${expanded}" class="task-status-secondary${selected?' active':''}"`);
+  $('.task-secondary-filters')?.remove();
+  const controls=[['history','历史'],['unknown','待核对']].map(([key,label])=>button(`${label} <small>${rows.filter(r=>matchesMatterFilter(r.ctx,'异常/历史',key)).length}</small>`,'complete-secondary-status',`data-kind="${key}" aria-pressed="${selected&&key===kind}"`)).join('');
+  tabs.insertAdjacentHTML('afterend',`<div id="prototype-task-secondary" class="task-secondary-filters" role="group" aria-label="其他事项状态" ${expanded?'':'hidden'}>${controls}</div>`);
+ }
+ const search=$('.task-search input');if(search)search.value=taskSearchDraft??state.taskSearch??'';
+ const agentFilter=$('.task-assignee');if(agentFilter){
   const agents=new Map();for(const {ctx} of rows){if(ctx.agent?.id!=null)agents.set(String(ctx.agent.id),ctx.agent.name||String(ctx.agent.id));}
   if(state.taskAgent&&!agents.has(state.taskAgent))state.taskAgent='';
   agentFilter.innerHTML='<option value="">全部承办人</option>'+[...agents].map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');
@@ -428,7 +435,7 @@ document.addEventListener('click',event=>{
  if(action==='complete-page-back'){
   const origin=page==='detail'&&t.dataset.page==='tasks'?matterListReturn:null;
   go(t.dataset.page);
-  if(origin){const list=$('.task-list');if(list){taskScrollHost(list).scrollTop=origin.top;const card=[...list.querySelectorAll('.task-card:not([inert]):not([hidden])')].find(row=>row.dataset.matterKey===origin.key);(card||$('.task-search select'))?.focus({preventScroll:true});}}
+  if(origin){const list=$('.task-list');if(list){taskScrollHost(list).scrollTop=origin.top;const card=[...list.querySelectorAll('.task-card:not([inert]):not([hidden])')].find(row=>row.dataset.matterKey===origin.key);(card||$('.task-assignee'))?.focus({preventScroll:true});}}
   return;
  }
  if(action==='complete-recommend-agent'){if(!awaitingAssignment()||!demoAgents.some(([id])=>id===t.dataset.agent))return;state.task.assignmentCandidate=t.dataset.agent;renderDetail();$('.recommendation-alternative').open=true;$(`[data-action=complete-recommend-agent][data-agent="${state.task.assignmentCandidate}"]`)?.focus();persist();return;}
@@ -438,17 +445,19 @@ document.addEventListener('click',event=>{
  if(action==='complete-agent-confirm'){confirmMatterAgent();return;}
  if(handleDraftAction(action,t))return;
  if(handleSyncedAction(action,t))return;
- if(action==='complete-secondary-status'){state.secondaryMatterFilter=t.dataset.kind;render();$('.task-secondary-filters [aria-pressed=true]')?.focus({preventScroll:true});persist();return;}
- if(action==='complete-production-status'){state.taskFilter=state.taskFilter===t.dataset.status?'':t.dataset.status;render();return;}
+ if(action==='complete-toggle-secondary'){taskSecondaryExpanded=t.getAttribute('aria-expanded')!=='true';t.setAttribute('aria-expanded',String(taskSecondaryExpanded));$('#prototype-task-secondary').hidden=!taskSecondaryExpanded;return;}
+ if(action==='complete-secondary-status'){state.taskFilter='异常/历史';state.secondaryMatterFilter=t.dataset.kind;render();$('.task-secondary-filters [aria-pressed=true]')?.focus({preventScroll:true});persist();return;}
+ if(action==='complete-production-status'){taskSecondaryExpanded=false;state.taskFilter=t.dataset.status;render();$('.task-status-tabs [aria-pressed=true]')?.focus({preventScroll:true});persist();return;}
  if(action==='complete-task-refresh'){render();feedback('已重读同一份离线事项，没有创建或修改。');return;}
  if(action==='complete-material-library'){ctx.materialActionsOpen=false;renderComposerMaterialActions($('.chat-panel'),ctx.pending||!!(ctx.task?.complete||ctx.task?.cancelled));persist();openMaterials('chat');return;}
  if(action==='complete-materials'){$('.composer-more-panel')?.remove();$('.composer-more')?.setAttribute('aria-expanded','false');if(innerWidth<=720){ctx.materialActionsOpen=!ctx.materialActionsOpen;renderComposerMaterialActions($('.chat-panel'),ctx.pending||!!(ctx.task?.complete||ctx.task?.cancelled));}else openMaterials('chat');}
  if(action==='complete-go'){if(['detail','chat','results'].includes(t.dataset.page)&&!state.task){feedback('请先提出需求；或从页面与状态索引打开脱敏示例。');return;}if(t.dataset.page==='private'&&!state.privateAgentId){state.selectedAgent=state.selectedAgent||{id:'0',name:'宋江'};openPrivate();return;}go(t.dataset.page);}
  if(action==='complete-entries')openEntries();
  if(action==='complete-index')location.href='pages.html';
- if(action==='complete-overview-tab'){state.overviewTab=Number(t.dataset.tab);render();}
+ if(action==='complete-overview-tab'){state.overviewTab=Number(t.dataset.tab);render();$('.overview-tabs [aria-pressed=true]')?.focus({preventScroll:true});}
+ if(action==='complete-needs-action'){state.overviewTab=1;render();const h=$('.overview-list-heading h3');h?.focus({preventScroll:true});h?.scrollIntoView({block:'start',inline:'nearest',behavior:'instant'});return;}
  if(action==='complete-task-group'){state.taskGroup=t.dataset.group;state.taskFilter='';render();}
- if(action==='complete-task-reset-query'){state.taskSearch='';state.taskAgent='';render();($('.task-status-tabs [aria-pressed=true]')||$('.task-search select'))?.focus();}
+ if(action==='complete-task-reset-query'){taskSearchDraft=null;state.taskSearch='';state.taskAgent='';render();($('.task-secondary-filters:not([hidden]) [aria-pressed=true]')||$('.task-status-tabs .active')||$('.task-search input'))?.focus();}
  if(action==='complete-workspace-filter'){state.workspaceFilter=t.dataset.filter;render();}
  if(action==='complete-create-status'){state.simulation.create='ok';t.closest('dialog').close();feedback('示例核对：未受理。原草稿保留，可显式提交。');}
  if(action==='complete-reply-status'){if(unifiedTask()){state.task.phase='待你补充';}state.simulation.reply='ok';ctx.error=null;ctx.pending=false;state.baselineScenario='ready';renderChat();feedback('示例核对：未受理；核对草稿后显式发送，不自动重发。');}
@@ -502,12 +511,6 @@ showVoiceStatus=function(kind){
  const focus=recording?$('[data-action=complete-voice-stop]',root):$('.baseline-voice-status textarea',root);focus?.focus({preventScroll:true});
 };
 function mapVoiceActions(){for(const [a,b] of [['ui-voice-stop','complete-voice-stop'],['ui-voice-cancel','complete-voice-cancel'],['ui-voice-append','complete-voice-append'],['ui-voice-replace','complete-voice-replace']])$$(`[data-action="${a}"]`).forEach(e=>e.dataset.action=b);}
-function syncTaskSearch(e){
- if(!e.target.dataset.completeTaskSearch || e.isComposing || state.taskSearch===e.target.value)return;
- state.taskSearch=e.target.value;applyTaskFilters();persist();
-}
-document.addEventListener('input',syncTaskSearch);
-document.addEventListener('compositionend',syncTaskSearch);
 document.addEventListener('change',e=>{if(e.target.matches('[data-task-status]')){state.taskFilter=e.target.value;applyTaskFilters();persist();}});
 
 // Scoped 2026-10-13 source sync. All receipts below are explicitly local fixtures.
@@ -797,12 +800,25 @@ function syncTaskToolbar(){
  panel.dataset.uiSync='20261013';
  $$('.task-create-actions,.task-draft-actions,.task-create-form',panel).forEach(e=>e.remove());
  $$('.workbench-create-action').forEach(e=>{e.dataset.prototypePage='create';});
- const search=$('.task-search',bar);if(search){search.style.display='grid';search.style.gridTemplateColumns='minmax(0, 1fr) minmax(90px, 0.45fr)';search.style.gap='8px';}
- const input=$('input',search||bar),select=$('select',search||bar);
- if(input){input.style.gridColumn='auto';input.type='search';input.enterKeyHint='search';input.setAttribute('aria-label','搜索事项名称或编号');input.placeholder='名称或编号';input.dataset.completeTaskSearch='true';}
- if(select){select.style.gridColumn='auto';select.setAttribute('aria-label','按承办人筛选');if(select.options[0])select.options[0].textContent='全部承办人';}
+ const search=$('.task-search',bar);if(!search)return;
+ const input=$('input',search),select=$('select',search);
+ if(!input||!select)return;
+ select.classList.add('task-assignee');select.setAttribute('aria-label','按承办人筛选');
+ // Keep the select outside the form so a filter change cannot submit a draft.
+ search.after(select);
+ const form=document.createElement('form');form.className='task-search';form.setAttribute('role','search');form.setAttribute('aria-label','查找事项');
+ const submit=document.createElement('button');submit.type='submit';submit.className='task-search-submit';submit.textContent='搜索';
+ input.removeAttribute('style');input.type='search';input.enterKeyHint='search';input.setAttribute('aria-label','搜索事项名称或编号');input.placeholder='名称或编号';
+ let composing=false;
+ input.addEventListener('compositionstart',()=>{composing=true;});
+ input.addEventListener('compositionend',()=>{composing=false;taskSearchDraft=input.value;});
+ input.addEventListener('input',e=>{if(!composing&&!e.isComposing)taskSearchDraft=input.value;});
+ input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing&&!composing&&(e.repeat||e.keyCode===229))e.preventDefault();});
+ form.addEventListener('submit',e=>{e.preventDefault();e.stopImmediatePropagation();if(!composing){taskSearchDraft=null;state.taskSearch=input.value.trim();input.value=state.taskSearch;applyTaskFilters();persist();}});
+ form.append(input,submit);search.replaceWith(form);
+ bar.insertAdjacentHTML('beforeend','<p class="task-search-applied" role="status"></p>');
  const refresh=$(':scope > button',bar);if(refresh){refresh.classList.add('task-refresh');refresh.setAttribute('aria-label','刷新事项');refresh.title='刷新事项';refresh.dataset.action='complete-task-refresh';refresh.innerHTML=uiIcon('refresh');}
- bar.style.display='grid';bar.style.gridTemplateColumns='minmax(0, 1fr) 44px';bar.style.alignItems='center';bar.style.gap='8px';
+ bar.classList.add('task-query-toolbar');
 }
 
 // 2026-10-16: page-specific production structures, in the existing prototype only.

@@ -4904,21 +4904,19 @@ button.hall-room {
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar) {
   align-items: stretch; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--work-line); color: var(--work-muted);
 }
-.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search) { gap: 10px; }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search input),
-.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search select) {
+.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-assignee) {
   height: var(--hall-control-height); padding-inline: 12px; border-color: var(--hall-border-strong); border-radius: var(--hall-radius-sm); background: var(--work-paper); color: var(--work-ink);
 }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button) {
   min-height: var(--hall-control-height); background: var(--hall-surface-subtle); color: var(--work-ink); border: 1px solid var(--work-line);
 }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
-  gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--work-line); scrollbar-width: none;
+  gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--work-line);
 }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button) {
   flex: 0 0 auto; min-height: 44px; background: var(--hall-surface-subtle); color: var(--work-muted); border: 1px solid var(--work-line);
 }
-.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs::-webkit-scrollbar) { display: none; }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button.active) { background: var(--hall-surface-brand); color: var(--work-brand); border-color: #e3d8d0; }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs small) { min-width: 20px; box-sizing: border-box; background: var(--work-paper); color: inherit; text-align: center; }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-panel-body) { padding: 16px 20px 20px; background: var(--work-ground); }
@@ -5261,46 +5259,33 @@ button.hall-room {
   }
 
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) 44px;
     gap: 8px;
     padding: 12px 16px 4px;
     border-bottom: 0;
   }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search) { display: contents; }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button) {
-    width: 44px;
-    min-width: 44px;
-    padding: 0;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-  /* Hide only the button label at phone widths. BountyActionIcon also renders a span. */
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button .toolbar-label) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button .bounty-action-icon) {
-    display: inline-flex;
-    flex: 0 0 auto;
-  }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
-    /* Inset the scrolling viewport itself, not just its first and last items. */
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-inline: 16px;
     padding: 4px 0 8px;
-    scroll-padding-inline: 0;
     gap: 6px;
     background: none;
     border-bottom: 0;
   }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button) {
-    padding: 0 8px;
-    border: 0;
-    background: transparent;
-    font-size: 14px;
+    min-width: 0;
+    padding: 4px 2px;
+    font-size: .875rem;
+    line-height: 1.15;
+  }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button:not(.task-status-secondary)) {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs .task-status-secondary) {
+    grid-column: 1 / -1;
+    justify-self: start;
+    padding-inline: 10px;
   }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button.active) { font-weight: 600; }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button:focus-visible) { outline-offset: -2px; }

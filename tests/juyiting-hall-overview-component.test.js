@@ -74,6 +74,25 @@ const settle = async () => { await flushPromises(); await Vue.nextTick() }
 const props = { enabled: true, identityScope: 'tenant\u0000client\u0000owner-a', identityEpoch: 1 }
 
 describe('JYT-UX-W05 mounted overview and message projection', () => {
+  it('locates and focuses needs-action only from the overview shortcut', async () => {
+    const component = load({ execute: async () => response() })
+    const wrapper = mount(component, { props, attachTo: document.body })
+    try {
+      const heading = wrapper.get('.overview-list-heading h3')
+      const scrolls = []
+      heading.element.scrollIntoView = options => scrolls.push(options)
+      await wrapper.findAll('.overview-tabs button')[1].trigger('click')
+      expect(scrolls).to.have.length(0)
+      await wrapper.findAll('.overview-tabs button')[0].trigger('click')
+      await wrapper.get('.overview-aside-link').trigger('click')
+      await Vue.nextTick()
+      expect(heading.text()).to.equal('待我处理')
+      expect(wrapper.get('.overview-section').attributes('aria-label')).to.equal('待我处理')
+      expect(document.activeElement).to.equal(heading.element)
+      expect(scrolls).to.deep.equal([{ block: 'start', inline: 'nearest', behavior: 'instant' }])
+    } finally { wrapper.unmount() }
+  })
+
   it('uses the card thumbnail on the overview and enters the map only on click', async () => {
     const wrapper = mount(load({ execute: async () => response() }), { props })
     try {

@@ -33,7 +33,7 @@
     </template>
     <p v-else class="overview-intro">这里汇总需要你处理的事项。打开查看不会自动验收或归档。</p>
     <div class="overview-columns"><div class="overview-main">
-    <div class="overview-list-heading"><h3>{{ messagesOnly ? '待我处理' : archiveView ? '已归档' : selectedView === 'needsAction' ? '待我处理' : '接着上次办' }}</h3><div><button v-if="!messagesOnly" type="button" @click="emit('open-board')">查看全部事项</button><button type="button" :disabled="!enabled || model.state.value === 'loading'" @click="refresh" class="hall-tool" aria-label="刷新事项" title="刷新事项"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button></div></div>
+    <div class="overview-list-heading"><h3 ref="listHeading" tabindex="-1">{{ messagesOnly ? '待我处理' : archiveView ? '已归档' : selectedView === 'needsAction' ? '待我处理' : '接着上次办' }}</h3><div><button v-if="!messagesOnly" type="button" @click="emit('open-board')">查看全部事项</button><button type="button" :disabled="!enabled || model.state.value === 'loading'" @click="refresh" class="hall-tool" aria-label="刷新事项" title="刷新事项"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button></div></div>
     <nav v-if="!messagesOnly" class="overview-tabs" aria-label="事项范围">
       <button type="button" :aria-pressed="!archiveView && selectedView === 'recent'" @click="openView('recent')">最近事项</button>
       <button type="button" :aria-pressed="!archiveView && selectedView === 'needsAction'" @click="openView('needsAction')">待我处理</button>
@@ -59,7 +59,7 @@
       <section class="overview-aside-card"><h3>待我处理</h3><p v-if="model.state.value === 'loading'">正在核对待处理事项…</p><p v-else-if="model.sections.value.needsAction.status !== 'complete'">待处理列表可能不完整，请在事项页核对。</p>
         <p v-if="!attentionItems.length">{{ model.sections.value.needsAction.status === 'complete' ? '当前没有需要处理的事项。' : '当前没有已确认的待处理项。' }}</p>
         <button v-for="item in attentionItems" :key="`${item.ref.sourceType}:${item.ref.sourceId}`" type="button" :disabled="!canOpenHallItem(item) || Boolean(model.openingRef.value)" @click="openItem(item)"><span>{{ item.title || '未命名事项' }}<small>{{ statusText(item) }}</small></span><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>
-        <button class="overview-aside-link" type="button" @click="openView('needsAction')">查看待处理列表</button>
+        <button class="overview-aside-link" type="button" @click="openAttentionList">查看待处理列表</button>
       </section>
       <section class="overview-aside-card"><h3>找位好汉</h3><p>查看好汉的技能与当前状态。</p><button type="button" @click="emit('open-agents')">查看好汉名册</button></section>
     </aside></div>
@@ -69,7 +69,7 @@
 <script setup>
 import { useHallReturnReceiver } from '../../composables/juyiting/useHallPageReturn.js'
 import { taskStatusText } from '../../constants/juyiting.js'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { canOpenHallItem, HALL_SOURCES, useHallOverview } from '@/composables/juyiting/useHallOverview'
 import HallMaterialPicker from './HallMaterialPicker.vue'
 
@@ -155,7 +155,14 @@ const issuesFor = view => sourcesFor(view).filter(source => {
   const part = model.sections.value[view].partitions[source]
   return part.readError || part.errorCode || part.status === 'error' || part.status === 'partial'
 })
+const listHeading = ref(null)
 const openView = view => { archiveView.value = false; selectedView.value = view }
+const openAttentionList = async () => {
+  openView('needsAction')
+  await nextTick()
+  listHeading.value?.focus({ preventScroll: true })
+  listHeading.value?.scrollIntoView?.({ block: 'start', inline: 'nearest', behavior: 'instant' })
+}
 const loadMore = view => Promise.all(sourcesFor(view).filter(source => model.sections.value[view].partitions[source].nextCursor).map(source => model.loadPartition(view, source, { append: true })))
 const agentLabel = item => {
   const agent = props.agents.find(agent => agent.agentId === item.targetAgent?.agentId)
@@ -234,7 +241,8 @@ onBeforeUnmount(() => {
 .overview-map-link { flex:0 0 220px; height:132px; }
 .overview-map-link span { display:block; font-size:28px; letter-spacing:8px; margin-bottom:18px; }
 .overview-list-heading { display:flex; justify-content:space-between; align-items:center; margin:24px 0 8px; gap:12px; }
-.overview-list-heading h3 { font-size:21px; font-weight:500; }
+.overview-list-heading h3 { font-size:21px; font-weight:500; scroll-margin-block-start:4.5rem; }
+.overview-list-heading h3:focus-visible { outline:2px solid var(--hall-brand,#923f30); outline-offset:4px; }
 .overview-list-heading>div { display:flex; gap:8px; }
 .overview-list-heading button { border:0; font-size:14px; }
 .overview-tabs { display:flex; gap:8px; border-bottom:1px solid #d9c5a4; }

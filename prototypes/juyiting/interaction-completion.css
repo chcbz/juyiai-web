@@ -799,3 +799,26 @@ body[data-current-page=workspace] .file-list-copy strong { font-size:16px; line-
 body[data-current-page=workspace] .file-list-copy p { margin:3px 0 0; color:#59665c; font-size:13px; }
 body[data-current-page=workspace] .treasure-intro h2 { margin:0; font-size:clamp(21px,2vw,26px); line-height:1.3; }
 body[data-current-page=workspace] .treasure-intro p { margin:6px 0 0; color:#59665c; }
+
+/* Explicit task search and visible stages; mirror the Web layout, not the frozen snapshot. */
+.home-overview .panel-overlay.theme-workbench .bounty-panel .task-query-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,.55fr) 44px!important;align-items:center;gap:8px;padding-inline:20px}
+.home-overview .panel-overlay.theme-workbench .bounty-panel .task-search{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:6px;margin:0;min-width:0}
+.home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-search input{grid-column:1!important;padding-inline:10px;font-size:max(16px,1rem)}
+.home-overview .bounty-panel .task-query-toolbar .task-assignee{min-width:0;width:100%;height:44px;padding-inline:10px;border:1px solid var(--hall-border-strong,#ccd2c5);border-radius:8px;background:var(--work-paper,#fffefa);color:var(--work-ink,#242e2b)}
+.home-overview .bounty-panel .task-search .task-search-submit{min-height:44px;padding:0 14px;border:1px solid var(--hall-brand,#923f30);border-radius:8px;background:var(--hall-surface-brand,#f6eee8);color:var(--hall-brand,#923f30);font-weight:600;white-space:nowrap}
+.task-search-applied{grid-column:1/-1;margin:0;min-width:0;color:var(--hall-text-muted,#59665c);font-size:.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-search-applied:empty{position:absolute;width:1px;height:1px;overflow:hidden}
+.home-overview .bounty-panel .task-status-tabs{flex-wrap:wrap!important;overflow:visible!important;padding-inline:20px!important}
+.home-overview .bounty-panel .task-status-tabs button{justify-content:center;gap:4px}
+.home-overview .bounty-panel .task-status-tabs .task-status-label{display:inline!important;margin:0!important;padding:0!important;border:0;background:none;color:inherit;font-size:inherit;opacity:1}
+.home-overview .bounty-panel .task-status-tabs small{font-variant-numeric:tabular-nums}
+.task-status-secondary[aria-expanded=true] svg{transform:rotate(180deg)}
+.task-secondary-filters[hidden]{display:none!important}
+.overview-list-heading h3[tabindex]{scroll-margin-block-start:4.5rem}
+.overview-list-heading h3[tabindex]:focus-visible{outline:2px solid var(--hall-brand,#923f30);outline-offset:4px}
+@media(max-width:760px){
+ .home-overview .bounty-panel .task-status-tabs{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;margin-inline:16px!important;padding-inline:0!important}
+ .home-overview .bounty-panel .task-status-tabs button:not(.task-status-secondary){display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.15;white-space:normal;padding:4px 2px!important}
+ .home-overview .bounty-panel .task-status-tabs .task-status-secondary{grid-column:1/-1;justify-self:start}
+ .home-overview .bounty-panel .task-query-toolbar{padding-inline:16px}
+}
+@media(max-width:480px){.home-overview .panel-overlay.theme-workbench .bounty-panel .task-query-toolbar{grid-template-columns:minmax(0,1fr) 44px!important}.home-overview .bounty-panel .task-search{grid-column:1/-1}}

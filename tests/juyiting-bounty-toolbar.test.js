@@ -25,11 +25,14 @@ const props = {
 }
 
 describe('Bounty task toolbar', () => {
-  it('shows only search, assignee filter and accessible refresh in the embedded toolbar', async () => {
+  it('keeps the draft local until search, independently of refresh and assignee filtering', async () => {
     const wrapper = mount(Panel, { props })
     try {
       const toolbar = wrapper.get('.panel-toolbar')
-      expect(toolbar.findAll('button')).to.have.length(1)
+      expect(toolbar.findAll('button')).to.have.length(2)
+      const form = toolbar.get('form[role=search]')
+      expect(form.get('button[type=submit]').text()).to.equal('搜索')
+      expect(form.find('select').exists()).to.equal(false)
       expect(toolbar.text()).not.to.include('提出需求')
       expect(toolbar.find('.task-draft-actions').exists()).to.equal(false)
       expect(wrapper.find('.task-create-form').exists()).to.equal(false)
@@ -42,12 +45,22 @@ describe('Bounty task toolbar', () => {
         '', 'agent-a', 'agent-b'
       ])
       await toolbar.get('input').setValue(' 434 ')
-      expect(wrapper.emitted('update:taskKeyword').at(-1)).to.deep.equal(['434'])
-      await toolbar.get('input').trigger('keydown.enter')
+      expect(wrapper.emitted('update:taskKeyword')).to.equal(undefined)
+      expect(wrapper.emitted('load-tasks')).to.equal(undefined)
       await toolbar.get('select').setValue('agent-b')
       expect(wrapper.emitted('update:taskAgentFilter').at(-1)).to.deep.equal(['agent-b'])
       await toolbar.get('[aria-label="刷新事项"]').trigger('click')
+      expect(wrapper.emitted('update:taskKeyword')).to.equal(undefined)
+      expect(wrapper.emitted('load-tasks')).to.have.length(2)
+      await form.trigger('submit')
+      expect(wrapper.emitted('update:taskKeyword')).to.deep.equal([['434']])
       expect(wrapper.emitted('load-tasks')).to.have.length(3)
+      await wrapper.setProps({ taskKeyword: '434' })
+      expect(toolbar.get('.task-search-applied').text()).to.equal('已搜索：434')
+      await toolbar.get('input').setValue('new draft')
+      expect(toolbar.get('.task-search-applied').text()).to.equal('已搜索：434')
+      await wrapper.setProps({ identityScope: 'another-scope' })
+      expect(toolbar.get('input').element.value).to.equal('434')
       expect(wrapper.emitted('create-task')).to.equal(undefined)
     } finally { wrapper.unmount() }
   })
@@ -61,6 +74,7 @@ describe('Bounty task toolbar', () => {
       field.element.value = 'ban'
       await field.trigger('input')
       await field.trigger('keydown.enter', { isComposing: true })
+      await wrapper.get('form.task-search').trigger('submit')
       expect(wrapper.emitted('update:taskKeyword')).to.equal(undefined)
       expect(wrapper.emitted('load-tasks')).to.equal(undefined)
       field.element.value = '办理'
@@ -68,10 +82,11 @@ describe('Bounty task toolbar', () => {
       const EventCtor = globalThis.Event
       try { globalThis.Event = window.Event; await field.trigger('compositionend') }
       finally { globalThis.Event = EventCtor }
-      expect(wrapper.emitted('update:taskKeyword')).to.deep.equal([['办理']])
+      expect(wrapper.emitted('update:taskKeyword')).to.equal(undefined)
       await field.trigger('keyup.enter')
       expect(wrapper.emitted('load-tasks')).to.equal(undefined)
-      await field.trigger('keydown.enter')
+      await wrapper.get('form.task-search').trigger('submit')
+      expect(wrapper.emitted('update:taskKeyword')).to.deep.equal([['办理']])
       expect(wrapper.emitted('load-tasks')).to.have.length(1)
     } finally { wrapper.unmount() }
   })
@@ -80,7 +95,7 @@ describe('Bounty task toolbar', () => {
     const wrapper = mount(Panel, { props: { ...props, embeddedHall } })
     try {
       expect(wrapper.vm.openCreateRequirement).to.equal(undefined)
-      expect(wrapper.find('form').exists()).to.equal(false)
+      expect(wrapper.findAll('form').map(form => form.attributes('role'))).to.deep.equal(['search'])
       expect(wrapper.find('.task-draft-actions').exists()).to.equal(false)
       expect(wrapper.text()).not.to.include('提出需求')
       expect(wrapper.emitted('create-task')).to.equal(undefined)
@@ -143,26 +158,37 @@ describe('Bounty task toolbar', () => {
       await w.setProps({ taskStatusFilter: 'UNKNOWN' })
       expect(group.findAll('[aria-pressed="true"]').map(b => b.element)).to.deep.equal([unknown.element])
       await w.setProps({ taskStatusFilter: 'COMPLETED' })
-      expect(w.find('.task-secondary-filters').exists()).to.equal(false)
+      expect(w.get('.task-secondary-filters').element.style.display).to.equal('none')
     } finally { w.unmount() }
   })
 
-  it('reveals a focused status within the strip without scrolling the document', async () => {
-    const wrapper = mount(Panel, { props })
+  it('opens and closes other states without applying a choice, and labels a collapsed selection', async () => {
+    const taskStatusFilters = [{ value: 'COMPLETED', label: '已完成' }, { value: 'HISTORY', label: '历史' }, { value: 'UNKNOWN', label: '待核对' }]
+    const w = mount(Panel, { props: { ...props, taskStatusFilter: 'COMPLETED', taskStatusFilters, taskStatusCount: () => 123 } })
     try {
-      const strip = wrapper.get('.task-status-tabs')
-      const last = strip.findAll('button').at(-1)
-      strip.element.getBoundingClientRect = () => ({ left: 16, right: 353 })
-      last.element.getBoundingClientRect = () => ({ left: 317, right: 401 })
-      await last.trigger('focusin')
-      expect(strip.element.scrollLeft).to.equal(48)
-    } finally { wrapper.unmount() }
+      const toggle = w.get('.task-status-secondary')
+      const group = w.get('.task-secondary-filters')
+      expect(toggle.attributes('aria-controls')).to.equal(group.attributes('id'))
+      expect(toggle.attributes('aria-expanded')).to.equal('false')
+      await toggle.trigger('click')
+      expect(toggle.attributes('aria-expanded')).to.equal('true')
+      expect(group.find('[aria-pressed="true"]').exists()).to.equal(false)
+      expect(w.emitted('set-status-filter')).to.equal(undefined)
+      expect(w.emitted('load-tasks')).to.equal(undefined)
+      await group.findAll('button')[1].trigger('click')
+      expect(w.emitted('set-status-filter')).to.deep.equal([['UNKNOWN']])
+      await w.setProps({ taskStatusFilter: 'UNKNOWN' })
+      await toggle.trigger('click')
+      expect(toggle.text()).to.equal('其他状态 · 待核对')
+      expect(toggle.attributes('aria-expanded')).to.equal('false')
+      expect(w.emitted('set-status-filter')).to.have.length(1)
+    } finally { w.unmount() }
   })
 
   it('gives toolbar controls independent grid cells without obsolete creation styles', () => {
     const css = descriptor.styles[0].content
-    expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 44px')
-    expect(css).to.include('.task-search { display: contents; }')
+    expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) 44px')
+    expect(css).to.include('grid-template-columns: minmax(0, 1fr) auto;')
     expect(css).not.to.match(/\.task-search input,[^{}]*\.task-material-picker\s*\{/)
     expect(css).not.to.include('.task-create-form')
   })

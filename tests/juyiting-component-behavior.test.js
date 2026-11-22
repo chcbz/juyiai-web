@@ -1788,6 +1788,8 @@ describe('JuyiHall component behavior', () => {
     try {
       expect(wrapper.findAll('.task-status-tabs button')).to.have.length(2)
       await wrapper.findAll('.task-status-tabs button').at(-1).trigger('click')
+      expect(wrapper.emitted('set-status-filter')).to.equal(undefined)
+      await wrapper.findAll('.task-secondary-filters button').at(-1).trigger('click')
       expect(wrapper.emitted('set-status-filter')).to.deep.equal([['UNKNOWN']])
       await wrapper.setProps({ taskStatusFilter: 'UNKNOWN' })
       expect(wrapper.findAll('.task-secondary-filters button')).to.have.length(2)

@@ -7,26 +7,32 @@
       class="bounty-source"
     >
       <div class="panel-toolbar">
-        <div class="task-search">
+        <form class="task-search" role="search" aria-label="查找事项" @submit.prevent="submitKeyword">
           <input
-            v-model.trim="searchKeyword"
+            v-model="searchDraft"
             type="search"
             enterkeyhint="search"
             aria-label="搜索事项名称或编号"
             placeholder="名称或编号"
-            @keydown.enter="submitKeyword"
+            @compositionstart="searchComposing = true"
+            @compositionend="searchComposing = false"
+            @blur="searchComposing = false"
+            @keydown.enter="guardSearchEnter"
           />
-          <select
-            ref="agentFilterControl"
-            :value="taskAgentFilter"
-            aria-label="按承办人筛选"
-            @change="$emit('update:taskAgentFilter', $event.target.value); $emit('load-tasks')"
-          >
-            <option value="">全部承办人</option>
-            <option v-for="agent in taskAgentOptions" :key="agent.agentId" :value="agent.agentId">{{ agent.displayName }}</option>
-          </select>
-        </div>
+          <button class="task-search-submit" type="submit">搜索</button>
+        </form>
+        <select
+          ref="agentFilterControl"
+          class="task-assignee"
+          :value="taskAgentFilter"
+          aria-label="按承办人筛选"
+          @change="$emit('update:taskAgentFilter', $event.target.value); $emit('load-tasks')"
+        >
+          <option value="">全部承办人</option>
+          <option v-for="agent in taskAgentOptions" :key="agent.agentId" :value="agent.agentId">{{ agent.displayName }}</option>
+        </select>
         <button class="task-refresh hall-tool" type="button" aria-label="刷新事项" title="刷新事项" @click="$emit('load-tasks')"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button>
+        <p class="task-search-applied" role="status">{{ taskKeyword ? `已搜索：${taskKeyword}` : '' }}</p>
       </div>
 
       <section v-if="requirementCreateState && requirementCreateState.status !== 'IDLE'" class="requirement-create-recovery" role="status">
@@ -57,36 +63,43 @@
       <p v-if="countsLoading" class="task-data-state" role="status">榜文数目统计中…</p>
       <p v-else-if="countsErrorMessage && countsErrorMessage !== errorMessage" class="task-data-state is-error" role="alert">{{ countsErrorMessage }}</p>
 
-      <div ref="statusStrip" class="task-status-tabs" aria-label="事项状态" @focusin="revealStatusFilter">
+      <div ref="statusStrip" class="task-status-tabs" role="group" aria-label="事项状态">
         <button
           v-for="item in primaryStatusFilters"
           :key="item.value"
           :class="{ active: taskStatusFilter === item.value }"
           type="button"
+          class="hall-filter"
           :aria-pressed="taskStatusFilter === item.value"
-          @click="$emit('set-status-filter', item.value)"
-         class="hall-filter">
-          {{ item.label }}
+          @click="selectPrimaryStatus(item.value)"
+        >
+          <span>{{ item.label }}</span>
           <small>{{ taskStatusCount(item.value) }}</small>
         </button>
         <button
+          v-if="secondaryStatusFilters.length"
+          ref="secondaryStatusToggle"
           type="button"
+          class="hall-filter task-status-secondary"
           :class="{ active: secondaryStatusActive }"
-          :aria-pressed="secondaryStatusActive"
-          :aria-expanded="secondaryStatusActive"
-          @click="openSecondaryStatus"
-         class="hall-filter">其他状态</button>
+          :aria-controls="secondaryStatusId"
+          :aria-expanded="secondaryStatusExpanded"
+          @click="secondaryStatusExpanded = !secondaryStatusExpanded"
+        >
+          {{ secondaryStatusActive ? `其他状态 · ${statusLabel}` : '其他状态' }}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" /></svg>
+        </button>
       </div>
 
-      <div v-if="secondaryStatusActive" class="task-secondary-filters" role="group" aria-label="其他事项状态">
-        <span v-if="!embeddedHall">其他状态</span>
+      <div v-if="secondaryStatusFilters.length" v-show="secondaryStatusExpanded" :id="secondaryStatusId" ref="secondaryStatusGroup" class="task-secondary-filters" role="group" aria-label="其他事项状态">
         <button
           v-for="item in secondaryStatusFilters"
           :key="item.value"
           type="button"
+          class="hall-filter"
           :aria-pressed="taskStatusFilter === item.value"
-          @click="$emit('set-status-filter', item.value)"
-         class="hall-filter">{{ item.label }} <small>{{ taskStatusCount(item.value) }}</small></button>
+          @click="selectStatus(item.value)"
+        >{{ item.label }} <small>{{ taskStatusCount(item.value) }}</small></button>
       </div>
       <div class="task-panel-body">
         <div class="task-list">
@@ -491,24 +504,13 @@ const recommendationStateText = state => ({
 import { assignedTaskTarget, assigneeProviderText, assigneeAvailabilityText } from '@/composables/juyiting/hallAssigneeCandidates.js'
 import { projectHallTask } from '../../composables/juyiting/hallTaskPresentation.js'
 import { canCancelOrdinaryTask, ordinaryTaskVersion, isTerminalMatter } from '../../composables/juyiting/useHallOrdinaryCancellation.js'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 import HallRequirementEditor from './HallRequirementEditor.vue'
 import HallTaskResources from './HallTaskResources.vue'
 import WorkItemPlanPanel from './WorkItemPlanPanel.vue'
 import TeamRecommendationPanel from './TeamRecommendationPanel.vue'
 import TaskMaterialLinks from '@/components/personal-workspace/TaskMaterialLinks.vue'
 import { formatWen, isCanonicalWenAmount } from '@/utils/wenAmount'
-
-// Native horizontal scrolling also follows keyboard focus without scrolling the page.
-const revealStatusFilter = event => {
-  const button = event.target?.closest?.('button')
-  const row = event.currentTarget
-  if (!button || !row) return
-  const target = button.getBoundingClientRect()
-  const viewport = row.getBoundingClientRect()
-  if (target.left < viewport.left) row.scrollLeft += target.left - viewport.left
-  else if (target.right > viewport.right) row.scrollLeft += target.right - viewport.right
-}
 
 const props = defineProps({
   embeddedHall: { type: Boolean, default: false },
@@ -587,13 +589,19 @@ const emit = defineEmits([
   'update:taskKeyword'
 ])
 
-// Native v-model keeps intermediate IME text in the input until composition ends.
-const searchKeyword = computed({
-  get: () => props.taskKeyword,
-  set: value => emit('update:taskKeyword', value)
-})
-const submitKeyword = event => {
-  if (!event.isComposing && event.keyCode !== 229 && !event.repeat) emit('load-tasks')
+// Editable text is local until submit; pagination, refresh and other filters use the parent query.
+const searchDraft = ref(props.taskKeyword)
+const searchComposing = ref(false)
+watch(() => props.taskKeyword, keyword => { searchDraft.value = keyword })
+const guardSearchEnter = event => {
+  if (!event.isComposing && !searchComposing.value && (event.keyCode === 229 || event.repeat)) event.preventDefault()
+}
+const submitKeyword = () => {
+  if (searchComposing.value) return
+  const keyword = searchDraft.value.trim()
+  searchDraft.value = keyword
+  if (keyword !== props.taskKeyword) emit('update:taskKeyword', keyword)
+  emit('load-tasks')
 }
 
 const modalTask = ref(null)
@@ -606,6 +614,8 @@ const requirementCreateInputSummary = computed(() => {
 })
 watch(() => [props.identityScope, props.authorizationGeneration], () => {
   listOpener = null
+  searchDraft.value = props.taskKeyword
+  searchComposing.value = false
   modalTask.value = null
 }, { flush: 'sync' })
 const detailTask = computed(() => modalTask.value)
@@ -764,22 +774,35 @@ const confirmMatterAgent = () => {
   emit('assign-task', detailTask.value, agent)
 }
 const statusStrip = ref(null)
+const secondaryStatusGroup = ref(null)
+const secondaryStatusToggle = ref(null)
+const secondaryStatusId = useId()
 const agentFilterControl = ref(null)
 const statusLabel = computed(() => props.taskStatusFilters.find(item => item.value === props.taskStatusFilter)?.label)
 const clearFiltersLabel = computed(() => props.taskKeyword
   ? (props.taskAgentFilter ? '清除关键词和承办人' : '清除关键词')
   : (props.taskAgentFilter ? '清除承办人' : ''))
 const clearListFilters = () => {
+  searchDraft.value = ''
   if (props.taskKeyword) emit('update:taskKeyword', '')
   if (props.taskAgentFilter) emit('update:taskAgentFilter', '')
   emit('load-tasks')
-  const control = statusStrip.value?.querySelector('[aria-pressed="true"]') || agentFilterControl.value
+  const control = secondaryStatusActive.value
+    ? (secondaryStatusExpanded.value && secondaryStatusGroup.value?.querySelector('[aria-pressed="true"]')) || secondaryStatusToggle.value
+    : statusStrip.value?.querySelector('[aria-pressed="true"]') || agentFilterControl.value
   control?.focus()
 }
 const primaryStatusFilters = computed(() => props.taskStatusFilters.filter(item => !['HISTORY', 'UNKNOWN'].includes(item.value)))
 const secondaryStatusFilters = computed(() => props.taskStatusFilters.filter(item => ['HISTORY', 'UNKNOWN'].includes(item.value)))
 const secondaryStatusActive = computed(() => ['HISTORY', 'UNKNOWN'].includes(props.taskStatusFilter))
-const openSecondaryStatus = () => { if (!secondaryStatusActive.value) emit('set-status-filter', Number(props.taskStatusCount('UNKNOWN')) > 0 ? 'UNKNOWN' : 'HISTORY') }
+const secondaryStatusExpanded = ref(secondaryStatusActive.value)
+watch(() => props.taskStatusFilter, () => { secondaryStatusExpanded.value = secondaryStatusActive.value })
+watch(() => [props.identityScope, props.authorizationGeneration], () => { secondaryStatusExpanded.value = secondaryStatusActive.value })
+const selectStatus = value => { if (value !== props.taskStatusFilter) emit('set-status-filter', value) }
+const selectPrimaryStatus = value => {
+  secondaryStatusExpanded.value = false
+  selectStatus(value)
+}
 const simpleMatterStatus = task => props.taskStatusText(task)
 const taskPresentation = task => projectHallTask({ task })
 const hasTaskAction = (task, action) => taskPresentation(task).actions.includes(action)
@@ -932,7 +955,7 @@ button:disabled {
 
 .panel-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 44px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) 44px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
@@ -953,10 +976,44 @@ button:disabled {
   color: #4a3423;
 }
 
-.task-search { display: contents; }
+.task-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+.panel-toolbar .task-search-submit {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--hall-brand, #923f30);
+  border-radius: var(--hall-radius-sm, 8px);
+  background: var(--hall-surface-brand, #f6eee8);
+  color: var(--hall-brand, #923f30);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.task-search-applied {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  color: var(--hall-text-muted, #59665c);
+  font-size: .875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Keep the empty status region in the accessibility tree without taking up a row. */
+.task-search-applied:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+@media (max-width: 480px) {
+  .panel-toolbar { grid-template-columns: minmax(0, 1fr) 44px; }
+  .task-search { grid-column: 1 / -1; }
+}
 
 .task-search input,
-.task-search select {
+.task-assignee {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -970,7 +1027,8 @@ button:disabled {
 }
 
 .task-search input:focus-visible,
-.task-search select:focus-visible,
+.task-assignee:focus-visible,
+.task-search-submit:focus-visible,
 .task-refresh:focus-visible {
   outline: 2px solid var(--work-brand, #a44330);
   outline-offset: 2px;
@@ -981,14 +1039,6 @@ button:disabled {
   height: 44px;
   padding: 0;
   border: 1px solid var(--work-line, #d7c3a2);
-}
-
-.task-refresh .toolbar-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
 }
 
 .requirement-create-recovery {
@@ -1018,28 +1068,29 @@ button:disabled {
 
 .task-status-tabs {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
-  overscroll-behavior-x: contain;
   flex: 0 0 auto;
   gap: 8px;
   padding: 0 12px 12px;
-  overflow-x: auto;
 }
 
 .task-status-tabs button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   min-height: 44px;
   padding: 0 10px;
   border-radius: 8px;
   background: #efe0c6;
   color: #4a3423;
-  white-space: nowrap;
+  max-width: 100%;
 }
 
+.task-status-secondary svg { flex: none; }
+.task-status-secondary[aria-expanded="true"] svg { transform: rotate(180deg); }
 .task-status-tabs button:focus-visible { outline: 2px solid var(--hall-brand, #8d2d22); outline-offset: -2px; }
 
 .task-status-tabs button.active {
@@ -1052,7 +1103,8 @@ button:disabled {
   padding: 1px 5px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.28);
-  font-size: 11px;
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-panel-body {
