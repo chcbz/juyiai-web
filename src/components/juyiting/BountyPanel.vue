@@ -31,7 +31,20 @@
           <option value="">全部承办人</option>
           <option v-for="agent in taskAgentOptions" :key="agent.agentId" :value="agent.agentId">{{ agent.displayName }}</option>
         </select>
-        <button class="task-refresh hall-tool" type="button" aria-label="刷新事项" title="刷新事项" @click="$emit('load-tasks')"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button>
+        <button
+          v-if="secondaryStatusFilters.length"
+          ref="secondaryStatusToggle"
+          type="button"
+          class="hall-filter task-status-secondary"
+          :class="{ active: secondaryStatusActive }"
+          :aria-controls="secondaryStatusId"
+          :aria-expanded="secondaryStatusExpanded"
+          @click="secondaryStatusExpanded = !secondaryStatusExpanded"
+        >
+          {{ secondaryStatusActive ? `状态：${statusLabel}` : '其他状态' }}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" /></svg>
+        </button>
+        <button class="task-refresh hall-tool" type="button" aria-label="刷新事项" title="刷新事项" :aria-busy="(loading && !hasMore) || countsLoading" @click="$emit('load-tasks')"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button>
         <p class="task-search-applied" role="status">{{ taskKeyword ? `已搜索：${taskKeyword}` : '' }}</p>
       </div>
 
@@ -58,12 +71,10 @@
         <p>旧资金榜已停止操作；原结果仍待核对，不会重发、转换或删除此记录。</p>
       </section>
 
-      <p v-if="loading" class="task-data-state" role="status">悬赏榜读取中…</p>
-      <p v-else-if="errorMessage" class="task-data-state is-error" role="alert">{{ errorMessage }}</p>
-      <p v-if="countsLoading" class="task-data-state" role="status">榜文数目统计中…</p>
-      <p v-else-if="countsErrorMessage && countsErrorMessage !== errorMessage" class="task-data-state is-error" role="alert">{{ countsErrorMessage }}</p>
+      <p v-if="!loading && errorMessage" class="task-data-state is-error" role="alert">{{ errorMessage }}</p>
+      <p v-if="!countsLoading && countsErrorMessage && countsErrorMessage !== errorMessage" class="task-data-state is-error" role="alert">{{ countsErrorMessage }}</p>
 
-      <div ref="statusStrip" class="task-status-tabs" role="group" aria-label="事项状态">
+      <div ref="statusStrip" class="task-status-tabs" role="group" aria-label="事项状态" :aria-busy="countsLoading">
         <button
           v-for="item in primaryStatusFilters"
           :key="item.value"
@@ -76,22 +87,9 @@
           <span>{{ item.label }}</span>
           <small>{{ taskStatusCount(item.value) }}</small>
         </button>
-        <button
-          v-if="secondaryStatusFilters.length"
-          ref="secondaryStatusToggle"
-          type="button"
-          class="hall-filter task-status-secondary"
-          :class="{ active: secondaryStatusActive }"
-          :aria-controls="secondaryStatusId"
-          :aria-expanded="secondaryStatusExpanded"
-          @click="secondaryStatusExpanded = !secondaryStatusExpanded"
-        >
-          {{ secondaryStatusActive ? `其他状态 · ${statusLabel}` : '其他状态' }}
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" /></svg>
-        </button>
       </div>
 
-      <div v-if="secondaryStatusFilters.length" v-show="secondaryStatusExpanded" :id="secondaryStatusId" ref="secondaryStatusGroup" class="task-secondary-filters" role="group" aria-label="其他事项状态">
+      <div v-if="secondaryStatusFilters.length" v-show="secondaryStatusExpanded" :id="secondaryStatusId" ref="secondaryStatusGroup" class="task-secondary-filters" role="group" aria-label="其他事项状态" :aria-busy="countsLoading">
         <button
           v-for="item in secondaryStatusFilters"
           :key="item.value"
@@ -101,7 +99,7 @@
           @click="selectStatus(item.value)"
         >{{ item.label }} <small>{{ taskStatusCount(item.value) }}</small></button>
       </div>
-      <div class="task-panel-body">
+      <div class="task-panel-body" :aria-busy="loading">
         <div class="task-list">
           <article
             v-for="task in tasks"
@@ -134,12 +132,9 @@
             </div>
           </article>
           <p v-if="errorMessage" class="task-pagination-status"><button type="button" :disabled="loading" @click="$emit(hasMore ? 'load-more-tasks' : 'load-tasks')">重试加载</button></p>
-          <p
-            v-else-if="hasMore"
-            ref="taskListEnd"
-            class="task-pagination-status"
-            role="status"
-          >{{ loading ? '正在加载更多事项…' : '向下滚动自动加载' }}</p>
+          <div v-else-if="hasMore" ref="taskListEnd" class="task-page-sentinel" aria-hidden="true">
+            <span v-if="loading" class="task-page-spinner" />
+          </div>
           <p v-else-if="!loading && tasks.length" class="task-pagination-status" role="status">已显示全部事项</p>
           <div v-if="!loading && !errorMessage && !hasMore && !tasks.length" class="empty-list">
             <p role="status">{{ clearFiltersLabel ? '没有符合当前筛选条件的事项。' : statusLabel ? `目前没有「${statusLabel}」事项。` : '还没有事项。可在「办事」页开始第一件事。' }}</p>
@@ -887,6 +882,19 @@ defineExpose({ openTask, canGoBack, back })
 </script>
 <style scoped>
 .task-pagination-status { padding: 16px; text-align: center; color: var(--hall-text-muted, #68716b); }
+.task-page-sentinel { display: grid; place-items: center; min-height: 28px; }
+.task-page-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  color: var(--hall-brand, #923f30);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .task-page-spinner, .task-refresh[aria-busy="true"] svg { animation: task-list-spin .85s linear infinite; }
+}
+@keyframes task-list-spin { to { transform: rotate(1turn); } }
 .bounty-panel {
   position: relative;
   display: flex;
@@ -955,12 +963,12 @@ button:disabled {
 
 .panel-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) 44px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) auto 44px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 6px;
+  padding: 10px 16px 4px;
   color: #765f40;
   font-size: 13px;
 }
@@ -1007,8 +1015,8 @@ button:disabled {
 }
 /* Keep the empty status region in the accessibility tree without taking up a row. */
 .task-search-applied:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
-@media (max-width: 480px) {
-  .panel-toolbar { grid-template-columns: minmax(0, 1fr) 44px; }
+@media (max-width: 520px) {
+  .panel-toolbar { grid-template-columns: minmax(0, 1fr) auto 44px; }
   .task-search { grid-column: 1 / -1; }
 }
 
@@ -1029,12 +1037,14 @@ button:disabled {
 .task-search input:focus-visible,
 .task-assignee:focus-visible,
 .task-search-submit:focus-visible,
+.task-status-secondary:focus-visible,
 .task-refresh:focus-visible {
   outline: 2px solid var(--work-brand, #a44330);
   outline-offset: 2px;
 }
 
 .panel-toolbar .task-refresh {
+  grid-column: -2 / -1;
   width: 44px;
   height: 44px;
   padding: 0;
@@ -1089,6 +1099,15 @@ button:disabled {
   max-width: 100%;
 }
 
+.panel-toolbar .task-status-secondary {
+  min-height: 44px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: .8125rem;
+  white-space: nowrap;
+}
+.panel-toolbar .task-status-secondary.active { background: var(--hall-surface-brand, #f6eee8); color: var(--hall-brand, #923f30); }
+.panel-toolbar .task-refresh[aria-busy="true"] { color: var(--hall-brand, #923f30); }
 .task-status-secondary svg { flex: none; }
 .task-status-secondary[aria-expanded="true"] svg { transform: rotate(180deg); }
 .task-status-tabs button:focus-visible { outline: 2px solid var(--hall-brand, #8d2d22); outline-offset: -2px; }

@@ -166,7 +166,7 @@ describe('Bounty task toolbar', () => {
     const taskStatusFilters = [{ value: 'COMPLETED', label: '已完成' }, { value: 'HISTORY', label: '历史' }, { value: 'UNKNOWN', label: '待核对' }]
     const w = mount(Panel, { props: { ...props, taskStatusFilter: 'COMPLETED', taskStatusFilters, taskStatusCount: () => 123 } })
     try {
-      const toggle = w.get('.task-status-secondary')
+      const toggle = w.get('.panel-toolbar .task-status-secondary')
       const group = w.get('.task-secondary-filters')
       expect(toggle.attributes('aria-controls')).to.equal(group.attributes('id'))
       expect(toggle.attributes('aria-expanded')).to.equal('false')
@@ -179,15 +179,41 @@ describe('Bounty task toolbar', () => {
       expect(w.emitted('set-status-filter')).to.deep.equal([['UNKNOWN']])
       await w.setProps({ taskStatusFilter: 'UNKNOWN' })
       await toggle.trigger('click')
-      expect(toggle.text()).to.equal('其他状态 · 待核对')
+      expect(toggle.text()).to.equal('状态：待核对')
       expect(toggle.attributes('aria-expanded')).to.equal('false')
       expect(w.emitted('set-status-filter')).to.have.length(1)
     } finally { w.unmount() }
   })
 
+  it('marks list and counts busy without copy or a false empty state, and keeps errors actionable', async () => {
+    const w = mount(Panel, { props: { ...props, loading: true, countsLoading: true } })
+    try {
+      const body = w.get('.task-panel-body')
+      const statuses = w.get('.task-status-tabs')
+      const refresh = w.get('.task-refresh')
+      expect(body.attributes('aria-busy')).to.equal('true')
+      expect(statuses.attributes('aria-busy')).to.equal('true')
+      expect(refresh.attributes('aria-busy')).to.equal('true')
+      expect(w.find('.empty-list').exists()).to.equal(false)
+      expect(w.find('.task-data-state').exists()).to.equal(false)
+      await w.setProps({ loading: false, errorMessage: '事项连接失败' })
+      expect(body.attributes('aria-busy')).to.equal('false')
+      expect(refresh.attributes('aria-busy')).to.equal('true')
+      expect(w.get('[role="alert"]').text()).to.equal('事项连接失败')
+      await w.get('.task-pagination-status button').trigger('click')
+      expect(w.emitted('load-tasks')).to.have.length(1)
+      await w.setProps({ countsLoading: false, countsErrorMessage: '计数暂不可用' })
+      expect(statuses.attributes('aria-busy')).to.equal('false')
+      expect(refresh.attributes('aria-busy')).to.equal('false')
+      expect(w.findAll('[role="alert"]').map(a => a.text())).to.deep.equal(['事项连接失败', '计数暂不可用'])
+      await w.setProps({ errorMessage: '', countsErrorMessage: '' })
+      expect(w.find('.empty-list').exists()).to.equal(true)
+    } finally { w.unmount() }
+  })
+
   it('gives toolbar controls independent grid cells without obsolete creation styles', () => {
     const css = descriptor.styles[0].content
-    expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) 44px')
+    expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) auto 44px')
     expect(css).to.include('grid-template-columns: minmax(0, 1fr) auto;')
     expect(css).not.to.match(/\.task-search input,[^{}]*\.task-material-picker\s*\{/)
     expect(css).not.to.include('.task-create-form')

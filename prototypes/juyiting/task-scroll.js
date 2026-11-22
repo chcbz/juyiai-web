@@ -14,20 +14,22 @@
     const seed = [...list.querySelectorAll('.task-card')];
     if (!seed.length) return;
     const footer = document.createElement('p');
-    footer.setAttribute('role', 'status');
-    footer.className = 'task-pagination-status';
-    footer.style.cssText = 'padding:16px;text-align:center;color:var(--hall-text-muted,#68716b)';
-    footer.textContent = '向下滚动自动加载（离线示例）';
+    footer.className = 'task-page-sentinel';
+    footer.hidden = seed.every(row => row.hidden);
+    footer.setAttribute('aria-hidden', 'true');
     list.append(footer);
     let batch = 0;
     observer = new IntersectionObserver(async entries => {
-      if (!entries.some(entry => entry.isIntersecting) || batch >= 3) return;
+      if (footer.hidden || !entries.some(entry => entry.isIntersecting) || batch >= 3) return;
       observer.unobserve(footer);
-      footer.textContent = '正在加载更多事项…';
+      footer.innerHTML = '<span class="task-page-spinner"></span>';
       await new Promise(resolve => setTimeout(resolve, 250));
       if (current !== generation) return;
+      footer.replaceChildren();
+      const visible = seed.filter(row => !row.hidden);
+      if (!visible.length) { observer.observe(footer); return; }
       batch += 1;
-      seed.forEach(row => {
+      visible.forEach(row => {
         const clone = row.cloneNode(true);
         clone.inert = true;
         clone.style.pointerEvents = 'none';
@@ -35,8 +37,12 @@
         if (title) title.textContent = `分页示例 ${batch} · ${title.textContent}`;
         footer.before(clone);
       });
-      footer.textContent = batch === 3 ? '已显示全部事项（离线示例）' : '向下滚动自动加载（离线示例）';
       if (batch < 3) observer.observe(footer);
+      else {
+        footer.removeAttribute('aria-hidden');
+        footer.setAttribute('role', 'status');
+        footer.textContent = '已显示全部事项（离线示例）';
+      }
     }, { rootMargin: '0px 0px 120px 0px' });
     observer.observe(footer);
   };

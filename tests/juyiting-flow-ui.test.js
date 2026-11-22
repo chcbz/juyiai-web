@@ -191,7 +191,7 @@ describe('flow gap actual UI consumers', () => {
       }
       expect(calls).to.deep.equal(['history', 'text'])
     } finally { wrapper.unmount() }
-    const css = parse(hall).descriptor.styles[0].content
+    const css = parse(hall).descriptor.styles.map(style => style.content).join('\n')
     const actions = css.match(/\.terminal-history-actions \{([^}]+)\}/)[1]
     expect(actions).to.include('flex-wrap: wrap').and.include('gap: 12px').and.include('margin: 16px 0')
     const button = css.match(/\.terminal-history-actions button \{([^}]+)\}/)[1]
@@ -363,8 +363,13 @@ describe('matters list scroll boundary', () => {
       expect(wrapper.emitted('load-more-tasks')).to.equal(undefined)
       first.callback([{ isIntersecting: true }]); first.callback([{ isIntersecting: true }])
       expect(wrapper.emitted('load-more-tasks')).to.have.length(1)
+      const sentinel = wrapper.get('.task-page-sentinel')
+      expect(sentinel.text()).to.equal('')
+      expect(sentinel.find('.task-page-spinner').exists()).to.equal(false)
       await wrapper.setProps({ loading: true })
-      expect(wrapper.get('.task-pagination-status').text()).to.equal('正在加载更多事项…')
+      expect(sentinel.find('.task-page-spinner').exists()).to.equal(true)
+      expect(sentinel.text()).to.equal('')
+      expect(wrapper.get('.task-panel-body').attributes('aria-busy')).to.equal('true')
       await wrapper.setProps({ loading: false, errorMessage: 'offline' })
       const count = observers.length
       expect(wrapper.find('.task-pagination-status button').text()).to.equal('重试加载')

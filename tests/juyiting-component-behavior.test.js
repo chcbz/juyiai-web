@@ -1786,8 +1786,8 @@ describe('JuyiHall component behavior', () => {
       taskStatusFilters: [{ label: '待承办', value: 'PENDING_ASSIGNMENT' }, { label: '历史', value: 'HISTORY' }, { label: '待核对', value: 'UNKNOWN' }]
     } })
     try {
-      expect(wrapper.findAll('.task-status-tabs button')).to.have.length(2)
-      await wrapper.findAll('.task-status-tabs button').at(-1).trigger('click')
+      expect(wrapper.findAll('.task-status-tabs button')).to.have.length(1)
+      await wrapper.get('.panel-toolbar .task-status-secondary').trigger('click')
       expect(wrapper.emitted('set-status-filter')).to.equal(undefined)
       await wrapper.findAll('.task-secondary-filters button').at(-1).trigger('click')
       expect(wrapper.emitted('set-status-filter')).to.deep.equal([['UNKNOWN']])

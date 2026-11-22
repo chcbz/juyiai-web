@@ -626,7 +626,6 @@ body[data-ui-revision] .matter-acceptance-strip button.mmd-primary:hover,body[da
 }
 
 /* Cancellation is a secondary history filter, not a fifth main step. */
-.task-status-tabs .task-status-secondary{margin-inline-start:auto;opacity:.85;}
 
 /* Acceptance belongs to the submitted result, not a fixed conversation banner. */
 body[data-ui-revision] .matter-state-card .matter-primary-actions{gap:10px;flex-wrap:wrap}
@@ -657,7 +656,6 @@ body[data-ui-revision] .mmd-result .result-actions>[data-action=complete-accepta
 /* Single scrollable state row; no extra statistics row. */
 .home-overview .bounty-panel .task-status-tabs{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:hidden!important;gap:6px!important;max-width:100%;scroll-padding:8px}
 .home-overview .bounty-panel .task-status-tabs button{flex:0 0 auto!important;white-space:nowrap;min-height:44px!important;padding:8px 12px!important}
-.home-overview .bounty-panel .task-status-tabs .task-status-secondary{margin-inline-start:0;opacity:1}
 .home-overview .all-pages-panel .discussion-readonly .hall-chat-composer{display:none!important}
 body[data-ui-revision] .discussion-readonly>.matter-acceptance-strip{flex-wrap:nowrap;padding:6px 10px;gap:8px;margin-bottom:max(8px,env(safe-area-inset-bottom))}
 .discussion-readonly>.matter-acceptance-strip small{display:none}
@@ -801,24 +799,35 @@ body[data-current-page=workspace] .treasure-intro h2 { margin:0; font-size:clamp
 body[data-current-page=workspace] .treasure-intro p { margin:6px 0 0; color:#59665c; }
 
 /* Explicit task search and visible stages; mirror the Web layout, not the frozen snapshot. */
-.home-overview .panel-overlay.theme-workbench .bounty-panel .task-query-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,.55fr) 44px!important;align-items:center;gap:8px;padding-inline:20px}
+.home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-query-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,.55fr) auto 44px!important;align-items:center;gap:6px;padding:10px 20px 4px;border-bottom:0}
 .home-overview .panel-overlay.theme-workbench .bounty-panel .task-search{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:6px;margin:0;min-width:0}
 .home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-search input{grid-column:1!important;padding-inline:10px;font-size:max(16px,1rem)}
 .home-overview .bounty-panel .task-query-toolbar .task-assignee{min-width:0;width:100%;height:44px;padding-inline:10px;border:1px solid var(--hall-border-strong,#ccd2c5);border-radius:8px;background:var(--work-paper,#fffefa);color:var(--work-ink,#242e2b)}
 .home-overview .bounty-panel .task-search .task-search-submit{min-height:44px;padding:0 14px;border:1px solid var(--hall-brand,#923f30);border-radius:8px;background:var(--hall-surface-brand,#f6eee8);color:var(--hall-brand,#923f30);font-weight:600;white-space:nowrap}
 .task-search-applied{grid-column:1/-1;margin:0;min-width:0;color:var(--hall-text-muted,#59665c);font-size:.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-search-applied:empty{position:absolute;width:1px;height:1px;overflow:hidden}
-.home-overview .bounty-panel .task-status-tabs{flex-wrap:wrap!important;overflow:visible!important;padding-inline:20px!important}
+.home-overview .bounty-panel .task-status-tabs{flex-wrap:wrap!important;overflow:visible!important;padding:4px 20px 8px!important}
 .home-overview .bounty-panel .task-status-tabs button{justify-content:center;gap:4px}
 .home-overview .bounty-panel .task-status-tabs .task-status-label{display:inline!important;margin:0!important;padding:0!important;border:0;background:none;color:inherit;font-size:inherit;opacity:1}
 .home-overview .bounty-panel .task-status-tabs small{font-variant-numeric:tabular-nums}
+.home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-query-toolbar .task-status-secondary{display:inline-flex;align-items:center;justify-content:center;gap:4px;width:auto;min-height:44px;padding:0 8px;border:1px solid var(--work-line,#e3e5dc);border-radius:8px;background:var(--hall-surface-subtle,#f3f3ed);color:var(--work-ink,#242e2b);font-size:.8125rem;white-space:nowrap}
+.home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-query-toolbar .task-status-secondary.active{background:var(--hall-surface-brand,#f6eee8);color:var(--hall-brand,#923f30);border-color:#e3d8d0}
+.task-status-secondary svg{flex:none}
 .task-status-secondary[aria-expanded=true] svg{transform:rotate(180deg)}
+.task-page-sentinel{display:grid;place-items:center;min-height:28px;margin:0}
+.task-page-sentinel[hidden]{display:none}
+.task-page-spinner{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;color:var(--hall-brand,#923f30)}
+.task-refresh[aria-busy=true]{color:var(--hall-brand,#923f30)!important}
+@media(prefers-reduced-motion:no-preference){
+ .task-page-spinner,.task-refresh[aria-busy=true] svg{animation:prototype-task-spin .85s linear infinite}
+}
+@keyframes prototype-task-spin{to{transform:rotate(1turn)}}
 .task-secondary-filters[hidden]{display:none!important}
 .overview-list-heading h3[tabindex]{scroll-margin-block-start:4.5rem}
 .overview-list-heading h3[tabindex]:focus-visible{outline:2px solid var(--hall-brand,#923f30);outline-offset:4px}
 @media(max-width:760px){
  .home-overview .bounty-panel .task-status-tabs{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;margin-inline:16px!important;padding-inline:0!important}
- .home-overview .bounty-panel .task-status-tabs button:not(.task-status-secondary){display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.15;white-space:normal;padding:4px 2px!important}
- .home-overview .bounty-panel .task-status-tabs .task-status-secondary{grid-column:1/-1;justify-self:start}
- .home-overview .bounty-panel .task-query-toolbar{padding-inline:16px}
+ .home-overview .bounty-panel .task-status-tabs button{display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.15;white-space:normal;padding:4px 2px!important}
+ .home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-query-toolbar{padding:8px 16px 2px}
+ .home-overview .bounty-panel .task-status-tabs{padding-block:4px 6px!important}
 }
-@media(max-width:480px){.home-overview .panel-overlay.theme-workbench .bounty-panel .task-query-toolbar{grid-template-columns:minmax(0,1fr) 44px!important}.home-overview .bounty-panel .task-search{grid-column:1/-1}}
+@media(max-width:520px){.home-overview .panel-overlay.theme-workbench .bounty-panel[data-ui-sync] .task-query-toolbar{grid-template-columns:minmax(0,1fr) auto 44px!important}.home-overview .bounty-panel .task-search{grid-column:1/-1}}

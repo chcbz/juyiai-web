@@ -279,11 +279,11 @@ describe('mounted Bounty read/manage surface and original recovery', () => {
   for (const embeddedHall of [true, false]) it(`does not expose creation in the task board (embedded=${embeddedHall})`, async () => {
     const wrapper = panel({ embeddedHall })
     expect(wrapper.vm.openCreateRequirement).to.equal(undefined)
-    expect(wrapper.find('form').exists()).to.equal(false)
+    expect(wrapper.findAll('form').map(form => form.attributes('role'))).to.deep.equal(['search'])
     wrapper.vm.openTask({ id: 'existing-task', title: '既有事项', status: 'open' })
     await nextTick()
     expect(wrapper.emitted('select-task').at(-1)[0].id).to.equal('existing-task')
-    expect(wrapper.find('form').exists()).to.equal(false)
+    expect(wrapper.findAll('form').map(form => form.attributes('role'))).to.deep.equal(['search'])
     expect(wrapper.emitted('create-task')).to.equal(undefined)
   })
 

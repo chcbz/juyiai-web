@@ -4902,7 +4902,7 @@ button.hall-room {
 .home-overview .panel-overlay.theme-workbench.is-chat-overlay :deep(.hall-message.USER) { background: #eaf0e6; }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel) { background: var(--work-paper); color: var(--work-ink); }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar) {
-  align-items: stretch; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--work-line); color: var(--work-muted);
+  align-items: stretch; padding: 10px 20px 4px; border-bottom: 0; color: var(--work-muted);
 }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-search input),
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-assignee) {
@@ -4911,8 +4911,12 @@ button.hall-room {
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button) {
   min-height: var(--hall-control-height); background: var(--hall-surface-subtle); color: var(--work-ink); border: 1px solid var(--work-line);
 }
+.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > .task-status-secondary.active) {
+  background: var(--hall-surface-brand); color: var(--work-brand); border-color: #e3d8d0;
+}
+.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > .task-refresh[aria-busy="true"]) { color: var(--work-brand); }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
-  gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--work-line);
+  gap: 8px; padding: 4px 20px 8px; border-bottom: 1px solid var(--work-line);
 }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button) {
   flex: 0 0 auto; min-height: 44px; background: var(--hall-surface-subtle); color: var(--work-muted); border: 1px solid var(--work-line);
@@ -4971,8 +4975,6 @@ button.hall-room {
   .home-overview .panel-overlay.theme-workbench :deep(.persona-catalog-panel),
   .home-overview .panel-overlay.theme-workbench :deep(.hall-draft-editor) { --hall-page-gutter: 16px; }
   .home-overview .panel-overlay.theme-workbench :deep(.hall-overview.is-messages) { padding: 16px; }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar) { padding: 12px 16px; }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) { padding: 10px 16px; }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-panel-body) { padding: 12px 16px 20px; }
 }
 
@@ -5252,15 +5254,14 @@ button.hall-room {
   }
 
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar) {
-    gap: 8px;
-    padding: 12px 16px 4px;
-    border-bottom: 0;
+    padding: 8px 16px 2px;
   }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-assignee) { padding-inline: 10px; }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-inline: 16px;
-    padding: 4px 0 8px;
+    padding: 4px 0 6px;
     gap: 6px;
     background: none;
     border-bottom: 0;
@@ -5270,15 +5271,8 @@ button.hall-room {
     padding: 4px 2px;
     font-size: .875rem;
     line-height: 1.15;
-  }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button:not(.task-status-secondary)) {
     flex-direction: column;
     gap: 2px;
-  }
-  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs .task-status-secondary) {
-    grid-column: 1 / -1;
-    justify-self: start;
-    padding-inline: 10px;
   }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button.active) { font-weight: 600; }
   .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button:focus-visible) { outline-offset: -2px; }

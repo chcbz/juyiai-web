@@ -193,6 +193,7 @@ function applyTaskFilters(){
   const message=clear?'没有符合当前筛选条件的事项。':state.taskFilter?`目前没有「${esc(statusLabel)}」事项。`:'还没有事项。可在「办事」页开始第一件事。';
   empty.innerHTML=`<p>${message}</p>`+(clear?button(clear,'complete-task-reset-query'):'');
  }
+ const end=$('.task-page-sentinel');if(end)end.hidden=!visible;
  const applied=$('.task-search-applied');if(applied)applied.textContent=state.taskSearch?`已搜索：${state.taskSearch}`:'';
  const count=$('[data-task-list-count]');if(count)count.textContent=`显示 ${visible} / ${rows.length} 项 · 示例数据仅存本地，不是账号真实事项`;
 }
@@ -236,7 +237,8 @@ function renderInteractiveList(){
   const expanded=taskSecondaryExpanded??activeSecondary;
   const chevron='<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   tabs.setAttribute('role','group');tabs.setAttribute('aria-label','事项状态');
-  tabs.innerHTML=visibleMatterStatuses.map(name=>button(`<span class="task-status-label">${taskStatusLabel(name)}</span><small>${rows.filter(r=>matchesMatterFilter(r.ctx,name)).length}</small>`,'complete-production-status',`data-status="${name}" aria-pressed="${state.taskFilter===name}" class="${state.taskFilter===name?'active':''}"`)).join('')+button(`其他状态${selected?' · '+(kind==='unknown'?'待核对':'历史'):''}${chevron}`,'complete-toggle-secondary',`aria-controls="prototype-task-secondary" aria-expanded="${expanded}" class="task-status-secondary${selected?' active':''}"`);
+  tabs.innerHTML=visibleMatterStatuses.map(name=>button(`<span class="task-status-label">${taskStatusLabel(name)}</span><small>${rows.filter(r=>matchesMatterFilter(r.ctx,name)).length}</small>`,'complete-production-status',`data-status="${name}" aria-pressed="${state.taskFilter===name}" class="${state.taskFilter===name?'active':''}"`)).join('');
+  $('.task-refresh')?.insertAdjacentHTML('beforebegin',button(`${selected?'状态：'+(kind==='unknown'?'待核对':'历史'):'其他状态'}${chevron}`,'complete-toggle-secondary',`aria-controls="prototype-task-secondary" aria-expanded="${expanded}" class="task-status-secondary${selected?' active':''}"`));
   $('.task-secondary-filters')?.remove();
   const controls=[['history','历史'],['unknown','待核对']].map(([key,label])=>button(`${label} <small>${rows.filter(r=>matchesMatterFilter(r.ctx,'异常/历史',key)).length}</small>`,'complete-secondary-status',`data-kind="${key}" aria-pressed="${selected&&key===kind}"`)).join('');
   tabs.insertAdjacentHTML('afterend',`<div id="prototype-task-secondary" class="task-secondary-filters" role="group" aria-label="其他事项状态" ${expanded?'':'hidden'}>${controls}</div>`);
@@ -448,7 +450,13 @@ document.addEventListener('click',event=>{
  if(action==='complete-toggle-secondary'){taskSecondaryExpanded=t.getAttribute('aria-expanded')!=='true';t.setAttribute('aria-expanded',String(taskSecondaryExpanded));$('#prototype-task-secondary').hidden=!taskSecondaryExpanded;return;}
  if(action==='complete-secondary-status'){state.taskFilter='异常/历史';state.secondaryMatterFilter=t.dataset.kind;render();$('.task-secondary-filters [aria-pressed=true]')?.focus({preventScroll:true});persist();return;}
  if(action==='complete-production-status'){taskSecondaryExpanded=false;state.taskFilter=t.dataset.status;render();$('.task-status-tabs [aria-pressed=true]')?.focus({preventScroll:true});persist();return;}
- if(action==='complete-task-refresh'){render();feedback('已重读同一份离线事项，没有创建或修改。');return;}
+ if(action==='complete-task-refresh'){
+  if(page!=='tasks'){render();feedback('已重读同一份离线事项，没有创建或修改。');return;}
+  if(t.getAttribute('aria-busy')==='true')return;
+  const list=$('.task-panel-body');t.setAttribute('aria-busy','true');list?.setAttribute('aria-busy','true');
+  setTimeout(()=>{if(!t.isConnected)return;t.removeAttribute('aria-busy');list?.removeAttribute('aria-busy');},350);
+  return;
+ }
  if(action==='complete-material-library'){ctx.materialActionsOpen=false;renderComposerMaterialActions($('.chat-panel'),ctx.pending||!!(ctx.task?.complete||ctx.task?.cancelled));persist();openMaterials('chat');return;}
  if(action==='complete-materials'){$('.composer-more-panel')?.remove();$('.composer-more')?.setAttribute('aria-expanded','false');if(innerWidth<=720){ctx.materialActionsOpen=!ctx.materialActionsOpen;renderComposerMaterialActions($('.chat-panel'),ctx.pending||!!(ctx.task?.complete||ctx.task?.cancelled));}else openMaterials('chat');}
  if(action==='complete-go'){if(['detail','chat','results'].includes(t.dataset.page)&&!state.task){feedback('请先提出需求；或从页面与状态索引打开脱敏示例。');return;}if(t.dataset.page==='private'&&!state.privateAgentId){state.selectedAgent=state.selectedAgent||{id:'0',name:'宋江'};openPrivate();return;}go(t.dataset.page);}
