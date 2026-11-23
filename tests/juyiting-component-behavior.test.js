@@ -1743,6 +1743,8 @@ describe('JuyiHall component behavior', () => {
       // The open modal may itself consume the last navigation layer.
       await wrapper.setProps({ taskBudget: selectedBudget(task, a), detailAllowed: false })
       expect(wrapper.get('.matter-quote').text()).to.include('事项报价 13文')
+      // Subsequent identity transitions start a new navigation stack with room to open a detail.
+      await wrapper.setProps({ detailAllowed: true })
       await wrapper.setProps({ taskBudget: selectedBudget(task, a, { state: 'UNAVAILABLE', quoteId: null, recommendationId: 'r1', amount: null, unavailableReason: 'MODEL_PRICE_MISSING' }) })
       expect(wrapper.get('.matter-quote').text()).to.include('暂无法报价')
       expect(wrapper.get('.matter-quote').text()).not.to.include('0文')
