@@ -14,7 +14,7 @@ export const taskQuoteText = quote => {
   if (isAvailableTaskQuote(quote)) return `事项报价 ${formatWenMoney(quote.amount)}`
   if (quote?.state === 'UNAVAILABLE') return Object.hasOwn(unavailableQuoteText, quote.unavailableReason)
     ? unavailableQuoteText[quote.unavailableReason] : '暂无法报价：费用信息未就绪，请联系平台核查。'
-  return '尚无报价，请刷新推荐'
+  return '尚未取得独立报价'
 }
 export const isRecommendedLevel = level => ['HIGH', 'MEDIUM'].includes(level)
 export const recommendationLevelText = level => ({ HIGH: '优先推荐', MEDIUM: '可以考虑', LOW: '匹配较低', UNKNOWN: '资料不足' }[level] || '')
@@ -22,19 +22,25 @@ const strings = value => Array.isArray(value) && value.every(text)
 export const recommendationTaskKey = task => JSON.stringify([task?.id, task?.taskVersion])
 export const parseAssigneeRecommendation = (value, task) => {
   if (!value || Array.isArray(value) || value.taskId !== task?.id || value.taskVersion !== task?.taskVersion ||
-      !['READY', 'NO_MATCH', 'NO_CANDIDATES'].includes(value.state) ||
-      !Number.isSafeInteger(value.observedAt) || value.observedAt < 0 || !text(value.requirementSummary) ||
-      typeof value.candidateSetComplete !== 'boolean' || !strings(value.questions) || value.questions.length !== 0 || !Array.isArray(value.recommendations)) throw new Error('承办推荐返回格式不正确')
+      !['READY', 'NO_MATCH', 'NO_CANDIDATES', 'DEGRADED'].includes(value.state) ||
+      !Number.isSafeInteger(value.observedAt) || value.observedAt < 0 || !text(value.rankingVersion) ||
+      value.candidateSetComplete !== true || !strings(value.degradedReasons) || !Array.isArray(value.recommendations)) throw new Error('承办推荐返回格式不正确')
   const seen = new Set()
   for (const item of value.recommendations) {
     const agent = item?.agent
-    if (!isTaskQuote(item?.quote) || !text(agent?.agentId) || seen.has(agent.agentId) || !text(agent.name) || !strings(agent.abilities) ||
+    if (!text(agent?.agentId) || seen.has(agent.agentId) || !text(agent.name) || !strings(agent.abilities) ||
         typeof agent.canOperate !== 'boolean' || typeof agent.boundToMe !== 'boolean' || !text(agent.status) ||
         !['HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'].includes(item.recommendationLevel) || !text(item.reason) || !strings(item.gaps) || !Array.isArray(item.evidence) || (item.recommendationLevel !== 'UNKNOWN' && !item.evidence.length) ||
         !item.evidence.every(e => text(e?.id) && text(e.kind) && text(e.label) && text(e.description) && e.available === true)) throw new Error('承办推荐依据未能核对')
     seen.add(agent.agentId)
   }
-  if ((value.state === 'READY') !== value.recommendations.some(item => isRecommendedLevel(item.recommendationLevel)) ||
-      (value.state === 'NO_CANDIDATES') !== (value.recommendations.length === 0)) throw new Error('承办推荐状态不一致')
+  const positive = value.recommendations.some(item => isRecommendedLevel(item.recommendationLevel))
+  const degraded = value.state === 'DEGRADED'
+  const modeValid = degraded ? ['LEXICAL_ONLY', 'UNAVAILABLE'].includes(value.retrievalMode)
+    : value.retrievalMode === (value.state === 'NO_CANDIDATES' ? 'NOT_NEEDED' : 'HYBRID')
+  if (!modeValid || degraded !== (value.degradedReasons.length > 0) ||
+      (value.state === 'READY' && !positive) || (value.state === 'NO_MATCH' && positive) ||
+      (value.retrievalMode === 'UNAVAILABLE' && value.recommendations.some(item => item.recommendationLevel !== 'UNKNOWN')) ||
+      (value.state === 'NO_CANDIDATES') !== (seen.size === 0)) throw new Error('承办推荐状态不一致')
   return value
 }

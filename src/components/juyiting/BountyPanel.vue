@@ -198,7 +198,7 @@
                 </section>
                 <template v-if="embeddedHall">
                   <template v-if="hasTaskAction(detailTask, 'ASSIGN')">
-                  <section v-if="['LOADING', 'ERROR', 'STALE'].includes(recommendationState.state)" class="matter-recommendation" :aria-busy="recommendationState.state === 'LOADING'" aria-label="智能推荐" aria-live="polite">
+                  <section v-if="['LOADING', 'ERROR', 'STALE', 'DEGRADED'].includes(recommendationState.state)" class="matter-recommendation" :aria-busy="recommendationState.state === 'LOADING'" aria-label="智能推荐" aria-live="polite">
 
                     <div class="recommendation-status" role="status">
                       <span v-if="recommendationState.state === 'LOADING'" class="recommendation-spinner" aria-hidden="true" />
@@ -408,11 +408,6 @@
                       <span>{{ recommendationStateText(recommendationState.state) }}</span>
                     </div>
                     <p v-if="recommendationState.state === 'LOADING'" class="recommendation-hint">推荐完成后，你可以查看理由并选择承办人。</p>
-                <details v-if="recommendationState.state !== 'LOADING' && recommendationState.result?.requirementSummary"
-                      :key="`${detailTask?.id}:${recommendationState.result.observedAt}`" class="recommendation-understanding">
-                      <summary>需求理解</summary>
-                      <p>{{ recommendationState.result.requirementSummary }}</p>
-                    </details>
                 <button type="button" :disabled="recommendationState.state === 'LOADING' || requirementEditBusy || pointAndStartBusy" @click="$emit('refresh-recommendation')">重新推荐</button>
               </section>
               <div
@@ -490,6 +485,7 @@ import { isRecommendedLevel, recommendationLevelText, isAvailableTaskQuote, task
 const recommendationStateText = state => ({
   IDLE: '可以选择一位好汉来承办。', LOADING: '正在为你挑选合适的好汉…',
   READY: '推荐已备好，看看哪位更合适。',
+  DEGRADED: '部分推荐依据暂不可用，仍可查看候选并手动选择。',
   NO_MATCH: '暂未找到特别合适的人选，你仍可查看理由并手动选择。',
   NO_CANDIDATES: '暂无可承办候选，请核对接单范围和可用状态。',
   ERROR: '智能推荐暂不可用，可重试或手动选择承办。',

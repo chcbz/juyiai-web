@@ -7,8 +7,8 @@ import { parseAssigneeRecommendation, taskQuoteText, isAvailableTaskQuote } from
 const task = () => ({ id: 'task-r1', taskVersion: '7', title: '写一份说明', description: '说明使用方式', status: 'open' })
 const agent = { agentId: 'a', name: '好汉', status: 'online', canOperate: true, boundToMe: true, abilities: ['写作'] }
 const result = () => ({ taskId: 'task-r1', taskVersion: '7', state: 'READY', observedAt: 1000,
-  candidateSetComplete: true, requirementSummary: '写使用说明', questions: [], recommendations: [{ agent, recommendationLevel: 'HIGH',
-    quote: { state: 'AVAILABLE', quoteId: 'quote-1', recommendationId: 'recommendation-1', amount: { amountMinor: '13', currency: 'WEN' }, unavailableReason: null }, reason: '登记了写作本领', evidence: [{ id: 'ability:0', kind: 'DECLARED_ABILITY', label: '写作', description: '登记声明', available: true }], gaps: ['受众未知，不保证适合具体使用场景'] }] })
+  candidateSetComplete: true, retrievalMode: 'HYBRID', rankingVersion: 'v1', degradedReasons: [], recommendations: [{ agent, recommendationLevel: 'HIGH',
+    reason: '登记了写作本领', evidence: [{ id: 'ability:0', kind: 'DECLARED_ABILITY', label: '写作', description: '登记声明', available: true }], gaps: ['受众未知，不保证适合具体使用场景'] }] })
 const create = implementation => {
   const selectedTask = ref(task()), identityScope = ref('owner-a')
   const data = useHallData({ agentApi: { create: implementation, get: async url => url.endsWith('/assignee-candidates') ? ({ items: [{ agentId: 'a', displayName: '好汉', providerDisplayName: null, isMine: true, availability: 'online' }], nextAfterAgentId: null }) : selectedTask.value }, log: { warn() {} },
@@ -18,26 +18,20 @@ const create = implementation => {
 }
 describe('single-track model assignee recommendation R1', () => {
   it('consumes the complete envelope fixture matched by the actual API controller', () => {
-    const envelope = JSON.parse(readFileSync(new URL('./fixtures/billing/task-recommendation-quote.json', import.meta.url), 'utf8'))
+    const envelope = JSON.parse(readFileSync(new URL('./fixtures/billing/task-recommendation.json', import.meta.url), 'utf8'))
     expect(envelope.protocolVersion).to.equal(1); expect(envelope.code).to.equal('E0')
     const parsed = parseAssigneeRecommendation(envelope.data, { id: 'task', taskVersion: '7' })
-    expect(parsed.recommendations[0].quote.quoteId).to.equal('quote-1')
-    expect(parsed.recommendations[0].quote.amount).to.deep.equal({ amountMinor: '13', currency: 'WEN' })
+    expect(parsed.recommendations[0]).not.to.have.property('quote')
   })
-  it('retains the exact quote identity and rejects missing or malformed prices instead of assuming free', async () => {
-    const { data } = create(async (_url, _input, options) => options.onSuccess(result()))
+  it('keeps complete lexical-only candidates selectable without treating retrieval as a price', async () => {
+    const value = { ...result(), state: 'DEGRADED', retrievalMode: 'LEXICAL_ONLY', degradedReasons: ['QUERY_VECTOR_UNAVAILABLE'] }
+    const { data } = create(async (_url, _input, options) => options.onSuccess(value))
     await data.loadTaskRecommendations()
-    expect(data.recommendedAgents.value[0].taskQuote).to.deep.equal(result().recommendations[0].quote)
+    expect(data.canAssign(task(), agent)).to.equal(true)
+    expect(data.recommendedAgents.value[0]).not.to.have.property('taskQuote')
     data.dispose()
-    for (const quote of [undefined, { ...result().recommendations[0].quote, quoteId: '' },
-      { ...result().recommendations[0].quote, amount: { amountMinor: '1.2', currency: 'WEN' } },
-      { ...result().recommendations[0].quote, amount: { amountMinor: 13, currency: 'WEN' } }]) {
-      expect(() => parseAssigneeRecommendation({ ...result(), recommendations: [{ ...result().recommendations[0], quote }] }, task())).to.throw()
-    }
-    const quote = { state: 'UNAVAILABLE', quoteId: null, recommendationId: 'r1', amount: null, unavailableReason: 'MODEL_PRICE_MISSING' }
-    expect(parseAssigneeRecommendation({ ...result(), recommendations: [{ ...result().recommendations[0], quote }] }, task()).recommendations[0].quote).to.deep.equal(quote)
-    const zero = { ...result().recommendations[0].quote, amount: { amountMinor: '0', currency: 'WEN' } }
-    expect(parseAssigneeRecommendation({ ...result(), recommendations: [{ ...result().recommendations[0], quote: zero }] }, task()).recommendations[0].quote.amount.amountMinor).to.equal('0')
+    for (const invalid of [{ degradedReasons: [] }, { retrievalMode: 'UNAVAILABLE' }, { candidateSetComplete: false }])
+      expect(() => parseAssigneeRecommendation({ ...value, ...invalid }, task())).to.throw()
   })
   it('preserves own-first suitable advice and external-first advice when own capability is insufficient', async () => {
     for (const rows of [
@@ -125,7 +119,6 @@ describe('single-track model assignee recommendation R1', () => {
     for (const value of [
       { ...result(), state: 'NEEDS_CLARIFICATION', recommendations: [], questions: ['面向谁？'] },
       { ...result(), state: 'NEEDS_CLARIFICATION', recommendations: [], questions: [] },
-      { ...result(), questions: ['请补充需求'] },
       { ...result(), state: 'NO_MATCH', recommendations: [], questions: ['请补充需求'] }
     ]) expect(() => parseAssigneeRecommendation(value, task())).to.throw()
   })
@@ -199,9 +192,9 @@ describe('task quotation availability explanations', () => {
     expect(parseAssigneeRecommendation(response, task())).to.equal(response)
   })
   it('keeps an absent quote distinct from an explicitly available zero or positive quote', () => {
-    expect(taskQuoteText(null)).to.equal('尚无报价，请刷新推荐')
+    expect(taskQuoteText(null)).to.equal('尚未取得独立报价')
     for (const amount of ['0', '1', '13']) {
-      const quote = { ...result().recommendations[0].quote, amount: { currency: 'WEN', amountMinor: amount } }
+      const quote = { state: 'AVAILABLE', quoteId: 'quote', recommendationId: 'rec', amount: { currency: 'WEN', amountMinor: amount } }
       expect(taskQuoteText(quote)).to.equal(`事项报价 ${amount}文`)
       expect(isAvailableTaskQuote(quote)).to.equal(true)
     }

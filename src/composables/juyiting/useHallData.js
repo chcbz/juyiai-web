@@ -101,12 +101,12 @@ export const useHallData = ({
     if (!entry) return { state: 'IDLE', result: null }
     return entry.taskKey === recommendationTaskKey(task) ? entry : { state: 'STALE', result: null }
   })
-  const recommendedAgents = computed(() => ['READY', 'NO_MATCH'].includes(recommendationState.value.state)
+  const recommendedAgents = computed(() => ['READY', 'NO_MATCH', 'DEGRADED'].includes(recommendationState.value.state)
     ? recommendationState.value.result.recommendations.map(item => ({
       agentId: item.agent.agentId, displayName: item.agent.name,
       providerDisplayName: item.agent.providerDisplayName ?? null, isMine: item.agent.boundToMe,
       availability: item.agent.status, recommendationLevel: item.recommendationLevel, recommendationReason: item.reason, recommendationEvidence: item.evidence,
-      recommendationGaps: item.gaps, taskQuote: item.quote
+      recommendationGaps: item.gaps
     })) : [])
 
   const assigneeCandidates = ref([])
@@ -121,7 +121,7 @@ export const useHallData = ({
     if (!projectHallTask({ task }).actions.includes('ASSIGN')) return false
     return (candidatesTaskId.value === task.id && !candidatesError.value &&
       assigneeCandidates.value.some(item => item.agentId === agent.agentId)) ||
-      (['READY', 'NO_MATCH'].includes(recommendationState.value.state) && recommendationState.value.result.taskId === task.id &&
+      (['READY', 'NO_MATCH', 'DEGRADED'].includes(recommendationState.value.state) && recommendationState.value.result.taskId === task.id &&
        recommendationState.value.result.taskVersion === task.taskVersion &&
        recommendationState.value.result.recommendations.some(item => item.agent.agentId === agent.agentId))
   }

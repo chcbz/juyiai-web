@@ -1666,7 +1666,7 @@ describe('JuyiHall component behavior', () => {
     const task = { id: 'rating-task', title: '统计成绩', status: 'open', taskVersion: '1' }
     const agents = ['MEDIUM', 'HIGH', 'LOW', 'UNKNOWN'].map((level, i) => ({ agentId: `a${i}`, displayName: `好汉${i}`,
       isMine: i !== 1, availability: 'online', recommendationLevel: level, recommendationReason: `理由${i}`, taskQuote: syntheticTaskQuote() }))
-    const state = { state: 'READY', result: { observedAt: 1, requirementSummary: '读取成绩图片并统计' } }
+    const state = { state: 'READY', result: { observedAt: 1, retrievalMode: 'HYBRID' } }
     const wrapper = mount(BountyPanel, { global: { stubs }, props: {
       embeddedHall: true, tasks: [task], selectedTask: task, recommendedAgents: agents,
       recommendationState: state, abilityText: () => '', canAssign: () => true,
@@ -1700,6 +1700,8 @@ describe('JuyiHall component behavior', () => {
       expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
       expect(wrapper.find('.recommendation-understanding').exists()).to.equal(false)
       expect(wrapper.find('.matter-recommendation button').exists()).to.equal(false)
+      await wrapper.setProps({ recommendationState: { state: 'DEGRADED', result: { retrievalMode: 'UNAVAILABLE' } }, recommendedAgents: agents.slice(3) })
+      expect(wrapper.get('.recommendation-status').text()).to.include('仍可查看候选并手动选择')
       for (const state of ['ERROR', 'STALE']) {
         await wrapper.setProps({ recommendationState: { state, result: null } })
         await wrapper.get('.matter-recommendation button').trigger('click')
@@ -1828,7 +1830,7 @@ describe('JuyiHall component behavior', () => {
     await wrapper.get('.matter-agent-toggle').trigger('click')
     await wrapper.get('.matter-primary-action').trigger('click')
     expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
-    expect(wrapper.text()).to.include('尚无报价，请刷新推荐')
+    expect(wrapper.text()).to.include('尚未取得独立报价')
     expect(wrapper.emitted('assign-task')).to.equal(undefined)
     await wrapper.setProps({ recommendationState: { state: 'LOADING' } })
     expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)

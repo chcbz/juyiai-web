@@ -309,7 +309,7 @@ describe('model recommendation actual matter UI', () => {
     const agent = { ...baseProps.operableAgents[0], recommendationLevel: 'HIGH', taskQuote: { state: 'AVAILABLE', quoteId: 'fixture-quote', recommendationId: 'fixture-rec', amount: { amountMinor: '13', currency: 'WEN' }, unavailableReason: null }, recommendationReason: '已登记写作本领',
       recommendationEvidence: [{ id: 'ability:0', label: '写作', description: '登记声明' }], recommendationGaps: ['确认受众'] }
     const wrapper = mount(Panel, { props: { ...baseProps, tasks: [task], selectedTask: task, recommendedAgents: [agent],
-      recommendationState: { state: 'READY', result: { requirementSummary: '编写说明', questions: [] } } } })
+      recommendationState: { state: 'READY', result: { retrievalMode: 'HYBRID' } } } })
     try {
       wrapper.vm.openTask(task); await Vue.nextTick()
       expect(wrapper.find('.matter-recommendation').exists()).to.equal(false)
@@ -338,7 +338,7 @@ describe('model recommendation actual matter UI', () => {
       await wrapper.get('.matter-candidates button').trigger('click')
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
       expect(wrapper.get('.matter-primary-action').attributes('disabled')).not.to.equal(undefined)
-      expect(wrapper.get('.matter-quote').text()).to.include('尚无报价，请刷新推荐')
+      expect(wrapper.get('.matter-quote').text()).to.include('尚未取得独立报价')
       await wrapper.get('.matter-primary-action').trigger('click')
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
     } finally { wrapper.unmount() }
