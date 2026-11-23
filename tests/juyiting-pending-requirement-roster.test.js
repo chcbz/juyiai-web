@@ -31,15 +31,20 @@ describe('Juyi Hall pending requirement roster action', () => {
       expect(wrapper.get('.point-and-deliberate').attributes('disabled')).to.equal('')
     } finally { wrapper.unmount() }
   })
-  it('reuses the canonical parent task and existing point-and-start without creating a second lane', () => {
+  it('takes only an explicitly selected ID into the existing budget detail without dispatching', () => {
     const page = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
     const body = page.slice(page.indexOf('const pendingPointAndDeliberateTask ='), page.indexOf('const assignTask ='))
     const selectedTask = Vue.ref({ id: 'task', status: 'open', taskVersion: 3, requirementRevision: 2 })
     const calls = []
-    const api = new Function('computed', 'selectedTask', 'canAssign', 'assignTask', `${body}; return { pendingPointAndDeliberateTask, handlePointAndDeliberateAgent }`)(Vue.computed, selectedTask, () => true, (...args) => { calls.push(args); return true })
+    const hallIdentityScope = Vue.ref('owner'), apiStore = { authorizationGeneration: 1 }
+    const api = new Function('computed', 'selectedTask', 'canAssign', 'openOverviewTask', 'hallIdentityScope', 'apiStore', `${body}; return { pendingPointAndDeliberateTask, handlePointAndDeliberateAgent }`)(Vue.computed, selectedTask, () => true, (...args) => { calls.push(args); return true }, hallIdentityScope, apiStore)
     expect(api.handlePointAndDeliberateAgent(agent)).to.equal(true)
     expect(calls[0][0]).to.equal(selectedTask.value)
-    expect(calls[0][1]).to.equal(agent)
+    expect(calls[0][1]).to.equal(null)
+    expect(calls[0][3].agentId).to.equal(agent.agentId)
+    expect(calls[0][3].current()).to.equal(true)
+    apiStore.authorizationGeneration++
+    expect(calls[0][3].current()).to.equal(false)
     for (const changes of [{ status: 'completed' }, { assignedAgentId: 'old' }, { funding: { mode: 'FUNDED_SINGLE_AGENT' } }]) {
       selectedTask.value = { id: 'task', status: 'open', ...changes }
       expect(api.pendingPointAndDeliberateTask.value).to.equal(null)

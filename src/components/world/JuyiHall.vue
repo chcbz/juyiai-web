@@ -2124,13 +2124,15 @@ const handleQuickRequest = async (request, settle = () => {}) => {
   return true
 }
 
-const openOverviewTask = async (task, review = null, options = {}) => {
-  if (guardPanelLeave(() => openOverviewTask(task, review, options))) return false
+const openOverviewTask = async (task, review = null, options = {}, selection = null) => {
+  if (selection && !selection.current()) return false
+  if (guardPanelLeave(() => openOverviewTask(task, review, options, selection))) return false
   if (!task?.id || !openPanel('tasks', { ...options, restore: true })) return false
   taskReviewRef.value = review ? { ...review, taskId: task.id } : null
   selectedTask.value = task
   await nextTick()
-  bountyPanelRef.value?.openTask(task)
+  if (selection && !selection.current()) return false
+  if (bountyPanelRef.value?.openTask(task, null, selection?.agentId) === false) return false
   // Overview review hints are metadata, not a separate destination or acceptance authority.
   formalTaskRef.value = null
   return true
@@ -2702,7 +2704,11 @@ const pendingPointAndDeliberateTask = computed(() => {
 const canPointAndDeliberateAgent = agent => Boolean(pendingPointAndDeliberateTask.value && agent?.agentId && canAssign(pendingPointAndDeliberateTask.value, agent))
 const handlePointAndDeliberateAgent = agent => {
   if (!canPointAndDeliberateAgent(agent)) return false
-  return assignTask(pendingPointAndDeliberateTask.value, agent)
+  const task = pendingPointAndDeliberateTask.value, version = task.taskVersion, scope = hallIdentityScope.value, epoch = apiStore.authorizationGeneration
+  // Carry only the choice; the detail owns the subsequent explicit confirmation.
+  return openOverviewTask(task, null, { root: true }, { agentId: agent.agentId,
+    current: () => hallIdentityScope.value === scope && apiStore.authorizationGeneration === epoch &&
+      selectedTask.value?.id === task.id && selectedTask.value.taskVersion === version && canPointAndDeliberateAgent(agent) })
 }
 
 const assignTask = async (task, agent) => {

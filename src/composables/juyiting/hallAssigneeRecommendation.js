@@ -4,6 +4,10 @@ const text = value => typeof value === 'string' && value.trim().length > 0
 export const isAvailableTaskQuote = quote => quote?.state === 'AVAILABLE' && text(quote.quoteId) && text(quote.recommendationId) && isWenMoney(quote.amount) && quote.unavailableReason == null
 export const isTaskQuote = quote => isAvailableTaskQuote(quote) || (quote?.state === 'UNAVAILABLE' && text(quote.recommendationId) && quote.quoteId == null && quote.amount == null && text(quote.unavailableReason))
 const unavailableQuoteText = {
+  NO_BASELINE: '暂不可估算：当前没有足够的同类实测样本。',
+  OUT_OF_DISTRIBUTION: '暂不可估算：本事项超出已验证的预算范围。',
+  USAGE_INCOMPLETE: '暂不可估算：历史用量记录不完整。',
+  PRICE_MISSING: '暂不可估算：本次所需的参考单价不完整。',
   BILLING_ROUTE_MISSING: '暂无法报价：该承办人的计费配置尚未就绪，请选择其他承办人或联系平台。',
   MODEL_PRICE_MISSING: '暂无法报价：模型单价尚未登记，请联系平台。',
   TOKEN_PRICE_MISSING: '暂无法报价：模型用量单价不完整，请联系平台。',

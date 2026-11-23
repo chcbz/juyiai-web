@@ -204,7 +204,7 @@
               type="button"
               :disabled="pointAndStartBusy || !canPointAndDeliberate(selectedAgent)"
               @click="$emit('point-and-deliberate', selectedAgent)"
-            >{{ pointAndStartBusy ? '正在点将…' : '点将并议事' }}</button>
+            >{{ pointAndStartBusy ? '正在点将…' : '查看事项预算' }}</button>
           </div>
         </template>
         <p v-else>点一位厅中好汉，查看动静、本领与所领榜文。</p>

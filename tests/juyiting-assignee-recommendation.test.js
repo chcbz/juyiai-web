@@ -173,6 +173,8 @@ describe('single-track model assignee recommendation R1', () => {
 describe('task quotation availability explanations', () => {
   const unavailable = reason => ({ state: 'UNAVAILABLE', quoteId: null, recommendationId: 'rec', amount: null, unavailableReason: reason })
   for (const [reason, message] of Object.entries({
+    NO_BASELINE: '同类实测样本', OUT_OF_DISTRIBUTION: '超出已验证的预算范围',
+    USAGE_INCOMPLETE: '历史用量记录不完整', PRICE_MISSING: '参考单价不完整',
     BILLING_ROUTE_MISSING: '计费配置尚未就绪', MODEL_PRICE_MISSING: '模型单价尚未登记',
     TOKEN_PRICE_MISSING: '模型用量单价不完整', TOOL_PRICE_MISSING: '收费工具尚未登记单价',
     QUOTE_AMOUNT_OVERFLOW: '预估费用超出支持范围'

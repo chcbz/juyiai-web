@@ -763,7 +763,7 @@ const selectMatterCandidate = async agent => {
 watch(() => [props.identityScope, props.authorizationGeneration, detailTask.value?.id, detailTask.value?.taskVersion], () => { matterCandidateId.value = ''; matterCandidateExpansion.value = null }, { flush: 'sync' })
 const canConfirmAgent = agent => Boolean(agent && !requirementEditBusy.value &&
   !props.pointAndStartBusy && !pointAndStartForDetail.value && hasTaskAction(detailTask.value, 'ASSIGN') && props.canAssign(detailTask.value, agent) &&
-  (isFundedTask(detailTask.value) || isAvailableTaskQuote(selectedQuote.value)))
+  (isFundedTask(detailTask.value) || (agent.agentId === budgetTarget.value && isAvailableTaskQuote(selectedQuote.value))))
 const confirmAgent = agent => {
   if (!canConfirmAgent(agent)) return
   emit('assign-task', detailTask.value, { ...agent, taskQuote: selectedQuote.value })
@@ -823,7 +823,7 @@ const fundedRecoveryAbilities = computed(() => {
 })
 const unassignedDiscussHint = '此榜文尚未点将，暂不可开议'
 const isFundedTask = task => task?.funding?.mode === 'FUNDED_SINGLE_AGENT'
-const budgetTarget = computed(() => props.resourcesActive && props.detailAllowed && props.embeddedHall &&
+const budgetTarget = computed(() => props.resourcesActive && props.embeddedHall &&
   !isFundedTask(detailTask.value) && hasTaskAction(detailTask.value, 'ASSIGN') ? matterAgent.value?.agentId || null : null)
 const currentBudget = computed(() => budgetTarget.value && props.taskBudget.agentId === budgetTarget.value &&
   props.taskBudget.taskId === detailTask.value?.id && props.taskBudget.taskVersion === detailTask.value?.taskVersion ? props.taskBudget : null)
@@ -846,10 +846,11 @@ const taskAssigneeIds = (task) => {
   return task.assignedAgentId ? [task.assignedAgentId] : []
 }
 
-const openTask = (task, trigger) => {
+const openTask = (task, trigger, preferredAgentId = null) => {
   if (props.embeddedHall && !props.detailAllowed && !modalTask.value) return false
   listOpener = props.embeddedHall ? trigger ?? null : null
   modalTask.value = task
+  if (preferredAgentId) { matterCandidateId.value = preferredAgentId; matterCandidateExpansion.value = false }
   emit('select-task', task)
   if (listOpener) nextTick(() => {
     if (props.resourcesActive && listOpener === trigger && modalTask.value?.id === task.id) {

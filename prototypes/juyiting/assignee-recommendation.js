@@ -24,6 +24,17 @@
     if (page !== 'detail') { budget = null; manual = ''; alternatives = null; }
     originalRender();
   };
+  // The roster selects a person, it does not confirm or reserve the quote.
+  const baseRoster = renderAgents;
+  renderAgents = function () {
+    baseRoster();
+    const action = document.querySelector('.point-and-deliberate');
+    if (!action) return;
+    const name = ['林冲','吴用'].find(n => state.selectedAgent?.name?.includes(n));
+    action.textContent = '查看事项预算'; action.dataset.action = 'review-budget';
+    action.disabled = !name || stage === 'NO_CANDIDATES' || params.get('fundedHistory') === 'true';
+    action.dataset.reviewCandidate = name || '';
+  };
   const previous = renderDetail;
   renderDetail = function () {
     previous();
@@ -48,6 +59,11 @@
   };
   document.addEventListener('click', e => {
     const b=e.target.closest('button'); if(!b)return;
+    if (b.dataset.action === 'review-budget') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!b.disabled && b.dataset.reviewCandidate) { manual = b.dataset.reviewCandidate; alternatives = false; go('detail'); }
+      return;
+    }
     if(b.hasAttribute('data-history-settlement')){e.preventDefault();e.stopImmediatePropagation();document.querySelector('[data-history-receipt]').hidden=false;return;}
     if(b.dataset.recommendationStage){stage=b.dataset.recommendationStage;if(stage==='NO_CANDIDATES')manual='';alternatives=null;render();}
     if(b.hasAttribute('data-model-alternatives')){alternatives=b.getAttribute('aria-expanded')!=='true';render();document.querySelector('[data-model-alternatives]')?.focus();}
