@@ -1897,7 +1897,8 @@ describe('JuyiHall component behavior', () => {
     expect(wrapper.find('.auto-assign-task').exists()).to.equal(false)
 
     expect(wrapper.emitted('select-agent')[0]).to.deep.equal([agent])
-    expect(wrapper.emitted('assign-task')[0]).to.deep.equal([selectedTask, agent])
+    expect(actionButtons[1].element.disabled).to.equal(true)
+    expect(wrapper.emitted('assign-task')).to.equal(undefined)
     expect(wrapper.emitted('brief-selected-task')[0]).to.deep.equal([selectedTask, agent])
     expect(wrapper.emitted('auto-assign-task')).to.equal(undefined)
   })

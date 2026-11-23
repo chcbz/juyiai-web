@@ -240,8 +240,8 @@
                     <button
                       type="button"
                       class="matter-primary-action"
-                      :disabled="recommendationState.state === 'LOADING' || requirementEditBusy || !matterAgent || pointAndStartBusy || Boolean(pointAndStartForDetail) || !canAssign(detailTask, matterAgent) || (!isFundedTask(detailTask) && !isAvailableTaskQuote(matterAgent?.taskQuote))"
-                      @click="confirmMatterAgent"
+                      :disabled="!canConfirmAgent(matterAgent)"
+                      @click="confirmAgent(matterAgent)"
                     >{{ matterAgent ? `确认由${agentDisplayName(matterAgent)}承办` : '请选择承办人' }}</button>
                   </template>
                   <template v-else>
@@ -361,9 +361,9 @@
               <div v-if="!embeddedHall && canActOnTask(detailTask)" class="task-operation-grid">
                 <button
                   :aria-label="agentDisplayName(selectedAgent) ? `点当前好汉 ${agentDisplayName(selectedAgent)} 领令` : '先择好汉再点将'"
-                  :disabled="isFundedTask(detailTask) || !canAssign(detailTask, selectedAgent)"
+                  :disabled="isFundedTask(detailTask) || !canConfirmAgent(selectedAgent)"
                   :title="agentDisplayName(selectedAgent) ? `点当前好汉领令：${agentDisplayName(selectedAgent)}` : '先择好汉再点将'"
-                  @click="$emit('assign-task', detailTask, selectedAgent)"
+                  @click="confirmAgent(selectedAgent)"
                  class="hall-business-action">
                   <span class="hall-business-label">{{ agentDisplayName(selectedAgent) ? '点将当前' : '选择好汉' }}</span>
                 </button>
@@ -441,9 +441,9 @@
                   <button
                     type="button"
                     :aria-label="`点 ${agentDisplayName(agent)} 领令`"
-                    :disabled="!canAssign(detailTask, agent)"
+                    :disabled="!canConfirmAgent(agent)"
                     :title="`点 ${agentDisplayName(agent)} 领令`"
-                    @click="$emit('assign-task', detailTask, agent)"
+                    @click="confirmAgent(agent)"
                    class="hall-business-action">
                     <span class="hall-business-label">点将</span>
                   </button>
@@ -759,9 +759,11 @@ const selectMatterCandidate = async agent => {
   matterCandidateToggle.value?.focus()
 }
 watch(() => [props.identityScope, props.authorizationGeneration, detailTask.value?.id, detailTask.value?.taskVersion], () => { matterCandidateId.value = ''; matterCandidateExpansion.value = null }, { flush: 'sync' })
-const confirmMatterAgent = () => {
-  const agent = matterAgent.value
-  if (props.recommendationState.state === 'LOADING' || requirementEditBusy.value || !agent || props.pointAndStartBusy || pointAndStartForDetail.value || !hasTaskAction(detailTask.value, 'ASSIGN') || !props.canAssign(detailTask.value, agent) || (!isFundedTask(detailTask.value) && !isAvailableTaskQuote(agent.taskQuote))) return
+const canConfirmAgent = agent => Boolean(agent && props.recommendationState.state !== 'LOADING' && !requirementEditBusy.value &&
+  !props.pointAndStartBusy && !pointAndStartForDetail.value && hasTaskAction(detailTask.value, 'ASSIGN') && props.canAssign(detailTask.value, agent) &&
+  (isFundedTask(detailTask.value) || isAvailableTaskQuote(agent.taskQuote)))
+const confirmAgent = agent => {
+  if (!canConfirmAgent(agent)) return
   emit('assign-task', detailTask.value, agent)
 }
 const statusStrip = ref(null)
