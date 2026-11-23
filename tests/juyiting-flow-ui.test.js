@@ -321,6 +321,8 @@ describe('model recommendation actual matter UI', () => {
       expect(wrapper.text()).not.to.include('评分明细')
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
       expect(wrapper.emitted('refresh-recommendation')).to.equal(undefined)
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ taskBudget: { taskId: task.id, taskVersion: task.taskVersion, agentId: agent.agentId, state: 'AVAILABLE', quote: agent.taskQuote } })
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
       await wrapper.get('.matter-primary-action').trigger('click')
       expect(wrapper.emitted('assign-task')).to.have.length(1)

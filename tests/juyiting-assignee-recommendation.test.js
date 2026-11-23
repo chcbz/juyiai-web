@@ -200,3 +200,27 @@ describe('task quotation availability explanations', () => {
     }
   })
 })
+
+describe('independent selected-assignee budget', () => {
+  const unavailable = id => ({ taskId: 'task-r1', taskVersion: '7', observedAt: 1, quotes: [{ agentId: id,
+    state: 'UNAVAILABLE', quoteId: null, recommendationId: 'batch', amount: null, unavailableReason: 'NO_BASELINE' }] })
+  it('requests one explicit ID; retries preserve both headers, new intent replaces both', async () => {
+    const calls = []; const { data } = create(async (url, body, opts) => {
+      calls.push({ url, body, headers: opts.headers }); if (calls.length === 1) throw new Error('network')
+      return unavailable('a')
+    })
+    await data.loadAssigneeCandidates(); await data.requestBudget(task(), 'a'); expect(data.budget.value.state).to.equal('ERROR')
+    await data.requestBudget(task(), 'a', 'retry'); expect(data.budget.value.state).to.equal('UNAVAILABLE')
+    await data.requestBudget(task(), 'a'); expect(calls).to.have.length(2)
+    await data.requestBudget(task(), 'a', 'renew'); expect(calls[0].url).to.equal('/tasks/task-r1/quotes')
+    expect(calls[0].body).to.deep.equal({ expectedTaskVersion: '7', agentIds: ['a'] }); expect(calls[1].headers).to.deep.equal(calls[0].headers)
+    for (const header of ['Idempotency-Key', 'X-Request-Id']) expect(calls[2].headers[header]).to.not.equal(calls[0].headers[header]); data.dispose()
+  })
+  for (const boundary of ['close','version','identity','dispose']) it(`discards a late response after ${boundary}`, async () => {
+    let resolve; const { data, selectedTask, identityScope } = create(() => new Promise(done => { resolve = done }))
+    await data.loadAssigneeCandidates(); const flight = data.requestBudget(task(), 'a'); expect(data.budget.value.state).to.equal('LOADING')
+    if (boundary === 'close') data.clearBudget(); else if (boundary === 'version') selectedTask.value.taskVersion = '8'
+    else if (boundary === 'identity') identityScope.value = 'different'; else data.dispose()
+    resolve(unavailable('a')); await flight; expect(data.budget.value.state).to.equal('IDLE'); data.dispose()
+  })
+})

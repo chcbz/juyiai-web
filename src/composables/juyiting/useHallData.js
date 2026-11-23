@@ -1,5 +1,6 @@
 import { computed, ref, toValue, watch } from 'vue'
 import { parseAssigneeRecommendation, recommendationTaskKey } from './hallAssigneeRecommendation.js'
+import { useHallTaskBudget } from './useHallTaskBudget.js'
 import { assigneePage } from './hallAssigneeCandidates.js'
 import { pointAndStartLong } from './hallPointAndStartIntent.js'
 import { projectHallTask, validateHallTaskCounts } from './hallTaskPresentation.js'
@@ -133,8 +134,11 @@ export const useHallData = ({
   let recommendationEpoch = 0
   let recommendationRequest = null
   const identityFingerprint = () => `${toValue(authorizationGeneration)}\u0000${toValue(identityScope)}`
+  const { budget, requestBudget, clearBudget } = useHallTaskBudget({ api: agentApi, getTask: () => selectedTask.value,
+    identity: identityFingerprint, eligible: canAssign, refreshDetail: task => loadTaskDetail(task) })
   const queryFingerprint = () => `${identityFingerprint()}\u0000${taskAgentFilter.value}\u0000${taskKeyword.value}`
   const stopRecommendationTask = watch(() => recommendationTaskKey(selectedTask.value), () => {
+    clearBudget()
     recommendationEpoch += 1
     recommendationRequest?.controller.abort()
     recommendationRequest = null
@@ -149,6 +153,7 @@ export const useHallData = ({
     taskStatusCounts.value = {}
   }, { flush: 'sync' })
   const stopIdentity = watch(identityFingerprint, () => {
+    clearBudget()
     mapEpoch++; mapFlight = null; mapLoading.value = false; mapReady.value = false; mapError.value = ''
     mapAgents.value = []; agents.value = []; operableRosterAgents.value = []; personaCatalog.value = []; selectedAgent.value = null
     rosterRequest++; catalogRequest++; rosterLoading.value = false; catalogLoading.value = false
@@ -173,7 +178,7 @@ export const useHallData = ({
     tasksError.value = ''
     taskCountsError.value = ''
   }, { flush: 'sync' })
-  const dispose = () => { mapEpoch++; mapFlight = null; rosterRequest++; catalogRequest++; recommendationRefresh = null; recommendationPreparation.value = null; listEpoch += 1; countsEpoch += 1; recommendationEpoch += 1; stopFilters(); stopIdentity(); stopRecommendationTask(); recommendationRequest?.controller.abort(); stopCandidates(); stopDetailScope(); detailEpoch++; detailController?.abort(); candidatesEpoch++; candidatesController?.abort() }
+  const dispose = () => { clearBudget(); mapEpoch++; mapFlight = null; rosterRequest++; catalogRequest++; recommendationRefresh = null; recommendationPreparation.value = null; listEpoch += 1; countsEpoch += 1; recommendationEpoch += 1; stopFilters(); stopIdentity(); stopRecommendationTask(); recommendationRequest?.controller.abort(); stopCandidates(); stopDetailScope(); detailEpoch++; detailController?.abort(); candidatesEpoch++; candidatesController?.abort() }
   // Absence/failure is not zero. Preserve decimal strings; never count the loaded page.
   const taskStatusCount = phase => taskStatusCounts.value.phaseCounts?.[phase || 'total'] ?? '—'
 
@@ -633,6 +638,7 @@ export const useHallData = ({
     loadOperableRosterAgents,
     loadPersonaCatalog,
     loadRosterAgents,
+    budget, requestBudget, clearBudget,
     loadTaskDetail,
     loadTaskRecommendations,
     loadTasks,

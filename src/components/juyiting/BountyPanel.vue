@@ -166,7 +166,7 @@
                     <div><dt>资料 / 成果</dt><dd>{{ matterResourceSummary?.taskId === String(detailTask.id) ? (['completed', 'archived'].includes(detailTask.status) ? `${matterResourceSummary.materials} 份资料 · 成果见验收记录` : `${matterResourceSummary.materials} 份资料 · ${matterResultCount ?? matterResourceSummary.outputs} 份${matterResultCount == null ? '成果引用' : '成果'}`) : '见下方资料与成果' }}</dd></div>
                   </dl>
                   <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent?.recommendationReason" class="matter-selected-reason">{{ matterAgent.recommendationReason }}</p>
-                  <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent && !isFundedTask(detailTask)" class="matter-quote" role="status">{{ taskQuoteText(matterAgent.taskQuote) }}<template v-if="isAvailableTaskQuote(matterAgent.taskQuote)"> · 确认承办时预占，验收后扣除</template></p>
+                  <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent && !isFundedTask(detailTask)" class="matter-quote" role="status">{{ budgetStatusText || taskQuoteText(selectedQuote) }}<template v-if="isAvailableTaskQuote(selectedQuote)"> · 确认承办时预占，验收后扣除</template> <button v-if="budgetAction" type="button" @click="emit('request-budget', detailTask, matterAgent.agentId, budgetAction.mode)">{{ budgetAction.label }}</button></p>
                 </template>
                 <section
                   v-if="pointAndStartForDetail && !isTerminalMatter(detailTask)"
@@ -204,7 +204,7 @@
                       <span v-if="recommendationState.state === 'LOADING'" class="recommendation-spinner" aria-hidden="true" />
                       <span>{{ recommendationStateText(recommendationState.state) }}</span>
                     </div>
-                    <p v-if="recommendationState.state === 'LOADING'" class="recommendation-hint">推荐完成后，你可以查看理由并选择承办人。</p>
+                    <p v-if="recommendationState.state === 'LOADING'" class="recommendation-hint">推荐期间仍可手动选择承办人。</p>
                     <button v-if="recommendationState.state !== 'LOADING'" type="button" :disabled="pointAndStartBusy" @click="$emit('refresh-recommendation')">重新推荐</button>
                   </section>
 
@@ -213,7 +213,7 @@
                       ref="matterCandidateToggle"
                       class="matter-agent-toggle"
                       :aria-expanded="showMatterCandidates"
-                      :disabled="recommendationState.state === 'LOADING' || requirementEditBusy || pointAndStartBusy || Boolean(pointAndStartForDetail)"
+                      :disabled="requirementEditBusy || pointAndStartBusy || Boolean(pointAndStartForDetail)"
                       @click="showMatterCandidates = !showMatterCandidates"
                     >{{ showMatterCandidates ? '收起候选列表' : (matterAgent ? '更换承办人' : '选择承办人') }}</button>
                     <div v-if="showMatterCandidates" class="matter-candidate-picker">
@@ -224,9 +224,9 @@
                         class="matter-candidate-card"
                         type="button"
                         :aria-pressed="matterAgent?.agentId === agent.agentId"
-                        :disabled="recommendationState.state === 'LOADING' || requirementEditBusy || pointAndStartBusy || Boolean(pointAndStartForDetail) || !canAssign(detailTask, agent)"
+                        :disabled="requirementEditBusy || pointAndStartBusy || Boolean(pointAndStartForDetail) || !canAssign(detailTask, agent)"
                         @click="selectMatterCandidate(agent)"
-                      ><span class="matter-candidate-avatar" aria-hidden="true">{{ agentDisplayName(agent).slice(0, 1) }}</span><span class="matter-candidate-copy"><strong>{{ agentDisplayName(agent) }}</strong><small>{{ assigneeProviderText(agent) }} · {{ assigneeAvailabilityText(agent) }}</small><small v-if="agent.recommendationLevel" class="recommendation-level" :data-level="agent.recommendationLevel">{{ recommendationLevelText(agent.recommendationLevel) }}</small><small>{{ agent.recommendationReason || '可手动选择承办' }}</small><small v-if="!isFundedTask(detailTask)">{{ taskQuoteText(agent.taskQuote) }}</small></span><span class="matter-candidate-check" aria-hidden="true">{{ matterAgent?.agentId === agent.agentId ? '✓' : '' }}</span></button>
+                      ><span class="matter-candidate-avatar" aria-hidden="true">{{ agentDisplayName(agent).slice(0, 1) }}</span><span class="matter-candidate-copy"><strong>{{ agentDisplayName(agent) }}</strong><small>{{ assigneeProviderText(agent) }} · {{ assigneeAvailabilityText(agent) }}</small><small v-if="agent.recommendationLevel" class="recommendation-level" :data-level="agent.recommendationLevel">{{ recommendationLevelText(agent.recommendationLevel) }}</small><small>{{ agent.recommendationReason || '可手动选择承办' }}</small></span><span class="matter-candidate-check" aria-hidden="true">{{ matterAgent?.agentId === agent.agentId ? '✓' : '' }}</span></button>
                       </div>
                       <button
                         v-if="candidatesNextAfterAgentId"
@@ -407,7 +407,7 @@
                       <span v-if="recommendationState.state === 'LOADING'" class="recommendation-spinner" aria-hidden="true" />
                       <span>{{ recommendationStateText(recommendationState.state) }}</span>
                     </div>
-                    <p v-if="recommendationState.state === 'LOADING'" class="recommendation-hint">推荐完成后，你可以查看理由并选择承办人。</p>
+                    <p v-if="recommendationState.state === 'LOADING'" class="recommendation-hint">推荐期间仍可手动选择承办人。</p>
                 <button type="button" :disabled="recommendationState.state === 'LOADING' || requirementEditBusy || pointAndStartBusy" @click="$emit('refresh-recommendation')">重新推荐</button>
               </section>
               <div
@@ -523,6 +523,7 @@ const props = defineProps({
   candidatesNextAfterAgentId: { type: String, default: null },
   operableAgents: { type: Array, default: () => [] },
   recommendedAgents: { type: Array, default: () => [] },
+  taskBudget: { type: Object, default: () => ({ state: 'IDLE' }) },
   recommendationState: { type: Object, default: () => ({ state: 'IDLE', result: null }) },
   taskAgentOptions: { type: Array, default: () => [] },
   taskStatusFilters: { type: Array, default: () => [] },
@@ -551,6 +552,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'assign-task',
+  'request-budget', 'clear-budget',
   'refresh-recommendation',
   'requirement-saved',
   'refresh-candidates',
@@ -752,19 +754,19 @@ const showMatterCandidates = computed({
   set: value => { matterCandidateExpansion.value = value }
 })
 const selectMatterCandidate = async agent => {
-  if (props.recommendationState.state === 'LOADING' || requirementEditBusy.value || props.pointAndStartBusy || pointAndStartForDetail.value || !props.canAssign(detailTask.value, agent)) return
+  if (requirementEditBusy.value || props.pointAndStartBusy || pointAndStartForDetail.value || !props.canAssign(detailTask.value, agent)) return
   matterCandidateId.value = agent.agentId
   matterCandidateExpansion.value = false
   await nextTick()
   matterCandidateToggle.value?.focus()
 }
 watch(() => [props.identityScope, props.authorizationGeneration, detailTask.value?.id, detailTask.value?.taskVersion], () => { matterCandidateId.value = ''; matterCandidateExpansion.value = null }, { flush: 'sync' })
-const canConfirmAgent = agent => Boolean(agent && props.recommendationState.state !== 'LOADING' && !requirementEditBusy.value &&
+const canConfirmAgent = agent => Boolean(agent && !requirementEditBusy.value &&
   !props.pointAndStartBusy && !pointAndStartForDetail.value && hasTaskAction(detailTask.value, 'ASSIGN') && props.canAssign(detailTask.value, agent) &&
-  (isFundedTask(detailTask.value) || isAvailableTaskQuote(agent.taskQuote)))
+  (isFundedTask(detailTask.value) || isAvailableTaskQuote(selectedQuote.value)))
 const confirmAgent = agent => {
   if (!canConfirmAgent(agent)) return
-  emit('assign-task', detailTask.value, agent)
+  emit('assign-task', detailTask.value, { ...agent, taskQuote: selectedQuote.value })
 }
 const statusStrip = ref(null)
 const secondaryStatusGroup = ref(null)
@@ -821,6 +823,20 @@ const fundedRecoveryAbilities = computed(() => {
 })
 const unassignedDiscussHint = '此榜文尚未点将，暂不可开议'
 const isFundedTask = task => task?.funding?.mode === 'FUNDED_SINGLE_AGENT'
+const budgetTarget = computed(() => props.resourcesActive && props.detailAllowed && props.embeddedHall &&
+  !isFundedTask(detailTask.value) && hasTaskAction(detailTask.value, 'ASSIGN') ? matterAgent.value?.agentId || null : null)
+const currentBudget = computed(() => budgetTarget.value && props.taskBudget.agentId === budgetTarget.value &&
+  props.taskBudget.taskId === detailTask.value?.id && props.taskBudget.taskVersion === detailTask.value?.taskVersion ? props.taskBudget : null)
+const selectedQuote = computed(() => currentBudget.value?.state === currentBudget.value?.quote?.state ? currentBudget.value?.quote : null)
+const budgetStatusText = computed(() => ({ LOADING: '正在估算预算…', ERROR: '预算暂不可用，可重试',
+  REFRESHING: '事项已变化，正在核对', REFRESH_FAILED: '事项核对失败', STALE: '事项已变化，请重新取价', INACCESSIBLE: '当前不可取价，请核对访问权限' })[currentBudget.value?.state])
+const budgetAction = computed(() => ({ ERROR: { mode: 'retry', label: '重试预算' }, REFRESH_FAILED: { mode: 'refresh', label: '重新核对事项' },
+  ...Object.fromEntries(['AVAILABLE', 'UNAVAILABLE', 'STALE'].map(s => [s, { mode: 'renew', label: '重新取价' }])) })[currentBudget.value?.state])
+watch([budgetTarget, () => detailTask.value?.id, () => detailTask.value?.taskVersion, () => props.identityScope, () => props.authorizationGeneration], () => {
+  if (budgetTarget.value) emit('request-budget', detailTask.value, budgetTarget.value)
+  else emit('clear-budget')
+}, { immediate: true })
+onBeforeUnmount(() => emit('clear-budget'))
 const formatMoney = value => formatWen(typeof value === 'string' && isCanonicalWenAmount(value) ? value : '0')
 const agentDisplayName = (agent) => agent?.displayName || agent?.name || agent?.personaName || agent?.agentId || ''
 const recommendationReason = (agent) => agent?.recommendationReason || ''
