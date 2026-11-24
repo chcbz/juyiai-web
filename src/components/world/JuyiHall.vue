@@ -4908,13 +4908,12 @@ button.hall-room {
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-assignee) {
   height: var(--hall-control-height); padding-inline: 12px; border-color: var(--hall-border-strong); border-radius: var(--hall-radius-sm); background: var(--work-paper); color: var(--work-ink);
 }
-.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > button) {
+.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > .task-status-secondary) {
   min-height: var(--hall-control-height); background: var(--hall-surface-subtle); color: var(--work-ink); border: 1px solid var(--work-line);
 }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > .task-status-secondary.active) {
   background: var(--hall-surface-brand); color: var(--work-brand); border-color: #e3d8d0;
 }
-.home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar > .task-refresh[aria-busy="true"]) { color: var(--work-brand); }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) {
   gap: 8px; padding: 4px 20px 8px; border-bottom: 1px solid var(--work-line);
 }
@@ -4930,6 +4929,29 @@ button.hall-room {
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-meta) { color: var(--work-muted); }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .ability-tags span) { background: #eef3eb; color: #4b6650; }
 .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .empty-list) { border: 1px dashed var(--work-line); border-radius: var(--hall-radius-md); background: var(--work-paper); color: var(--work-muted); }
+
+/* The wide list owns its gutters so its scrollbar stays outside the cards. */
+@container matter-board (min-width: 890px) {
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .panel-toolbar) { padding: 12px 20px 2px; }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs) { gap: 4px; padding: 0 20px; }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button) {
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--hall-radius-sm) var(--hall-radius-sm) 0 0 !important;
+    background: transparent;
+    font-size: .875rem;
+  }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button:hover) { background: var(--hall-surface-subtle); }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs button.active) {
+    background: var(--hall-surface-brand);
+    box-shadow: inset 0 -2px currentColor;
+    font-weight: 600;
+  }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-status-tabs small) { background: transparent; }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-panel-body) { padding: 0; }
+  .home-overview .panel-overlay.theme-workbench :deep(.bounty-panel .task-card) { margin-bottom: 0; padding-block: 12px; }
+}
+
 .home-overview .panel-overlay.theme-workbench :deep(.agent-panel .status-filter button:not(.active)) { background: #f3f3ed; color: var(--work-ink); }
 .home-overview .panel-overlay.theme-workbench :deep(.agent-panel .detail-card) { background: #fafbf6; border: 1px solid var(--work-line); color: var(--work-ink); }
 .home-overview .panel-overlay.theme-workbench :deep(.library-panel .library-tabs button:not(.active)) { background: #f3f3ed; color: var(--work-ink); }

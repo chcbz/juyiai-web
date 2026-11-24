@@ -78,16 +78,12 @@ describe('JYT-UX-W01 unified Hall shell', () => {
     expect(portrait).to.include('.is-unified-shell .portrait-scene :deep(.preview-frame) { height:100%; min-height:0; }')
   })
 
-  it('keeps mobile task refresh visible and gives long task lists a bounded scroll owner', () => {
+  it('leaves search as the only task query action and bounds long task lists', () => {
     const bounty = readFileSync(new URL('../src/components/juyiting/BountyPanel.vue', import.meta.url), 'utf8')
-    const hall = readFileSync(new URL('../src/components/world/JuyiHall.vue', import.meta.url), 'utf8')
-    expect(bounty).to.include('class="task-refresh hall-tool"').and.include('aria-label="刷新事项"')
+    expect(bounty).to.include('class="task-search-submit"').and.not.include('aria-label="刷新事项"')
     expect(bounty).not.to.include('<span class="toolbar-label">刷新</span>')
     expect(bounty).to.match(/\.bounty-source \{[\s\S]*?display: flex;[\s\S]*?min-height: 0;/)
     expect(bounty).to.match(/\.task-list \{[\s\S]*?overflow: auto;[\s\S]*?overscroll-behavior: contain;/)
-    expect(hall).to.include('.toolbar-label)')
-    expect(hall).to.include('.bounty-action-icon)')
-    expect(hall).not.to.include('.panel-toolbar > button span)')
   })
 
   it('keeps the Portrait Home flex layout and exposes a pending-request exit', () => {

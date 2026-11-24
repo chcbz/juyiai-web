@@ -25,13 +25,15 @@ const props = {
 }
 
 describe('Bounty task toolbar', () => {
-  it('keeps the draft local until search, independently of refresh and assignee filtering', async () => {
+  it('keeps the draft local until search, independently of assignee filtering', async () => {
     const wrapper = mount(Panel, { props })
     try {
       const toolbar = wrapper.get('.panel-toolbar')
-      expect(toolbar.findAll('button')).to.have.length(2)
+      expect(toolbar.findAll('button')).to.have.length(1)
       const form = toolbar.get('form[role=search]')
-      expect(form.get('button[type=submit]').text()).to.equal('搜索')
+      const submit = toolbar.get(':scope > button[type=submit]')
+      expect(submit.text()).to.equal('搜索')
+      expect(submit.element.form).to.equal(form.element)
       expect(form.find('select').exists()).to.equal(false)
       expect(toolbar.text()).not.to.include('提出需求')
       expect(toolbar.find('.task-draft-actions').exists()).to.equal(false)
@@ -49,12 +51,11 @@ describe('Bounty task toolbar', () => {
       expect(wrapper.emitted('load-tasks')).to.equal(undefined)
       await toolbar.get('select').setValue('agent-b')
       expect(wrapper.emitted('update:taskAgentFilter').at(-1)).to.deep.equal(['agent-b'])
-      await toolbar.get('[aria-label="刷新事项"]').trigger('click')
       expect(wrapper.emitted('update:taskKeyword')).to.equal(undefined)
-      expect(wrapper.emitted('load-tasks')).to.have.length(2)
+      expect(wrapper.emitted('load-tasks')).to.have.length(1)
       await form.trigger('submit')
       expect(wrapper.emitted('update:taskKeyword')).to.deep.equal([['434']])
-      expect(wrapper.emitted('load-tasks')).to.have.length(3)
+      expect(wrapper.emitted('load-tasks')).to.have.length(2)
       await wrapper.setProps({ taskKeyword: '434' })
       expect(toolbar.get('.task-search-applied').text()).to.equal('已搜索：434')
       await toolbar.get('input').setValue('new draft')
@@ -168,6 +169,7 @@ describe('Bounty task toolbar', () => {
     try {
       const toggle = w.get('.panel-toolbar .task-status-secondary')
       const group = w.get('.task-secondary-filters')
+      expect(toggle.element.nextElementSibling).to.equal(w.get('.task-search-submit').element)
       expect(toggle.attributes('aria-controls')).to.equal(group.attributes('id'))
       expect(toggle.attributes('aria-expanded')).to.equal('false')
       await toggle.trigger('click')
@@ -190,31 +192,31 @@ describe('Bounty task toolbar', () => {
     try {
       const body = w.get('.task-panel-body')
       const statuses = w.get('.task-status-tabs')
-      const refresh = w.get('.task-refresh')
+      expect(w.find('.task-refresh').exists()).to.equal(false)
       expect(body.attributes('aria-busy')).to.equal('true')
       expect(statuses.attributes('aria-busy')).to.equal('true')
-      expect(refresh.attributes('aria-busy')).to.equal('true')
       expect(w.find('.empty-list').exists()).to.equal(false)
       expect(w.find('.task-data-state').exists()).to.equal(false)
       await w.setProps({ loading: false, errorMessage: '事项连接失败' })
       expect(body.attributes('aria-busy')).to.equal('false')
-      expect(refresh.attributes('aria-busy')).to.equal('true')
       expect(w.get('[role="alert"]').text()).to.equal('事项连接失败')
       await w.get('.task-pagination-status button').trigger('click')
       expect(w.emitted('load-tasks')).to.have.length(1)
       await w.setProps({ countsLoading: false, countsErrorMessage: '计数暂不可用' })
       expect(statuses.attributes('aria-busy')).to.equal('false')
-      expect(refresh.attributes('aria-busy')).to.equal('false')
       expect(w.findAll('[role="alert"]').map(a => a.text())).to.deep.equal(['事项连接失败', '计数暂不可用'])
-      await w.setProps({ errorMessage: '', countsErrorMessage: '' })
+      await w.setProps({ errorMessage: '' })
+      await w.get('.task-count-error button').trigger('click')
+      expect(w.emitted('load-tasks')).to.have.length(2)
+      await w.setProps({ countsErrorMessage: '' })
       expect(w.find('.empty-list').exists()).to.equal(true)
     } finally { w.unmount() }
   })
 
   it('gives toolbar controls independent grid cells without obsolete creation styles', () => {
     const css = descriptor.styles[0].content
-    expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) auto 44px')
-    expect(css).to.include('grid-template-columns: minmax(0, 1fr) auto;')
+    expect(css).to.include('grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) auto auto;')
+    expect(css).to.include('grid-template-columns: minmax(0, 1fr) auto auto;')
     expect(css).not.to.match(/\.task-search input,[^{}]*\.task-material-picker\s*\{/)
     expect(css).not.to.include('.task-create-form')
   })
