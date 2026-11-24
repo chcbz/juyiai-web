@@ -33,6 +33,16 @@ describe('single-track model assignee recommendation R1', () => {
     for (const invalid of [{ degradedReasons: [] }, { retrievalMode: 'UNAVAILABLE' }, { candidateSetComplete: false }])
       expect(() => parseAssigneeRecommendation({ ...value, ...invalid }, task())).to.throw()
   })
+  it('keeps the manual list when no disclosed evidence needs retrieval', async () => {
+    const row = { ...result().recommendations[0], agent: { ...agent, abilities: [] }, recommendationLevel: 'UNKNOWN', evidence: [] }
+    const value = { ...result(), state: 'NO_MATCH', retrievalMode: 'NOT_NEEDED', recommendations: [row] }
+    const { data } = create(async (_url, _input, options) => options.onSuccess(value))
+    await data.loadTaskRecommendations()
+    expect(data.recommendationState.value.state).to.equal('NO_MATCH'); expect(data.canAssign(task(), agent)).to.equal(true)
+    data.dispose()
+    for (const bad of [{ recommendations: [] }, { state: 'READY' }, { recommendations: [{ ...row, evidence: result().recommendations[0].evidence }] }])
+      expect(() => parseAssigneeRecommendation({ ...value, ...bad }, task())).to.throw()
+  })
   it('preserves own-first suitable advice and external-first advice when own capability is insufficient', async () => {
     for (const rows of [
       [{ mine: true, level: 'MEDIUM' }, { mine: false, level: 'HIGH' }],

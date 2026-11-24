@@ -41,7 +41,9 @@ export const parseAssigneeRecommendation = (value, task) => {
   const positive = value.recommendations.some(item => isRecommendedLevel(item.recommendationLevel))
   const degraded = value.state === 'DEGRADED'
   const modeValid = degraded ? ['LEXICAL_ONLY', 'UNAVAILABLE'].includes(value.retrievalMode)
-    : value.retrievalMode === (value.state === 'NO_CANDIDATES' ? 'NOT_NEEDED' : 'HYBRID')
+    : value.retrievalMode === 'NOT_NEEDED'
+      ? (value.state === 'NO_CANDIDATES' || value.state === 'NO_MATCH') && value.recommendations.every(item => item.recommendationLevel === 'UNKNOWN' && item.evidence.length === 0)
+      : value.state !== 'NO_CANDIDATES' && value.retrievalMode === 'HYBRID'
   if (!modeValid || degraded !== (value.degradedReasons.length > 0) ||
       (value.state === 'READY' && !positive) || (value.state === 'NO_MATCH' && positive) ||
       (value.retrievalMode === 'UNAVAILABLE' && value.recommendations.some(item => item.recommendationLevel !== 'UNKNOWN')) ||
