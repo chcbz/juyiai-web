@@ -166,6 +166,8 @@
                     <div><dt>资料 / 成果</dt><dd>{{ matterResourceSummary?.taskId === String(detailTask.id) ? (['completed', 'archived'].includes(detailTask.status) ? `${matterResourceSummary.materials} 份资料 · 成果见验收记录` : `${matterResourceSummary.materials} 份资料 · ${matterResultCount ?? matterResourceSummary.outputs} 份${matterResultCount == null ? '成果引用' : '成果'}`) : '见下方资料与成果' }}</dd></div>
                   </dl>
                   <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent?.recommendationReason" class="matter-selected-reason">{{ matterAgent.recommendationReason }}</p>
+                  <HallInitialAction v-if="budgetTarget" :key="JSON.stringify([identityScope, authorizationGeneration, detailTask.id, detailTask.taskVersion, budgetTarget])"
+                    :task-id="detailTask.id" :task-version="detailTask.taskVersion" :agent-id="budgetTarget" />
                   <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent && !isFundedTask(detailTask)" class="matter-quote" role="status">{{ budgetStatusText || taskQuoteText(selectedQuote) }}<template v-if="isAvailableTaskQuote(selectedQuote)"> · 确认承办时预占，验收后扣除</template> <button v-if="budgetAction" type="button" @click="emit('request-budget', detailTask, matterAgent.agentId, budgetAction.mode)">{{ budgetAction.label }}</button></p>
                 </template>
                 <section
@@ -496,6 +498,7 @@ import { assignedTaskTarget, assigneeProviderText, assigneeAvailabilityText } fr
 import { projectHallTask } from '../../composables/juyiting/hallTaskPresentation.js'
 import { canCancelOrdinaryTask, ordinaryTaskVersion, isTerminalMatter } from '../../composables/juyiting/useHallOrdinaryCancellation.js'
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+import HallInitialAction from './HallInitialAction.vue'
 import HallRequirementEditor from './HallRequirementEditor.vue'
 import HallTaskResources from './HallTaskResources.vue'
 import WorkItemPlanPanel from './WorkItemPlanPanel.vue'

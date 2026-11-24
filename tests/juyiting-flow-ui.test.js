@@ -33,6 +33,21 @@ const baseProps = { embeddedHall: true, detailAllowed: true, identityScope: 'own
   operableAgents: [{ agentId: 'old-agent', name: '林冲', canOperate: true, status: 'online' }] }
 
 describe('flow gap actual UI consumers', () => {
+  it('requires explicit initial delivery, retries identical PUT and reads current binding after a replay', async () => {
+    const stamp='a'.repeat(64),props={taskId:'task/1',taskVersion:'2',agentId:'agent/one'}
+    const header={taskVersion:'2',agentId:props.agentId,selectionVersion:stamp};let current=null,reads=0;const writes=[]
+    const api={get:async path=>{expect(path).to.equal('/tasks/task%2F1/initial-actions/agent%2Fone');reads++;return {...header,choice:current}},
+      put:async(path,body,cfg)=>{writes.push([path,body,cfg.headers]);if(writes.length===1)throw new Error('lost response');return {...header,choice:body.choice}}}
+    const panel=mount(compile('juyiting/HallInitialAction',{'../../composables/useHttp.js':{agentApi:api},'../../composables/useRequestRum.js':{resolveRequestId:()=> 'original-key'}}),{props})
+    try {
+      expect(reads).to.equal(0);await panel.get('button').trigger('click');await Vue.nextTick();expect(panel.text()).to.include('未选择');expect(writes).to.be.empty
+      await panel.findAll('button')[1].trigger('click');await Vue.nextTick();expect(panel.text()).to.include('重试原选择');current='OTHER_FIXED'
+      await panel.get('button').trigger('click');await Vue.nextTick();await Vue.nextTick();expect(writes).to.have.length(2);expect(writes[1]).to.deep.equal(writes[0]);
+      expect(writes[0]).to.deep.equal(['/tasks/task%2F1/initial-actions/agent%2Fone',{selectionVersion:stamp,choice:'LOCAL_TEXT_FILE'},{'Idempotency-Key':'original-key'}]);
+      expect(reads).to.equal(2);expect(panel.text()).to.include('其他已固定方式');expect(panel.find('button').exists()).to.equal(false)
+    } finally {panel.unmount()}
+  })
+
   it('resolves the material action from its current ref after a task version remount', async () => {
     let resolver
     const Resources = Vue.defineComponent({ name: 'HallTaskResources', setup (_props, { slots }) { return () => Vue.h('section', slots.actions?.()) } })
