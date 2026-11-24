@@ -7,7 +7,7 @@
       class="bounty-source"
     >
       <div class="panel-toolbar">
-        <form class="task-search" role="search" aria-label="查找事项" @submit.prevent="submitKeyword">
+        <form :id="taskSearchFormId" class="task-search" role="search" aria-label="查找事项" @submit.prevent="submitKeyword">
           <input
             v-model="searchDraft"
             type="search"
@@ -19,7 +19,6 @@
             @blur="searchComposing = false"
             @keydown.enter="guardSearchEnter"
           />
-          <button class="task-search-submit" type="submit">搜索</button>
         </form>
         <select
           ref="agentFilterControl"
@@ -44,7 +43,7 @@
           {{ secondaryStatusActive ? `状态：${statusLabel}` : '其他状态' }}
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" /></svg>
         </button>
-        <button class="task-refresh hall-tool" type="button" aria-label="刷新事项" title="刷新事项" :aria-busy="(loading && !hasMore) || countsLoading" @click="$emit('load-tasks')"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/></svg></button>
+        <button class="task-search-submit" type="submit" :form="taskSearchFormId">搜索</button>
         <p class="task-search-applied" role="status">{{ taskKeyword ? `已搜索：${taskKeyword}` : '' }}</p>
       </div>
 
@@ -72,7 +71,10 @@
       </section>
 
       <p v-if="!loading && errorMessage" class="task-data-state is-error" role="alert">{{ errorMessage }}</p>
-      <p v-if="!countsLoading && countsErrorMessage && countsErrorMessage !== errorMessage" class="task-data-state is-error" role="alert">{{ countsErrorMessage }}</p>
+      <div v-if="!countsLoading && countsErrorMessage && countsErrorMessage !== errorMessage" class="task-data-state is-error task-count-error">
+        <span role="alert">{{ countsErrorMessage }}</span>
+        <button v-if="!errorMessage" type="button" class="hall-action-surface" :disabled="loading" @click="$emit('load-tasks')">重试加载状态计数</button>
+      </div>
 
       <div ref="statusStrip" class="task-status-tabs" role="group" aria-label="事项状态" :aria-busy="countsLoading">
         <button
@@ -585,7 +587,8 @@ const emit = defineEmits([
   'update:taskKeyword'
 ])
 
-// Editable text is local until submit; pagination, refresh and other filters use the parent query.
+// Editable text is local until submit; pagination, retries and other filters use the parent query.
+const taskSearchFormId = useId()
 const searchDraft = ref(props.taskKeyword)
 const searchComposing = ref(false)
 watch(() => props.taskKeyword, keyword => { searchDraft.value = keyword })
@@ -910,7 +913,7 @@ defineExpose({ openTask, canGoBack, back })
   color: var(--hall-brand, #923f30);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .task-page-spinner, .task-refresh[aria-busy="true"] svg { animation: task-list-spin .85s linear infinite; }
+  .task-page-spinner { animation: task-list-spin .85s linear infinite; }
 }
 @keyframes task-list-spin { to { transform: rotate(1turn); } }
 .bounty-panel {
@@ -981,7 +984,7 @@ button:disabled {
 
 .panel-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) auto 44px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, .55fr) auto auto;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
@@ -1003,14 +1006,11 @@ button:disabled {
 }
 
 .task-search {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  gap: 6px;
   min-width: 0;
   margin: 0;
 }
 .panel-toolbar .task-search-submit {
+  grid-column: -2 / -1;
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--hall-brand, #923f30);
@@ -1034,7 +1034,7 @@ button:disabled {
 /* Keep the empty status region in the accessibility tree without taking up a row. */
 .task-search-applied:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 @media (max-width: 520px) {
-  .panel-toolbar { grid-template-columns: minmax(0, 1fr) auto 44px; }
+  .panel-toolbar { grid-template-columns: minmax(0, 1fr) auto auto; }
   .task-search { grid-column: 1 / -1; }
 }
 
@@ -1055,18 +1055,9 @@ button:disabled {
 .task-search input:focus-visible,
 .task-assignee:focus-visible,
 .task-search-submit:focus-visible,
-.task-status-secondary:focus-visible,
-.task-refresh:focus-visible {
+.task-status-secondary:focus-visible {
   outline: 2px solid var(--work-brand, #a44330);
   outline-offset: 2px;
-}
-
-.panel-toolbar .task-refresh {
-  grid-column: -2 / -1;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--work-line, #d7c3a2);
 }
 
 .requirement-create-recovery {
@@ -1093,6 +1084,7 @@ button:disabled {
 }
 
 .task-data-state.is-error { color: #b3261e; }
+.task-count-error { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 
 .task-status-tabs {
   display: flex;
@@ -1125,7 +1117,6 @@ button:disabled {
   white-space: nowrap;
 }
 .panel-toolbar .task-status-secondary.active { background: var(--hall-surface-brand, #f6eee8); color: var(--hall-brand, #923f30); }
-.panel-toolbar .task-refresh[aria-busy="true"] { color: var(--hall-brand, #923f30); }
 .task-status-secondary svg { flex: none; }
 .task-status-secondary[aria-expanded="true"] svg { transform: rotate(180deg); }
 .task-status-tabs button:focus-visible { outline: 2px solid var(--hall-brand, #8d2d22); outline-offset: -2px; }
@@ -1795,16 +1786,34 @@ button:disabled {
 .matter-advice-card dd,.matter-primary-action{overflow-wrap:anywhere;white-space:normal}
 .matter-edit-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}.matter-edit-row h3,.matter-edit-row .matter-request{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}.matter-description-row{align-items:flex-start}.matter-edit-button{flex:none;display:inline-flex;align-items:center;justify-content:center;width:38px;min-height:38px;padding:8px}
 
-.is-hall-embedded .task-panel-body { container-type: inline-size; }
+.is-hall-embedded .bounty-source { container: matter-board / inline-size; }
 .is-hall-embedded .task-head strong { font-size:16px; line-height:1.45; white-space:normal; overflow-wrap:anywhere; }
 .is-hall-embedded .task-head span { align-self:start; }
 .is-hall-embedded .task-card .task-excerpt { margin:6px 0; font-size:13px; line-height:1.5; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
 .is-hall-embedded .task-meta { align-items:center; gap:4px 10px; margin-top:8px; overflow-wrap:anywhere; }
 .is-hall-embedded .task-skill { padding:2px 7px; border-radius:5px; background:#edf2ec; color:#395644; }
 .is-hall-embedded .task-card:focus-visible { outline:2px solid #964637; outline-offset:-3px; }
-@container (min-width: 850px) {
-  .is-hall-embedded .task-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-content:start; gap:0 12px; }
-  .is-hall-embedded .task-list > :not(.task-card) { grid-column:1 / -1; }
+@container matter-board (min-width: 890px) {
+  .is-hall-embedded .panel-toolbar {
+    grid-template-columns: minmax(0, 26rem) minmax(10rem, 13rem) minmax(0, 1fr) auto auto;
+  }
+  .is-hall-embedded .task-status-secondary { grid-column: -3 / -2; }
+  .is-hall-embedded .task-panel-body { overflow: hidden; }
+  .is-hall-embedded .task-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 12px;
+    padding: 12px 20px 20px;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--hall-text-muted, #68716b) transparent;
+    scrollbar-gutter: stable;
+  }
+  .is-hall-embedded .task-list > :not(.task-card) { grid-column: 1 / -1; }
+  .is-hall-embedded .task-card { display: flex; flex-direction: column; }
+  .is-hall-embedded .task-card .task-excerpt { margin-bottom: 0; }
+  .is-hall-embedded .task-card .task-meta { margin-top: auto; padding-top: 6px; }
 }
 
 
