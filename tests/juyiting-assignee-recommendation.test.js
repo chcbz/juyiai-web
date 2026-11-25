@@ -191,6 +191,11 @@ describe('task quotation availability explanations', () => {
   })) it(`explains ${reason} without suggesting a paid retry or free assignment`, () => {
     const quote = unavailable(reason)
     expect(taskQuoteText(quote)).to.include(message)
+    if (reason === 'BILLING_ROUTE_MISSING') {
+      expect(taskQuoteText(quote)).to.include('如有「查看首次交付方式」')
+      expect(taskQuoteText(quote)).to.include('配置就绪后点「重新取价」')
+      expect(taskQuoteText(quote)).to.include('仍无报价')
+    } else expect(taskQuoteText(quote)).not.to.include('首次交付方式')
     expect(taskQuoteText(quote)).not.to.include('稍后重试')
     expect(taskQuoteText(quote)).not.to.include('0文')
     expect(isAvailableTaskQuote(quote)).to.equal(false)
