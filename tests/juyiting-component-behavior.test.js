@@ -1763,6 +1763,17 @@ describe('JuyiHall component behavior', () => {
       expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
       expect(document.activeElement).to.equal(wrapper.get('.matter-agent-toggle').element)
       expect(wrapper.emitted('assign-task')).to.have.length(1)
+      // A detail reread (e.g. reconciling a stale quote) replaces the object even if its
+      // version did not change. It is not a new choice, nor consent to quote the default agent.
+      const requestsBeforeDetail = wrapper.emitted('request-budget').length
+      await wrapper.setProps({ selectedTask: { ...task, title: '核对后的详情' },
+        taskBudget: { state: 'STALE', agentId: b.agentId, taskId: task.id, taskVersion: task.taskVersion } })
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      expect(wrapper.get('.matter-quote').text()).to.include('请重新取价')
+      expect(wrapper.emitted('request-budget')).to.have.length(requestsBeforeDetail)
+      await wrapper.get('.matter-quote button').trigger('click')
+      expect(wrapper.emitted('request-budget').at(-1)).to.deep.equal([{ ...task, title: '核对后的详情' }, b.agentId, 'renew'])
       await wrapper.setProps({ recommendedAgents: [a, { ...b }] })
       expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由吴用承办')
       await wrapper.setProps({ pointAndStartBusy: true })
