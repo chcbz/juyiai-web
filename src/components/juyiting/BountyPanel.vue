@@ -766,7 +766,8 @@ const selectMatterCandidate = async agent => {
   await nextTick()
   matterCandidateToggle.value?.focus()
 }
-watch(() => [props.identityScope, props.authorizationGeneration, detailTask.value?.id, detailTask.value?.taskVersion], () => { matterCandidateId.value = ''; matterCandidateExpansion.value = null }, { flush: 'sync' })
+// Compare the actual authority/version keys, not the array identity on a same-version detail reread.
+watch([() => props.identityScope, () => props.authorizationGeneration, () => detailTask.value?.id, () => detailTask.value?.taskVersion], () => { matterCandidateId.value = ''; matterCandidateExpansion.value = null }, { flush: 'sync' })
 const canConfirmAgent = agent => Boolean(agent && !requirementEditBusy.value &&
   !props.pointAndStartBusy && !pointAndStartForDetail.value && hasTaskAction(detailTask.value, 'ASSIGN') && props.canAssign(detailTask.value, agent) &&
   (isFundedTask(detailTask.value) || (agent.agentId === budgetTarget.value && isAvailableTaskQuote(selectedQuote.value))))
