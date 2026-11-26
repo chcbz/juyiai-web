@@ -3,8 +3,17 @@
     <button v-if="state === 'CLOSED'" type="button" @click="read">查看首次交付方式</button>
     <fieldset v-else-if="state === 'OPEN'">
       <legend>首次交付方式（未选择）</legend>
-      <p>仅使用本地资料，不调用技能。选择后，当前需求和材料下不可更改；不会开始办理。</p>
+      <p>可选择本地办理，或指定承办人的已安装技能。固定后当前需求和材料下不可更改；此操作不派单、不扣费。</p>
       <button v-for="(label, choice) in options" :key="choice" type="button" @click="choose(choice)">固定为{{ label }}</button>
+      <button v-if="skills === null" type="button" :disabled="skillsBusy" @click="loadSkills">{{ skillsBusy ? '正在读取技能…' : '查看可选技能' }}</button>
+      <p v-if="skillError" role="status">暂时无法读取技能，可以重试。</p>
+      <template v-if="skills?.length">
+        <label>办理技能<select v-model="selectedRef"><option value="" disabled>请选择技能</option><option v-for="item in skills" :key="item.ref" :value="item.ref">{{ item.title }}</option></select></label>
+        <label>期望交付格式<input v-model.trim="mime" list="task-initial-artifact-types" placeholder="例如 image/png" /></label>
+        <datalist id="task-initial-artifact-types"><option value="image/png">PNG 图片</option><option value="application/pdf">PDF 文档</option><option value="text/plain">纯文本</option></datalist>
+        <button type="button" :disabled="!validSkill" @click="chooseSkill">固定技能及交付格式</button>
+      </template>
+      <p v-else-if="skills !== null">当前没有可选择的已安装技能。</p>
     </fieldset>
     <p v-else role="status">{{ message }}
       <button v-if="state === 'UNKNOWN'" type="button" @click="submit">重试原选择</button>
@@ -21,6 +30,8 @@ import { resolveRequestId } from '../../composables/useRequestRum.js'
 const props = defineProps({ taskId: { type: String, required: true }, taskVersion: { type: String, required: true }, agentId: { type: String, required: true } })
 const options = { LOCAL_ANSWER: '本地答复', LOCAL_TEXT_FILE: '本地文本文件' }
 const state = ref('CLOSED'), fixed = ref('')
+const skills = ref(null), skillsBusy = ref(false), skillError = ref(false), selectedRef = ref(''), mime = ref('')
+const validSkill = computed(() => skills.value?.some(v => v.ref === selectedRef.value) && mime.value.length <= 127 && /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(mime.value))
 let version, pending, active
 const uri = () => `/tasks/${encodeURIComponent(props.taskId)}/initial-actions/${encodeURIComponent(props.agentId)}`
 const message = computed(() => ({ READING: '正在核对首次交付方式…', SAVING: '正在固定选择…', FIXED: `已固定：${fixed.value}。可重新取价。`,
@@ -36,18 +47,33 @@ function failure (e, writing) {
 }
 async function read () {
   if (active) return
+  skills.value = null; selectedRef.value = ''; mime.value = ''; skillError.value = false
   const req = new AbortController(); active = req; state.value = 'READING'
   try {
     const v = await agentApi.get(uri(), {}, { autoLoading: false, signal: req.signal })
     if (active !== req) return
-    if (!valid(v) || !(v.choice === null || v.choice === 'OTHER_FIXED' || Object.hasOwn(options, v.choice))) { state.value = 'CHANGED'; return }
+    if (!valid(v) || !(v.choice === null || v.choice === 'OTHER_FIXED' || v.choice === 'INSTALLED_SKILL' || Object.hasOwn(options, v.choice))) { state.value = 'CHANGED'; return }
     version = v.selectionVersion
-    fixed.value = options[v.choice] || '其他已固定方式'
+    fixed.value = v.choice === 'INSTALLED_SKILL' ? '指定技能及交付格式' : options[v.choice] || '其他已固定方式'
     state.value = v.choice === null ? 'OPEN' : 'FIXED'
   } catch (e) { if (active === req) failure(e, false) } finally { if (active === req) active = null }
 }
+async function loadSkills () {
+  if (active || state.value !== 'OPEN') return
+  const req = new AbortController(); active = req; skillsBusy.value = true; skillError.value = false
+  try {
+    const rows = await agentApi.get(uri() + '/skill-options', {}, { autoLoading: false, signal: req.signal })
+    if (active !== req) return
+    if (!Array.isArray(rows) || !rows.every(v => /^[a-f0-9]{64}$/.test(v?.ref) && typeof v.title === 'string')) throw new Error('Invalid skill choices')
+    skills.value = rows
+  } catch { if (active === req) skillError.value = true } finally { if (active === req) { skillsBusy.value = false; active = null } }
+}
+function chooseSkill () {
+  if (active || state.value !== 'OPEN' || !validSkill.value) return
+  pending = { body: { selectionVersion: version, choice: 'INSTALLED_SKILL', optionRef: selectedRef.value, mimeType: mime.value }, key: resolveRequestId() }; return submit()
+}
 function choose (choice) {
-  if (state.value !== 'OPEN' || !Object.hasOwn(options, choice)) return
+  if (active || state.value !== 'OPEN' || !Object.hasOwn(options, choice)) return
   pending = { body: { selectionVersion: version, choice }, key: resolveRequestId() }; return submit()
 }
 async function submit () {

@@ -48,6 +48,22 @@ describe('flow gap actual UI consumers', () => {
     } finally {panel.unmount()}
   })
 
+  it('does not pick a skill or infer an image request; explicitly pins the selected option and output', async () => {
+    const props={taskId:'task',taskVersion:'2',agentId:'agent'}, ref='b'.repeat(64), stamp='a'.repeat(64), writes=[]
+    const header={taskVersion:'2',agentId:'agent',selectionVersion:stamp};let current=null
+    const api={get:async path=>path.endsWith('/skill-options')?[{ref,title:'绘图'}]:{...header,choice:current},
+      put:async(path,body)=>{writes.push(body);current=body.choice;return {...header,choice:current}}}
+    const panel=mount(compile('juyiting/HallInitialAction',{'../../composables/useHttp.js':{agentApi:api},'../../composables/useRequestRum.js':{resolveRequestId:()=> 'key'}}),{props})
+    try {
+      await panel.get('button').trigger('click');await Vue.nextTick()
+      await panel.findAll('button').find(b=>b.text()==='查看可选技能').trigger('click');await Vue.nextTick()
+      const submit=panel.findAll('button').find(b=>b.text()==='固定技能及交付格式');expect(submit.element.disabled).to.equal(true)
+      await panel.get('select').setValue(ref);expect(submit.element.disabled).to.equal(true);expect(writes).to.be.empty
+      await panel.get('input').setValue('image/png');await submit.trigger('click');await Vue.nextTick();await Vue.nextTick()
+      expect(writes).to.deep.equal([{selectionVersion:stamp,choice:'INSTALLED_SKILL',optionRef:ref,mimeType:'image/png'}]);expect(panel.text()).to.include('已固定')
+    } finally {panel.unmount()}
+  })
+
   it('resolves the material action from its current ref after a task version remount', async () => {
     let resolver
     const Resources = Vue.defineComponent({ name: 'HallTaskResources', setup (_props, { slots }) { return () => Vue.h('section', slots.actions?.()) } })
