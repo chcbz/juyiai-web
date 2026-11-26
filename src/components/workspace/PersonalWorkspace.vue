@@ -8,6 +8,7 @@
     <section v-if="embedded" class="treasure-content" :data-view="treasureView">
       <template v-if="treasureView === 'list'">
         <div class="treasure-intro"><div><h2>我的资料</h2><p>按文件名查找，打开后可预览和选择版本。</p></div><button ref="uploadEntry" class="treasure-primary hall-tool" type="button" @click="openTreasureUpload" aria-label="上传资料" title="上传资料"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V4m-5 5 5-5 5 5M5 16v5h14v-5"/></svg></button></div>
+        <p v-if="uploadReceipt.length" role="status">已上传：{{ uploadReceipt.join('、') }}</p>
         <nav ref="categoryNav" class="treasure-tabs" aria-label="百宝箱分类"><button v-for="tab in treasureTabs" :key="tab.key" type="button" :aria-pressed="treasureTab === tab.key" @click="changeTreasureTab(tab.key)">{{ tab.label }}</button></nav>
         <form class="treasure-search" @submit.prevent="submitTreasureSearch"><label><span class="sr-only">搜索文件名称</span><input ref="searchField" v-model="query" enterkeyhint="search" maxlength="100" placeholder="搜索文件名称" /></label><button type="submit" :disabled="workspace.loading.value" class="hall-tool" aria-label="搜索文件名称" title="搜索文件名称"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button></form>
         <div v-if="appliedSearch" class="file-search-context">
@@ -36,10 +37,10 @@
       </template>
       <form v-else-if="treasureView === 'upload'" class="treasure-form" @submit.prevent="uploadTreasure">
         <p>选择文件后不会自动上传。点击「确认上传」才会保存，不会自动交给好汉。</p>
-        <label><span>选择资料</span><input ref="uploadPicker" type="file" :accept="acceptTypes" @change="onUploadFile" /></label>
-        <label><span>显示名称（可选）</span><input v-model="uploadDisplayName" maxlength="255" placeholder="留空使用文件名称" /></label>
-        <p v-if="uploadFile">{{ uploadFile.name }} · {{ byteText(uploadFile.size) }}</p>
-        <div class="treasure-actions"><button type="button" @click="back">{{ workspace.actionState.value === 'uploading' ? '返回列表' : '取消' }}</button><button class="treasure-primary" type="submit" :disabled="!uploadFile || workspace.actionState.value === 'uploading'">{{ workspace.actionState.value === 'uploading' ? '正在上传…' : '确认上传' }}</button></div>
+        <label><span>选择资料</span><input ref="uploadPicker" type="file" multiple :disabled="uploadBusy || awaitingUpload" :accept="acceptTypes" @change="chooseTreasureFiles" /></label>
+        <label v-if="uploadRows.length <= 1"><span>显示名称（可选）</span><input v-model="uploadDisplayName" maxlength="255" placeholder="留空使用文件名称" /></label>
+        <ul v-if="uploadRows.length" aria-live="polite"><li v-for="(row, index) in uploadRows" :key="index">{{ row.file.name }} · {{ byteText(row.file.size) }} · {{ row.status }}</li></ul>
+        <div class="treasure-actions"><button type="button" @click="back">{{ uploadBusy ? '返回列表' : '取消' }}</button><button class="treasure-primary" type="submit" :disabled="uploadBusy || awaitingUpload || !uploadRows.some(row => row.status !== '已上传')">{{ uploadBusy ? '正在上传…' : '确认上传' }}</button></div>
       </form>
       <template v-else-if="workspace.detail.value">
         <div class="treasure-file-heading"><div><h2 ref="detailTitleRef" tabindex="-1">{{ workspace.detail.value.file.displayName }}</h2><p>{{ originText(workspace.detail.value.file.originKind) }} · {{ workspace.detail.value.file.state === 'TRASHED' ? '已回收' : '资料由你管理' }}</p></div><button v-if="treasureView === 'preview'" type="button" @click="treasureView = 'manage'" class="hall-tool" aria-label="更多文件管理" title="更多文件管理"><svg class="hall-control-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></div>
@@ -189,7 +190,7 @@
         </section>
       </section>
     </section>
-    <WorkspaceWriteRecovery :pending="workspace.pendingWrites.value" @retry="workspace.retryWrite" />
+    <WorkspaceWriteRecovery :pending="workspace.pendingWrites.value" @retry="retryWorkspaceWrite" />
     <p v-if="workspace.writeNotice.value" class="workspace-note workspace-page-message" role="status">{{ workspace.writeNotice.value }} <template v-if="workspace.detailRetryFileId.value"><button type="button" :disabled="workspace.actionState.value === 'loading-detail'" @click="retrySavedDetail">重新加载</button></template></p>
     <p v-if="workspace.error.value" class="workspace-error workspace-page-message" role="alert">{{ workspace.error.value }}</p>
   </main>
@@ -449,19 +450,54 @@ const uploadEntry = ref(null)
 const uploadPicker = ref(null)
 const openTreasureUpload = async () => {
   treasureListScroll = workspaceRoot.value?.scrollTop || 0
+  resetTreasureUpload()
   treasureView.value = 'upload'
   await nextTick()
   uploadPicker.value?.focus({ preventScroll: true })
 }
-const uploadTreasure = async () => {
-  if (!uploadFile.value || workspace.actionState.value === 'uploading') return
-  const snapshot = viewSnapshot(), file = uploadFile.value, name = uploadDisplayName.value
-  const result = await workspace.upload(file, name)
-  if (!result || !ownsView(snapshot)) return
-  if (uploadFile.value === file) uploadFile.value = null
-  if (uploadDisplayName.value === name) uploadDisplayName.value = ''
+const uploadRows = ref([])
+const uploadReceipt = ref([])
+const uploadBusy = ref(false)
+const awaitingUpload = computed(() => workspace.pendingWrites.value.some(item => item.target === 'CREATE') || uploadRows.value.some(row => row.status === '等待确认'))
+const chooseTreasureFiles = event => {
+  if (uploadBusy.value || awaitingUpload.value) return
+  uploadRows.value = Array.from(event.target.files || [], file => ({ file, status: '待上传' }))
+}
+const resetTreasureUpload = () => { uploadRows.value = []; uploadReceipt.value = []; uploadBusy.value = false }
+const finishTreasureUpload = async () => {
+  uploadReceipt.value = uploadRows.value.map(row => row.file.name)
+  uploadRows.value = []; uploadDisplayName.value = ''
   treasureView.value = 'list'; activeModal.value = 'library'
   treasureTab.value = 'all'; state.value = 'ACTIVE'; query.value = ''; appliedSearch.value = ''; await refresh()
+}
+const uploadTreasure = async () => {
+  if (uploadBusy.value || awaitingUpload.value || !uploadRows.value.length) return
+  const snapshot = viewSnapshot(), rows = uploadRows.value
+  const name = rows.length === 1 ? uploadDisplayName.value : ''
+  uploadBusy.value = true
+  try {
+    for (const row of rows) {
+      if (row.status === '已上传') continue
+      row.status = '正在上传'
+      const result = await workspace.upload(row.file, name)
+      if (!ownsView(snapshot)) return
+      if (!result) {
+        row.status = workspace.pendingWrites.value.some(item => item.target === 'CREATE') ? '等待确认' : '未上传'
+        return
+      }
+      row.status = '已上传'
+    }
+    await finishTreasureUpload()
+  } finally { if (ownsView(snapshot)) uploadBusy.value = false }
+}
+const retryWorkspaceWrite = async target => {
+  const snapshot = viewSnapshot(), row = target === 'CREATE' && uploadRows.value.find(item => item.status === '等待确认')
+  const result = await workspace.retryWrite(target)
+  if (!row || !ownsView(snapshot)) return
+  if (result) {
+    row.status = '已上传'
+    if (uploadRows.value.every(item => item.status === '已上传')) await finishTreasureUpload()
+  } else if (!workspace.pendingWrites.value.some(item => item.target === 'CREATE')) row.status = '未上传'
 }
 const prepareTrash = async () => { const snapshot = viewSnapshot(); const usage = await workspace.usage(); if (ownsView(snapshot)) trashUsage.value = usage }
 const confirmTrash = async () => {
@@ -483,6 +519,7 @@ const back = () => {
   if (embedded && treasureView.value === 'manage') { treasureView.value = 'preview'; trashUsage.value = null; return true }
   const leavingUpload = treasureView.value === 'upload'
   if (leavingUpload) {
+    resetTreasureUpload()
     // Drop the local form only. Already submitted writes have their own recovery state.
     uploadFile.value = null
     uploadDisplayName.value = ''
@@ -497,7 +534,7 @@ const back = () => {
   })
   return true
 }
-watch(identityEpoch, () => { executionInstruction.value = ''; generationInstruction.value = ''; executionMaterials.value = []; treasureView.value = 'list'; treasureTab.value = 'all'; trashUsage.value = null; uploadFile.value = null; versionFile.value = null; query.value = ''; appliedSearch.value = ''; uploadDisplayName.value = ''; renameValue.value = ''; selectedId.value = ''; activeModal.value = embedded ? 'library' : 'home' })
+watch(identityEpoch, () => { resetTreasureUpload(); executionInstruction.value = ''; generationInstruction.value = ''; executionMaterials.value = []; treasureView.value = 'list'; treasureTab.value = 'all'; trashUsage.value = null; uploadFile.value = null; versionFile.value = null; query.value = ''; appliedSearch.value = ''; uploadDisplayName.value = ''; renameValue.value = ''; selectedId.value = ''; activeModal.value = embedded ? 'library' : 'home' })
 defineExpose({ canGoBack, back, logicalDepth, windowTitle })
 
 onMounted(() => {

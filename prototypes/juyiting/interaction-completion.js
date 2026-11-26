@@ -884,15 +884,15 @@ function handleAllPageAction(action,t){
  if(action==='complete-reader-notes'){state.reader.notesOpen=!state.reader.notesOpen;render();return true;}
  if(action==='complete-reader-save'){state.reader.notes=$('[aria-label="手札草稿"]').value;persist();feedback('手札已保存在本原型，不上传。');$('.reader-note-status').textContent='手札已保存（本地示例）';return true;}
  if(action==='complete-reader-cite'){state.draft=[state.draft,'请根据典籍第'+state.reader.chapter+'回的阅读示例，整理要点与待办。'].filter(Boolean).join('\n');go('create');return true;}
- if(action==='complete-upload-panel'){const d=dialog('上传资料',`<p>选择文件后不会自动保存或交办。取消会丢弃本次选择；本原型只在当前标签页保存。</p><label>选择资料<input type="file" data-workspace-upload aria-label="选择本地资料"></label><label>显示名称（可选）<input data-upload-name aria-label="显示名称" placeholder="留空使用文件名称"></label><p data-upload-status role="status">尚未选择文件</p>`,button('取消','close-dialog')+button('保存到原型资料','complete-upload-confirm','disabled class="mmd-primary"'));$('[data-workspace-upload]',d).focus();return true;}
+ if(action==='complete-upload-panel'){const d=dialog('上传资料',`<p>选择文件后不会自动保存或交办。取消会丢弃本次选择；本原型只在当前标签页保存。</p><label>选择资料<input type="file" multiple data-workspace-upload aria-label="选择本地资料"></label><label>显示名称（可选）<input data-upload-name aria-label="显示名称" placeholder="留空使用文件名称"></label><p data-upload-status role="status">尚未选择文件</p>`,button('取消','close-dialog')+button('保存到原型资料','complete-upload-confirm','disabled class="mmd-primary"'));$('[data-workspace-upload]',d).focus();return true;}
  if(action==='complete-upload-confirm'){
-  const input=$('[data-workspace-upload]'),f=input?.files?.[0];if(!f)return true;
-  const d=t.closest('dialog'),name=$('[data-upload-name]',d).value.trim()||f.name;t.disabled=true;
-  readPrototypeFiles([f]).then(added=>{if(!d.isConnected||!d.open)return;added[0].name=name;state.localFiles.push(...added);d.close();persist();render();feedback('已存入原型资料，没有上传或交办。');}).catch(()=>{if(!d.isConnected)return;t.disabled=false;$('[data-upload-status]',d).textContent='读取失败，请重新选择文件。';});return true;
+  const input=$('[data-workspace-upload]'),files=Array.from(input?.files||[]);if(!files.length)return true;
+  const d=t.closest('dialog'),name=$('[data-upload-name]',d).value.trim();t.disabled=true;
+  readPrototypeFiles(files).then(added=>{if(!d.isConnected||!d.open)return;if(added.length===1&&name)added[0].name=name;state.localFiles.push(...added);d.close();persist();render();feedback('已存入原型资料，没有上传或交办。');}).catch(()=>{if(!d.isConnected)return;t.disabled=false;$('[data-upload-status]',d).textContent='读取失败，请重新选择文件。';});return true;
  }
  return false;
 }
-document.addEventListener('change',e=>{if(e.target.matches('[data-library-source]')){state.librarySource=e.target.value;persist();}if(e.target.matches('[data-workspace-upload]')){const f=e.target.files?.[0];$('[data-action=complete-upload-confirm]').disabled=!f;$('[data-upload-status]').textContent=f?f.name:'尚未选择文件';}});
+document.addEventListener('change',e=>{if(e.target.matches('[data-library-source]')){state.librarySource=e.target.value;persist();}if(e.target.matches('[data-workspace-upload]')){const files=Array.from(e.target.files||[]);$('[data-action=complete-upload-confirm]').disabled=!files.length;$('[data-upload-name]').disabled=files.length>1;$('[data-upload-status]').textContent=files.map(f=>f.name).join('、')||'尚未选择文件';}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('dialog[open]')&&!['chat','private'].includes(page)){const back=$('.production-page-header [data-action=complete-page-back]');if(back){e.preventDefault();back.click();}}});
 
 document.addEventListener('change',e=>{if(e.target.matches('[data-complete-task-agent]')){state.taskAgent=e.target.value;applyTaskFilters();persist();}});

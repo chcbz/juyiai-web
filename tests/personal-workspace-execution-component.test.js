@@ -23,7 +23,7 @@ script = script
   .replace(/^import\s+\{\s*usePersonalWorkspaceExecutionHistory\s*\}\s+from\s+['"]@\/composables\/usePersonalWorkspaceExecution['"];?\s*$/gm, 'var { usePersonalWorkspaceExecutionHistory } = deps')
   .replace(/^import\s+\{\s*deliveryTypeText\s*\}\s+from\s+['"]@\/utils\/executionFormats['"];?\s*$/gm, 'var { deliveryTypeText } = deps')
   .replace(/^import\s+\{\s*workspaceByteText,\s*validMaterialVersion\s*\}\s+from\s+['"]@\/utils\/personalWorkspaceProtocol['"];?\s*$/gm, 'var { workspaceByteText, validMaterialVersion } = deps')
-  .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { template: '<section />', props: ['pending'], emits: ['retry'] }")
+  .replace(/^import\s+WorkspaceWriteRecovery\s+from\s+['"][^'"]+['"];?\s*$/gm, "var WorkspaceWriteRecovery = { name: 'WorkspaceWriteRecovery', template: '<section />', props: ['pending'], emits: ['retry'] }")
   .replace(/^import\s+PdfDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var PdfDocumentPreview = { name: 'PdfDocumentPreview', template: '<section />', props: ['blob'] }")
   .replace(/^import\s+RichDocumentPreview\s+from\s+['"][^'"]+['"];?\s*$/gm, "var RichDocumentPreview = { name: 'RichDocumentPreview', template: '<section />', props: ['text', 'kind', 'title'] }")
   .replace(/^import\s+FilePreview\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
@@ -97,6 +97,28 @@ describe('workspace document category and upload selector', () => {
       workspace.actionState.value = 'ready'; finish({ file: { fileId: 'accepted' } }); await flushPromises()
       assert.equal(wrapper.get('.treasure-form [maxlength="255"]').element.value, '新的名称')
       assert.equal(submitted.length, 1)
+    } finally { wrapper.unmount() }
+  })
+  it('uploads the selection in order and never replays earlier successes after an uncertain item', async () => {
+    const workspace = workspaceMock(), sent = [], files = ['a.png', 'b.json', 'c.pdf'].map(name => new window.File(['x'], name))
+    workspace.upload = async (file, name) => {
+      sent.push([file.name, name]); if (file === files[1]) { workspace.pendingWrites.value = [{ target: 'CREATE', state: 'UNKNOWN' }]; return null }
+      return { file: { fileId: file.name } }
+    }
+    workspace.retryWrite = async target => { assert.equal(target, 'CREATE'); workspace.pendingWrites.value = []; return { file: { fileId: 'b.json' } } }
+    const component = new Function('Vue', 'deps', 'FilePreview', script)(Vue, { workspaceByteText, validMaterialVersion, deliveryTypeText,
+      useApiStore: () => ({ authorizationGeneration: 1 }), useGlobalStore: () => ({ user: { id: 'owner' } }),
+      usePersonalWorkspace: () => workspace, usePersonalWorkspaceExecutionHistory: executionMock }, FilePreview)
+    const wrapper = mount(component, { props: { embedded: true } })
+    try {
+      await wrapper.get('[aria-label="上传资料"]').trigger('click'); const form = wrapper.get('.treasure-form'), field = form.get('[type=file]')
+      assert.equal(field.element.multiple, true); Object.defineProperty(field.element, 'files', { value: files }); await field.trigger('change')
+      assert.deepEqual(sent, []); assert.equal(form.find('[maxlength="255"]').exists(), false)
+      await form.trigger('submit'); await flushPromises(); assert.match(form.text(), /a.png.*已上传/); assert.match(form.text(), /b.json.*等待确认/)
+      await form.trigger('submit'); assert.deepEqual(sent, [['a.png', ''], ['b.json', '']]); assert.equal(form.get('[type=submit]').element.disabled, true)
+      wrapper.getComponent({ name: 'WorkspaceWriteRecovery' }).vm.$emit('retry','CREATE'); await flushPromises()
+      await form.trigger('submit'); await flushPromises(); assert.deepEqual(sent.map(([name]) => name), files.map(file => file.name))
+      assert.match(wrapper.text(), /已上传：a.png、b.json、c.pdf/)
     } finally { wrapper.unmount() }
   })
   it('labels DOCUMENT generically and offers supported JSON in the actual upload input', async () => {
