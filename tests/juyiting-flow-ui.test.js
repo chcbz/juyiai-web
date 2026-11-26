@@ -321,18 +321,17 @@ describe('model recommendation actual matter UI', () => {
 
   it('shows candidate reason without summary panels; only explicit confirmation dispatches', async () => {
     const task = { id: 'recommend', title: '写说明', status: 'open', taskVersion: '1' }
-    const agent = { ...baseProps.operableAgents[0], recommendationLevel: 'HIGH', taskQuote: { state: 'AVAILABLE', quoteId: 'fixture-quote', recommendationId: 'fixture-rec', amount: { amountMinor: '13', currency: 'WEN' }, unavailableReason: null }, recommendationReason: '已登记写作本领',
+    const agent = { ...baseProps.operableAgents[0], taskQuote: { state: 'AVAILABLE', quoteId: 'fixture-quote', recommendationId: 'fixture-rec', amount: { amountMinor: '13', currency: 'WEN' }, unavailableReason: null }, recommendationReason: '已登记写作本领',
       recommendationEvidence: [{ id: 'ability:0', label: '写作', description: '登记声明' }], recommendationGaps: ['确认受众'] }
     const wrapper = mount(Panel, { props: { ...baseProps, tasks: [task], selectedTask: task, recommendedAgents: [agent],
       recommendationState: { state: 'READY', result: { retrievalMode: 'HYBRID' } } } })
     try {
       wrapper.vm.openTask(task); await Vue.nextTick()
       expect(wrapper.find('.matter-recommendation').exists()).to.equal(false)
+      expect(wrapper.get('.matter-candidate-card').text()).to.include('写作')
+      expect(wrapper.emitted('request-budget')).to.equal(undefined)
+      await wrapper.get('.matter-candidate-card').trigger('click')
       expect(wrapper.get('.matter-selected-reason').text()).to.include('已登记写作本领')
-      expect(wrapper.find('.matter-candidate-card').exists()).to.equal(false)
-      await wrapper.get('.matter-agent-toggle').trigger('click')
-      expect(wrapper.find('.recommendation-understanding').exists()).to.equal(false)
-      expect(wrapper.get('.recommendation-level').text()).to.equal('优先推荐')
       expect(wrapper.text()).not.to.include('评分明细')
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
       expect(wrapper.emitted('refresh-recommendation')).to.equal(undefined)

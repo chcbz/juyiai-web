@@ -7,7 +7,7 @@ import { parseAssigneeRecommendation, taskQuoteText, isAvailableTaskQuote } from
 const task = () => ({ id: 'task-r1', taskVersion: '7', title: '写一份说明', description: '说明使用方式', status: 'open' })
 const agent = { agentId: 'a', name: '好汉', status: 'online', canOperate: true, boundToMe: true, abilities: ['写作'] }
 const result = () => ({ taskId: 'task-r1', taskVersion: '7', state: 'READY', observedAt: 1000,
-  candidateSetComplete: true, retrievalMode: 'HYBRID', rankingVersion: 'v1', degradedReasons: [], recommendations: [{ agent, recommendationLevel: 'HIGH',
+  candidateSetComplete: true, retrievalMode: 'HYBRID', rankingVersion: 'v1', degradedReasons: [], recommendations: [{ agent,
     reason: '登记了写作本领', evidence: [{ id: 'ability:0', kind: 'DECLARED_ABILITY', label: '写作', description: '登记声明', available: true }], gaps: ['受众未知，不保证适合具体使用场景'] }] })
 const create = implementation => {
   const selectedTask = ref(task()), identityScope = ref('owner-a')
@@ -34,7 +34,7 @@ describe('single-track model assignee recommendation R1', () => {
       expect(() => parseAssigneeRecommendation({ ...value, ...invalid }, task())).to.throw()
   })
   it('keeps the manual list when no disclosed evidence needs retrieval', async () => {
-    const row = { ...result().recommendations[0], agent: { ...agent, abilities: [] }, recommendationLevel: 'UNKNOWN', evidence: [] }
+    const row = { ...result().recommendations[0], agent: { ...agent, abilities: [] }, evidence: [] }
     const value = { ...result(), state: 'NO_MATCH', retrievalMode: 'NOT_NEEDED', recommendations: [row] }
     const { data } = create(async (_url, _input, options) => options.onSuccess(value))
     await data.loadTaskRecommendations()
@@ -43,33 +43,13 @@ describe('single-track model assignee recommendation R1', () => {
     for (const bad of [{ recommendations: [] }, { state: 'READY' }, { recommendations: [{ ...row, evidence: result().recommendations[0].evidence }] }])
       expect(() => parseAssigneeRecommendation({ ...value, ...bad }, task())).to.throw()
   })
-  it('preserves own-first suitable advice and external-first advice when own capability is insufficient', async () => {
-    for (const rows of [
-      [{ mine: true, level: 'MEDIUM' }, { mine: false, level: 'HIGH' }],
-      [{ mine: false, level: 'HIGH' }, { mine: true, level: 'LOW' }]
-    ]) {
-      const recommendations = rows.map((row, i) => ({ ...result().recommendations[0],
-        agent: { ...agent, agentId: `order-${i}`, boundToMe: row.mine }, recommendationLevel: row.level }))
-      const { data } = create(async (_url, _input, options) => options.onSuccess({ ...result(), recommendations }))
-      await data.loadTaskRecommendations()
-      expect(data.recommendedAgents.value.map(a => a.agentId)).to.deep.equal(['order-0', 'order-1'])
-      expect(data.recommendedAgents.value.map(a => a.recommendationLevel)).to.deep.equal(rows.map(r => r.level))
-      data.dispose()
-    }
-  })
-
-  it('validates degrees, retains low/unknown rows and preserves model order without making a score', async () => {
-    const rows = ['UNKNOWN', 'LOW', 'HIGH', 'MEDIUM'].map((level, index) => ({ ...result().recommendations[0],
-      agent: { ...agent, agentId: String(index) }, recommendationLevel: level, evidence: level === 'UNKNOWN' ? [] : result().recommendations[0].evidence }))
+  it('preserves retrieval order and keeps unmatched candidates for manual selection', async () => {
+    const first = result().recommendations[0]
+    const rows = [{ ...first, agent: { ...agent, boundToMe: false } }, { ...first, agent: { ...agent, agentId: 'b' }, evidence: [] }]
     const { data } = create(async (_url, _input, options) => options.onSuccess({ ...result(), recommendations: rows }))
     await data.loadTaskRecommendations()
-    expect(data.recommendedAgents.value.map(a => a.recommendationLevel)).to.deep.equal(['UNKNOWN', 'LOW', 'HIGH', 'MEDIUM'])
+    expect(data.recommendedAgents.value.map(a => a.agentId)).to.deep.equal(['a', 'b'])
     data.dispose()
-    for (const level of [undefined, 'INVALID', 90]) {
-      expect(() => parseAssigneeRecommendation({ ...result(), recommendations: [{ ...rows[2], recommendationLevel: level }] }, task())).to.throw()
-    }
-    expect(parseAssigneeRecommendation({ ...result(), state: 'NO_MATCH', recommendations: rows.slice(0, 2) }, task()).recommendations).to.have.length(2)
-    expect(() => parseAssigneeRecommendation({ ...result(), state: 'NO_CANDIDATES', recommendations: rows.slice(0, 1) }, task())).to.throw()
   })
 
   it('accepts additive fields but rejects old scored arrays, stale task and unsupported states', () => {
@@ -93,9 +73,9 @@ describe('single-track model assignee recommendation R1', () => {
     data.dispose()
   })
   it('retains unknown assessments for manual selection without inventing positive recommendations', async () => {
-    const { data } = create(async (_url, _input, options) => options.onSuccess({ ...result(), state: 'NO_MATCH', recommendations: [{ ...result().recommendations[0], recommendationLevel: 'UNKNOWN', reason: '资料不足', evidence: [] }] }))
+    const { data } = create(async (_url, _input, options) => options.onSuccess({ ...result(), state: 'NO_MATCH', recommendations: [{ ...result().recommendations[0], reason: '资料不足', evidence: [] }] }))
     await data.loadTaskRecommendations(); expect(data.recommendationState.value.state).to.equal('NO_MATCH')
-    expect(data.recommendedAgents.value[0].recommendationLevel).to.equal('UNKNOWN'); expect(data.canAssign(task(), agent)).to.equal(true)
+    expect(data.recommendedAgents.value[0].recommendationEvidence).to.deep.equal([]); expect(data.canAssign(task(), agent)).to.equal(true)
     data.dispose()
     const failed = create(async () => { throw new Error('provider offline') })
     await failed.data.loadTaskRecommendations(); expect(failed.data.recommendationState.value.state).to.equal('ERROR')

@@ -230,7 +230,7 @@
                         :aria-pressed="matterAgent?.agentId === agent.agentId"
                         :disabled="requirementEditBusy || pointAndStartBusy || Boolean(pointAndStartForDetail) || !canAssign(detailTask, agent)"
                         @click="selectMatterCandidate(agent)"
-                      ><span class="matter-candidate-avatar" aria-hidden="true">{{ agentDisplayName(agent).slice(0, 1) }}</span><span class="matter-candidate-copy"><strong>{{ agentDisplayName(agent) }}</strong><small>{{ assigneeProviderText(agent) }} · {{ assigneeAvailabilityText(agent) }}</small><small v-if="agent.recommendationLevel" class="recommendation-level" :data-level="agent.recommendationLevel">{{ recommendationLevelText(agent.recommendationLevel) }}</small><small>{{ agent.recommendationReason || '可手动选择承办' }}</small></span><span class="matter-candidate-check" aria-hidden="true">{{ matterAgent?.agentId === agent.agentId ? '✓' : '' }}</span></button>
+                      ><span class="matter-candidate-avatar" aria-hidden="true">{{ agentDisplayName(agent).slice(0, 1) }}</span><span class="matter-candidate-copy"><strong>{{ agentDisplayName(agent) }}</strong><small>{{ assigneeProviderText(agent) }} · {{ assigneeAvailabilityText(agent) }}</small><small v-for="hit in agent.recommendationEvidence" :key="hit.id">{{ hit.label }}</small><small>{{ agent.recommendationReason || '可手动选择承办' }}</small></span><span class="matter-candidate-check" aria-hidden="true">{{ matterAgent?.agentId === agent.agentId ? '✓' : '' }}</span></button>
                       </div>
                       <button
                         v-if="candidatesNextAfterAgentId"
@@ -426,7 +426,7 @@
                     <strong>{{ agentDisplayName(agent) }}</strong>
                     <small>{{ abilityText(agent) }}</small>
                   </span>
-                  <em>{{ recommendationLevelText(agent.recommendationLevel) || '手动选择' }}</em>
+                  <em>{{ agent.recommendationEvidence?.length ? '有检索依据' : '手动选择' }}</em>
                 </button>
                 <p v-if="recommendationReason(agent)" class="recommendation-reason">
                   {{ recommendationReason(agent) }}
@@ -485,12 +485,12 @@
 </template>
 
 <script setup>
-import { isRecommendedLevel, recommendationLevelText, isAvailableTaskQuote, taskQuoteText } from '../../composables/juyiting/hallAssigneeRecommendation.js'
+import { isAvailableTaskQuote, taskQuoteText } from '../../composables/juyiting/hallAssigneeRecommendation.js'
 const recommendationStateText = state => ({
   IDLE: '可以选择一位好汉来承办。', LOADING: '正在为你挑选合适的好汉…',
   READY: '推荐已备好，看看哪位更合适。',
   DEGRADED: '部分推荐依据暂不可用，仍可查看候选并手动选择。',
-  NO_MATCH: '暂未找到特别合适的人选，你仍可查看理由并手动选择。',
+  NO_MATCH: '暂未检索到相关能力依据，你仍可查看理由并手动选择。',
   NO_CANDIDATES: '暂无可承办候选，请核对接单范围和可用状态。',
   ERROR: '智能推荐暂不可用，可重试或手动选择承办。',
   STALE: '事项或能力已变化，请重新推荐；原推荐不再使用。'
@@ -753,7 +753,7 @@ const showNoAssigneeRecruitment = computed(() => hasTaskAction(detailTask.value,
     : props.candidatesTaskId === detailTask.value?.id))
 const matterAgent = computed(() => {
   if (!hasTaskAction(detailTask.value, 'ASSIGN')) return assignedAgentForTask(detailTask.value)
-  return matterCandidateId.value ? matterCandidates.value.find(agent => agent.agentId === matterCandidateId.value) || null : assignableRecommendedAgents.value.find(agent => isRecommendedLevel(agent.recommendationLevel)) || null
+  return matterCandidates.value.find(agent => agent.agentId === matterCandidateId.value) || null
 })
 const showMatterCandidates = computed({
   get: () => matterCandidateExpansion.value ?? (!matterAgent.value && props.recommendationState.state !== 'LOADING'),
@@ -1857,8 +1857,6 @@ button:disabled {
 .matter-recommendation { padding:12px; border-radius:10px; background:var(--hall-surface-subtle,#f8f6ef); }
 .recommendation-status { display:flex; align-items:center; gap:10px; line-height:1.6; }
 .recommendation-hint { margin:8px 0; font-size:13px; color:var(--hall-muted,#788178); }
-.matter-candidate-copy .recommendation-level { font-weight:600; color:var(--hall-brand,#923f30); }
-.matter-candidate-copy .recommendation-level[data-level="UNKNOWN"], .matter-candidate-copy .recommendation-level[data-level="LOW"] { color:var(--hall-muted,#788178); }
 .recommendation-spinner { display:inline-block; flex:none; width:20px; height:20px; border:2px solid var(--hall-border,#e3e5dc); border-top-color:var(--hall-brand,#923f30); border-radius:50%; animation:recommendation-spin 1s linear infinite; }
 @keyframes recommendation-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .recommendation-spinner { animation:none; } }
