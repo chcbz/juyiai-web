@@ -412,7 +412,7 @@
             :recommended-agents="recommendedAgents"
             :recommendation-state="recommendationState"
             :task-budget="budget"
-            @request-budget="requestBudget"
+            @request-budgets="requestBudgets"
             @clear-budget="clearBudget"
             @refresh-recommendation="loadTaskRecommendations(selectedTask, { refresh: true })"
             @requirement-saved="handleRequirementSaved"
@@ -1511,7 +1511,7 @@ const {
   loadRosterAgents,
   loadTasks,
   loadMoreTasks,
-  budget, requestBudget, clearBudget,
+  budget, requestBudgets, clearBudget,
   loadTaskDetail,
   loadTaskRecommendations,
   mapAgents,

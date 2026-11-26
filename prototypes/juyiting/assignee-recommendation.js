@@ -6,7 +6,7 @@
   let stage = 'READY', manual = '', alternatives = null;
   const labels = { LOADING:'推荐中', READY:'推荐完成', NO_MATCH:'暂无合适推荐', NO_CANDIDATES:'暂无可承办候选', ERROR:'推荐暂不可用', STALE:'推荐已过期' };
   if (labels[params.get('recommendationState')]) stage = params.get('recommendationState');
-  // Local fixtures only. One selected agent, one intent; retry preserves its identity.
+  // Local fixtures only. One visible candidate set, one intent; retry preserves its identity.
   let budget = null, sequence = 0, editing = '', failed = false;
   const choices = new Map();
   const choicePanel = name => editing !== name ? '<button type="button" data-open-choice>查看首次交付方式</button>' : choices.has(name) ? `<p role="status">已固定：${choices.get(name)}。可重新取价。</p>` : failed ? '<button type="button" data-choice-retry>重试原选择</button>' : '<fieldset><legend>首次交付方式（未选择）</legend><p>仅使用本地资料，不调用技能。选择后，当前需求和材料下不可更改；不会开始办理。</p><button type="button" data-choice="本地答复">固定为本地答复</button> <button type="button" data-choice="本地文本文件">固定为本地文本文件</button></fieldset>';
@@ -18,7 +18,7 @@
     setTimeout(() => {
       if (budget !== intent || page !== 'detail') return;
       intent.status = !retry && params.get('budgetState') === 'ERROR' ? 'ERROR' :
-        name === '林冲' && params.get('budgetState') !== 'UNAVAILABLE' ? 'AVAILABLE' : 'FALLBACK';
+        params.get('budgetState') !== 'UNAVAILABLE' ? 'AVAILABLE' : 'FALLBACK';
       render();
     }, 350);
   }
@@ -56,10 +56,11 @@
     const expanded = alternatives ?? (!selected && stage !== 'LOADING');
     const selectedAgent = candidates.find(a => a.name === selected);
     if (editing && editing !== selected) { editing = ''; failed = false; pending = null; }
-    if (!selectedAgent) budget = null;
-    else if (selectedAgent.name !== budget?.name) estimate(selectedAgent.name);
-    const price = !budget ? '' : ({LOADING:'正在估算预算…', FALLBACK:'事项报价：1文 · 确认承办时预占，验收后扣除', AVAILABLE:'事项报价：13文 · 确认承办时预占，验收后扣除', UNAVAILABLE:params.get('budgetReason') === 'BILLING_ROUTE_MISSING' ? '暂无法报价：计费配置尚未就绪。如有「查看首次交付方式」，请先核对。配置就绪后点「重新取价」；仍无报价时可换人或联系平台。' : '暂不可估算', ERROR:'预算暂不可用，可重试'})[budget.status];
-    card.innerHTML = `<div class="matter-advice-heading"><span>事项进展</span><strong>待确认承办</strong></div><h3>统计一下成绩</h3><p>请根据上传的成绩图片整理统计。</p><dl><div><dt>${manual?'已选承办':'推荐承办'}</dt><dd>${selected||(stage==='LOADING'?'正在推荐…':'请选择承办人')}</dd></div>${selectedAgent?`<div><dt>所属用户 / 当前状态</dt><dd>${selectedAgent.mine?'我的':'外部'} · ${selectedAgent.status}</dd></div>`:''}</dl>${selectedAgent?`<p class="model-selected-reason">${selectedAgent.reason}</p>${choicePanel(selected)}<p><span role="status" data-budget-state="${budget.status}">${price}</span>${budget.status==='ERROR'?'<button type="button" data-budget-retry>重试预算</button>':['AVAILABLE','UNAVAILABLE'].includes(budget.status)?'<button type="button" data-budget-renew>重新取价</button>':''}</p>`:''}${['LOADING','ERROR','STALE'].includes(stage)?`<section class="model-recommendation-demo" aria-live="polite"><div class="model-recommendation-status" role="status">${stage==='LOADING'?'<span class="model-recommendation-spinner" aria-hidden="true"></span>':''}<strong>${stage==='LOADING'?'正在为你挑选合适的好汉…':labels[stage]}</strong></div>${stage==='LOADING'?'<p class="model-recommendation-hint">推荐期间仍可手动选择承办人。</p>':'<button type="button" data-model-retry>重新推荐</button>'}</section>`:''}<button type="button" data-model-alternatives aria-expanded="${expanded}">${expanded?'收起候选列表':selected?'更换承办人':'选择承办人'}</button>${expanded?`<div class="model-manual-options">${visible.map(a=>`<button type="button" data-model-candidate="${a.name}" aria-pressed="${selected===a.name}"><span class="model-candidate-avatar" aria-hidden="true">${a.name.slice(0,1)}</span><span><strong>${a.name}</strong><small>${a.mine?'我的':'外部'} · ${a.status}</small>${stage!=='LOADING'?`<small class="model-recommendation-level">${stage==='NO_MATCH'?'匹配较低':a.level==='资料不足'?'资料不足':'优先推荐'}</small><small>${stage==='NO_MATCH'?'现有能力与这项需求不太匹配，仍可手选。':a.reason}</small>`:''}</span><span aria-hidden="true">${selected===a.name?'✓':''}</span></button>`).join('')||'<p role="status">暂无可选承办人。</p>'}</div>`:''}<div class="matter-primary-actions"><button type="button" class="matter-primary-action" data-model-confirm ${!['AVAILABLE','FALLBACK'].includes(budget?.status)?'disabled':''}>${selected?`确认由${selected}承办`:'请选择承办人'}</button></div>${stage==='NO_CANDIDATES'?'<p role="status">暂未寻得可领令的好汉。</p>':''}<p class="draft-hint">离线演示：人物、能力和13文报价均为合成示例，不执行、不预占、不扣费。</p><details><summary>切换演示状态</summary><div class="model-state-options">${Object.entries(labels).map(([key,label])=>`<button type="button" data-recommendation-stage="${key}" aria-pressed="${key===stage}">${label}</button>`).join('')}</div></details>`;
+    const setKey = JSON.stringify(visible.map(a => a.name).sort());
+    if (!visible.length) budget = null;
+    else if (setKey !== budget?.name) estimate(setKey);
+    const price = !budget ? '' : ({LOADING:'正在估算预算…', FALLBACK:'事项报价：1文 · 确认承办时预占，验收后扣除', AVAILABLE:(selected==='林冲'?'事项报价：13文':'本次固定报价 1文')+' · 确认承办时预占，验收后扣除', UNAVAILABLE:params.get('budgetReason') === 'BILLING_ROUTE_MISSING' ? '暂无法报价：计费配置尚未就绪。如有「查看首次交付方式」，请先核对。配置就绪后点「重新取价」；仍无报价时可换人或联系平台。' : '暂不可估算', ERROR:'预算暂不可用，可重试'})[budget.status];
+    card.innerHTML = `<div class="matter-advice-heading"><span>事项进展</span><strong>待确认承办</strong></div><h3>统计一下成绩</h3><p>请根据上传的成绩图片整理统计。</p><dl><div><dt>${manual?'已选承办':'推荐承办'}</dt><dd>${selected||(stage==='LOADING'?'正在推荐…':'请选择承办人')}</dd></div>${selectedAgent?`<div><dt>所属用户 / 当前状态</dt><dd>${selectedAgent.mine?'我的':'外部'} · ${selectedAgent.status}</dd></div>`:''}</dl>${selectedAgent?`<p class="model-selected-reason">${selectedAgent.reason}</p>${choicePanel(selected)}<p><span role="status" data-budget-state="${budget.status}">${price}</span>${budget.status==='ERROR'?'<button type="button" data-budget-retry>重试预算</button>':['AVAILABLE','UNAVAILABLE'].includes(budget.status)?'<button type="button" data-budget-renew>重新取价</button>':''}</p>`:''}${['LOADING','ERROR','STALE'].includes(stage)?`<section class="model-recommendation-demo" aria-live="polite"><div class="model-recommendation-status" role="status">${stage==='LOADING'?'<span class="model-recommendation-spinner" aria-hidden="true"></span>':''}<strong>${stage==='LOADING'?'正在为你挑选合适的好汉…':labels[stage]}</strong></div>${stage==='LOADING'?'<p class="model-recommendation-hint">推荐期间仍可手动选择承办人。</p>':'<button type="button" data-model-retry>重新推荐</button>'}</section>`:''}<button type="button" data-model-alternatives aria-expanded="${expanded}">${expanded?'收起候选列表':selected?'更换承办人':'选择承办人'}</button>${expanded?`<div class="model-manual-options">${visible.map(a=>`<button type="button" data-model-candidate="${a.name}" aria-pressed="${selected===a.name}"><span class="model-candidate-avatar" aria-hidden="true">${a.name.slice(0,1)}</span><span><strong>${a.name}</strong><small>${budget?.status==='AVAILABLE'?(a.name==='林冲'?'事项报价 13文':'本次固定报价 1文'):budget?.status==='FALLBACK'?'本次固定报价 1文':budget?.status==='LOADING'?'正在估算预算…':'暂无法报价'}</small><small>${a.mine?'我的':'外部'} · ${a.status}</small>${stage!=='LOADING'?`<small class="model-recommendation-level">${stage==='NO_MATCH'?'匹配较低':a.level==='资料不足'?'资料不足':'优先推荐'}</small><small>${stage==='NO_MATCH'?'现有能力与这项需求不太匹配，仍可手选。':a.reason}</small>`:''}</span><span aria-hidden="true">${selected===a.name?'✓':''}</span></button>`).join('')||'<p role="status">暂无可选承办人。</p>'}</div>`:''}<div class="matter-primary-actions"><button type="button" class="matter-primary-action" data-model-confirm ${!selectedAgent || !['AVAILABLE','FALLBACK'].includes(budget?.status)?'disabled':''}>${selected?`确认由${selected}承办`:'请选择承办人'}</button></div>${stage==='NO_CANDIDATES'?'<p role="status">暂未寻得可领令的好汉。</p>':''}<p class="draft-hint">离线演示：人物、能力和13文报价均为合成示例，不执行、不预占、不扣费。</p><details><summary>切换演示状态</summary><div class="model-state-options">${Object.entries(labels).map(([key,label])=>`<button type="button" data-recommendation-stage="${key}" aria-pressed="${key===stage}">${label}</button>`).join('')}</div></details>`;
   };
   document.addEventListener('click', e => {
     const b=e.target.closest('button'); if(!b)return;
@@ -68,8 +69,8 @@
       if (!b.disabled && b.dataset.reviewCandidate) { manual = b.dataset.reviewCandidate; alternatives = false; go('detail'); }
       return;
     }
-    if(b.hasAttribute('data-open-choice') && budget){editing=budget.name;render();return;}
-    if((b.dataset.choice || b.hasAttribute('data-choice-retry')) && budget?.name===editing && !choices.has(editing)){
+    if(b.hasAttribute('data-open-choice') && budget){editing=manual || (stage==='READY' ? '林冲' : '');render();return;}
+    if((b.dataset.choice || b.hasAttribute('data-choice-retry')) && editing && budget && !choices.has(editing)){
       pending=pending || b.dataset.choice;
       if(!failed && params.get('choiceState')==='ERROR'){failed=true;}else{choices.set(editing,pending);failed=false;pending=null;}
       render();return;

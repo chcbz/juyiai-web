@@ -170,7 +170,7 @@
                   <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent?.recommendationReason" class="matter-selected-reason">{{ matterAgent.recommendationReason }}</p>
                   <HallInitialAction v-if="budgetTarget" :key="JSON.stringify([identityScope, authorizationGeneration, detailTask.id, detailTask.taskVersion, budgetTarget])"
                     :task-id="detailTask.id" :task-version="detailTask.taskVersion" :agent-id="budgetTarget" />
-                  <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent && !isFundedTask(detailTask)" class="matter-quote" role="status">{{ budgetStatusText || taskQuoteText(selectedQuote) }}<template v-if="isAvailableTaskQuote(selectedQuote)"> · 确认承办时预占，验收后扣除</template> <button v-if="budgetAction" type="button" @click="emit('request-budget', detailTask, matterAgent.agentId, budgetAction.mode)">{{ budgetAction.label }}</button></p>
+                  <p v-if="hasTaskAction(detailTask, 'ASSIGN') && matterAgent && !isFundedTask(detailTask)" class="matter-quote" role="status">{{ budgetStatusText || taskQuoteText(selectedQuote) }}<template v-if="isAvailableTaskQuote(selectedQuote)"> · 确认承办时预占，验收后扣除</template> <button v-if="budgetAction" type="button" @click="emit('request-budgets', detailTask, budgetIds, budgetAction.mode)">{{ budgetAction.label }}</button></p>
                 </template>
                 <section
                   v-if="pointAndStartForDetail && !isTerminalMatter(detailTask)"
@@ -230,7 +230,7 @@
                         :aria-pressed="matterAgent?.agentId === agent.agentId"
                         :disabled="requirementEditBusy || pointAndStartBusy || Boolean(pointAndStartForDetail) || !canAssign(detailTask, agent)"
                         @click="selectMatterCandidate(agent)"
-                      ><span class="matter-candidate-avatar" aria-hidden="true">{{ agentDisplayName(agent).slice(0, 1) }}</span><span class="matter-candidate-copy"><strong>{{ agentDisplayName(agent) }}</strong><small>{{ assigneeProviderText(agent) }} · {{ assigneeAvailabilityText(agent) }}</small><small v-for="hit in agent.recommendationEvidence" :key="hit.id">{{ hit.label }}</small><small>{{ agent.recommendationReason || '可手动选择承办' }}</small></span><span class="matter-candidate-check" aria-hidden="true">{{ matterAgent?.agentId === agent.agentId ? '✓' : '' }}</span></button>
+                      ><span class="matter-candidate-avatar" aria-hidden="true">{{ agentDisplayName(agent).slice(0, 1) }}</span><span class="matter-candidate-copy"><strong>{{ agentDisplayName(agent) }}</strong><small>{{ assigneeProviderText(agent) }} · {{ assigneeAvailabilityText(agent) }}</small><small v-for="hit in agent.recommendationEvidence" :key="hit.id">{{ hit.label }}</small><small>{{ agent.recommendationReason || '可手动选择承办' }}</small><small v-if="!isFundedTask(detailTask)">{{ budgetStatusText || taskQuoteText(currentBudget?.quotesByAgentId?.get(agent.agentId)) }}</small></span><span class="matter-candidate-check" aria-hidden="true">{{ matterAgent?.agentId === agent.agentId ? '✓' : '' }}</span></button>
                       </div>
                       <button
                         v-if="candidatesNextAfterAgentId"
@@ -557,7 +557,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'assign-task',
-  'request-budget', 'clear-budget',
+  'request-budgets', 'clear-budget',
   'refresh-recommendation',
   'requirement-saved',
   'refresh-candidates',
@@ -837,15 +837,19 @@ const unassignedDiscussHint = '此榜文尚未点将，暂不可开议'
 const isFundedTask = task => task?.funding?.mode === 'FUNDED_SINGLE_AGENT'
 const budgetTarget = computed(() => props.resourcesActive && props.embeddedHall &&
   !isFundedTask(detailTask.value) && hasTaskAction(detailTask.value, 'ASSIGN') ? matterAgent.value?.agentId || null : null)
-const currentBudget = computed(() => budgetTarget.value && props.taskBudget.agentId === budgetTarget.value &&
+const budgetIds = computed(() => props.resourcesActive && props.embeddedHall && !isFundedTask(detailTask.value) && hasTaskAction(detailTask.value, 'ASSIGN')
+  ? matterCandidates.value.map(agent => agent.agentId).sort() : [])
+const budgetSetKey = computed(() => JSON.stringify(budgetIds.value))
+const currentBudget = computed(() => props.taskBudget.idsKey === budgetSetKey.value &&
+  props.taskBudget.scope === `${props.authorizationGeneration}\u0000${props.identityScope}` &&
   props.taskBudget.taskId === detailTask.value?.id && props.taskBudget.taskVersion === detailTask.value?.taskVersion ? props.taskBudget : null)
-const selectedQuote = computed(() => currentBudget.value?.state === currentBudget.value?.quote?.state ? currentBudget.value?.quote : null)
+const selectedQuote = computed(() => currentBudget.value?.quotesByAgentId?.get(budgetTarget.value) ?? null)
 const budgetStatusText = computed(() => ({ LOADING: '正在估算预算…', ERROR: '预算暂不可用，可重试',
   REFRESHING: '事项已变化，正在核对', REFRESH_FAILED: '事项核对失败', STALE: '事项已变化，请重新取价', INACCESSIBLE: '当前不可取价，请核对访问权限' })[currentBudget.value?.state])
 const budgetAction = computed(() => ({ ERROR: { mode: 'retry', label: '重试预算' }, REFRESH_FAILED: { mode: 'refresh', label: '重新核对事项' },
-  ...Object.fromEntries(['AVAILABLE', 'UNAVAILABLE', 'STALE'].map(s => [s, { mode: 'renew', label: '重新取价' }])) })[currentBudget.value?.state])
-watch([budgetTarget, () => detailTask.value?.id, () => detailTask.value?.taskVersion, () => props.identityScope, () => props.authorizationGeneration], () => {
-  if (budgetTarget.value) emit('request-budget', detailTask.value, budgetTarget.value)
+  ...Object.fromEntries(['READY', 'STALE'].map(s => [s, { mode: 'renew', label: '重新取价' }])) })[currentBudget.value?.state])
+watch([budgetSetKey, () => detailTask.value?.id, () => detailTask.value?.taskVersion, () => props.identityScope, () => props.authorizationGeneration], () => {
+  if (budgetIds.value.length) emit('request-budgets', detailTask.value, budgetIds.value)
   else emit('clear-budget')
 }, { immediate: true })
 onBeforeUnmount(() => emit('clear-budget'))

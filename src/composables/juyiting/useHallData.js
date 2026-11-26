@@ -134,7 +134,7 @@ export const useHallData = ({
   let recommendationEpoch = 0
   let recommendationRequest = null
   const identityFingerprint = () => `${toValue(authorizationGeneration)}\u0000${toValue(identityScope)}`
-  const { budget, requestBudget, clearBudget } = useHallTaskBudget({ api: agentApi, getTask: () => selectedTask.value,
+  const { budget, requestBudgets, clearBudget } = useHallTaskBudget({ api: agentApi, getTask: () => selectedTask.value,
     identity: identityFingerprint, eligible: canAssign, refreshDetail: task => loadTaskDetail(task) })
   const queryFingerprint = () => `${identityFingerprint()}\u0000${taskAgentFilter.value}\u0000${taskKeyword.value}`
   const stopRecommendationTask = watch(() => recommendationTaskKey(selectedTask.value), () => {
@@ -638,7 +638,7 @@ export const useHallData = ({
     loadOperableRosterAgents,
     loadPersonaCatalog,
     loadRosterAgents,
-    budget, requestBudget, clearBudget,
+    budget, requestBudgets, clearBudget,
     loadTaskDetail,
     loadTaskRecommendations,
     loadTasks,

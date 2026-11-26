@@ -211,16 +211,27 @@ describe('independent selected-assignee budget', () => {
       calls.push({ url, body, headers: opts.headers }); if (calls.length === 1) throw new Error('network')
       return unavailable('a')
     })
-    await data.loadAssigneeCandidates(); await data.requestBudget(task(), 'a'); expect(data.budget.value.state).to.equal('ERROR')
-    await data.requestBudget(task(), 'a', 'retry'); expect(data.budget.value.state).to.equal('UNAVAILABLE')
-    await data.requestBudget(task(), 'a'); expect(calls).to.have.length(2)
-    await data.requestBudget(task(), 'a', 'renew'); expect(calls[0].url).to.equal('/tasks/task-r1/quotes')
+    await data.loadAssigneeCandidates(); await data.requestBudgets(task(), ['a']); expect(data.budget.value.state).to.equal('ERROR')
+    await data.requestBudgets(task(), ['a'], 'retry'); expect(data.budget.value.quotesByAgentId.get('a').state).to.equal('UNAVAILABLE')
+    await data.requestBudgets(task(), ['a']); expect(calls).to.have.length(2)
+    await data.requestBudgets(task(), ['a'], 'renew'); expect(calls[0].url).to.equal('/tasks/task-r1/quotes')
     expect(calls[0].body).to.deep.equal({ expectedTaskVersion: '7', agentIds: ['a'] }); expect(calls[1].headers).to.deep.equal(calls[0].headers)
     for (const header of ['Idempotency-Key', 'X-Request-Id']) expect(calls[2].headers[header]).to.not.equal(calls[0].headers[header]); data.dispose()
   })
+  it('validates the entire batch, maps reverse order by agent and reuses the authorized set', async () => {
+    let calls = 0, rows = ['b','a']; const { data } = create(async (_url, body) => {
+      calls++; expect(body.agentIds).to.deep.equal(['a','b'])
+      return { ...unavailable('a'), quotes: rows.map(id => unavailable(id).quotes[0]) }
+    })
+    await data.loadAssigneeCandidates(); data.assigneeCandidates.value.push({ agentId: 'b' })
+    await data.requestBudgets(task(), ['b','a','b']); expect(data.budget.value.quotesByAgentId.get('b').agentId).to.equal('b')
+    await data.requestBudgets(task(), ['a','b']); expect(calls).to.equal(1)
+    rows = ['a','a']; await data.requestBudgets(task(), ['a','b'], 'renew')
+    expect(data.budget.value.state).to.equal('ERROR'); expect(data.budget.value.quotesByAgentId.size).to.equal(0); data.dispose()
+  })
   for (const boundary of ['close','version','identity','dispose']) it(`discards a late response after ${boundary}`, async () => {
     let resolve; const { data, selectedTask, identityScope } = create(() => new Promise(done => { resolve = done }))
-    await data.loadAssigneeCandidates(); const flight = data.requestBudget(task(), 'a'); expect(data.budget.value.state).to.equal('LOADING')
+    await data.loadAssigneeCandidates(); const flight = data.requestBudgets(task(), ['a']); expect(data.budget.value.state).to.equal('LOADING')
     if (boundary === 'close') data.clearBudget(); else if (boundary === 'version') selectedTask.value.taskVersion = '8'
     else if (boundary === 'identity') identityScope.value = 'different'; else data.dispose()
     resolve(unavailable('a')); await flight; expect(data.budget.value.state).to.equal('IDLE'); data.dispose()
