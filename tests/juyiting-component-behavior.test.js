@@ -1867,7 +1867,7 @@ describe('JuyiHall component behavior', () => {
     expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
     expect(wrapper.get('.matter-candidate-card').element.disabled).to.equal(false)
     await wrapper.get('.matter-candidate-card').trigger('click')
-    expect(wrapper.emitted('request-budgets').at(-1)[1]).to.deep.equal(['a'])
+    expect(wrapper.emitted('request-budgets').at(-1)[1]).to.deep.equal(['a','b'])
     expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
     expect(wrapper.emitted('assign-task')).to.equal(undefined)
     await wrapper.setProps({ recommendationState: { state: 'NO_MATCH' }, assigneeCandidates: [], candidatesLoading: true })
