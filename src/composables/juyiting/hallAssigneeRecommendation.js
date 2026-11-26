@@ -15,6 +15,7 @@ const unavailableQuoteText = {
   QUOTE_AMOUNT_OVERFLOW: '暂无法报价：预估费用超出支持范围，请缩小事项范围或联系平台。'
 }
 export const taskQuoteText = quote => {
+  if (isAvailableTaskQuote(quote) && quote.estimateSummary?.method === 'FIXED_FALLBACK') return `本次固定报价 ${formatWenMoney(quote.amount)}`
   if (isAvailableTaskQuote(quote)) return `事项报价 ${formatWenMoney(quote.amount)}`
   if (quote?.state === 'UNAVAILABLE') return Object.hasOwn(unavailableQuoteText, quote.unavailableReason)
     ? unavailableQuoteText[quote.unavailableReason] : '暂无法报价：费用信息未就绪，请联系平台核查。'

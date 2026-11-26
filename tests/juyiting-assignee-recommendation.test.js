@@ -188,6 +188,11 @@ describe('task quotation availability explanations', () => {
     const response = result(); response.recommendations[0].quote = quote
     expect(parseAssigneeRecommendation(response, task())).to.equal(response)
   })
+  it('shows the issued fixed price without creating a client quote', () => {
+    const quote = { state: 'AVAILABLE', quoteId: 'issued', recommendationId: 'batch', amount: { currency: 'WEN', amountMinor: '1' }, estimateSummary: { method: 'FIXED_FALLBACK' } }
+    expect(taskQuoteText(quote)).to.equal('本次固定报价 1文')
+    expect(isAvailableTaskQuote({ ...quote, quoteId: null })).to.equal(false)
+  })
   it('keeps an absent quote distinct from an explicitly available zero or positive quote', () => {
     expect(taskQuoteText(null)).to.equal('尚未取得独立报价')
     for (const amount of ['0', '1', '13']) {
