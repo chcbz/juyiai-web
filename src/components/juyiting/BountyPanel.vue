@@ -163,7 +163,7 @@
                   <div class="matter-edit-row"><h3>{{ detailTask.title }}</h3><button v-if="canEditRequirement" type="button" class="matter-edit-button" aria-label="修改事项标题" title="修改事项标题" :disabled="requirementEditBusy" @click="requirementEditor?.open('title')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 4 5 5M4 20l4-1 12-12-5-5L3 14l-1 8Z"/></svg></button></div>
                   <div class="matter-edit-row matter-description-row"><p class="matter-request">{{ detailTask.description }}</p><button v-if="canEditRequirement" type="button" class="matter-edit-button" aria-label="修改需求描述" title="修改需求描述" :disabled="requirementEditBusy" @click="requirementEditor?.open('description')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 4 5 5M4 20l4-1 12-12-5-5L3 14l-1 8Z"/></svg></button></div>
                   <dl>
-                    <div><dt>{{ hasTaskAction(detailTask, 'ASSIGN') ? (matterCandidateId ? '已选承办' : '推荐承办') : '承办好汉' }}</dt><dd>{{ matterAgent ? agentDisplayName(matterAgent) : (detailTask.assignedAgentName || (taskAssigneeIds(detailTask).length ? '承办信息待核对' : (hasTaskAction(detailTask, 'ASSIGN') ? (recommendationState.state === 'LOADING' ? '正在推荐…' : '请选择承办人') : '尚未确认'))) }}</dd></div>
+                    <div><dt>{{ hasTaskAction(detailTask, 'ASSIGN') ? (matterAgent && matterAgent.agentId !== matterCandidateId ? '默认推荐' : (matterAgent ? '已选承办' : '推荐承办')) : '承办好汉' }}</dt><dd>{{ matterAgent ? agentDisplayName(matterAgent) : (detailTask.assignedAgentName || (taskAssigneeIds(detailTask).length ? '承办信息待核对' : (hasTaskAction(detailTask, 'ASSIGN') ? (recommendationState.state === 'LOADING' ? '正在推荐…' : '请选择承办人') : '尚未确认'))) }}</dd></div>
                     <div v-if="matterAgent"><dt>所属用户 / 当前状态</dt><dd>{{ assigneeProviderText(matterAgent) }} · {{ assigneeAvailabilityText(matterAgent) }}</dd></div>
                     <div><dt>资料 / 成果</dt><dd>{{ matterResourceSummary?.taskId === String(detailTask.id) ? (['completed', 'archived'].includes(detailTask.status) ? `${matterResourceSummary.materials} 份资料 · 成果见验收记录` : `${matterResourceSummary.materials} 份资料 · ${matterResultCount ?? matterResourceSummary.outputs} 份${matterResultCount == null ? '成果引用' : '成果'}`) : '见下方资料与成果' }}</dd></div>
                   </dl>
@@ -753,7 +753,12 @@ const showNoAssigneeRecruitment = computed(() => hasTaskAction(detailTask.value,
     : props.candidatesTaskId === detailTask.value?.id))
 const matterAgent = computed(() => {
   if (!hasTaskAction(detailTask.value, 'ASSIGN')) return assignedAgentForTask(detailTask.value)
-  return matterCandidates.value.find(agent => agent.agentId === matterCandidateId.value) || null
+  const chosen = matterCandidates.value.find(agent => agent.agentId === matterCandidateId.value)
+  if (chosen) return chosen
+  const { state, result } = props.recommendationState
+  if (!props.embeddedHall || result?.taskId !== detailTask.value?.id || result?.taskVersion !== detailTask.value?.taskVersion ||
+      !(state === 'READY' || (state === 'DEGRADED' && result?.retrievalMode === 'LEXICAL_ONLY'))) return null
+  return assignableRecommendedAgents.value.find(agent => agent.recommendationEvidence?.length) || null
 })
 const showMatterCandidates = computed({
   get: () => matterCandidateExpansion.value ?? (!matterAgent.value && props.recommendationState.state !== 'LOADING'),
