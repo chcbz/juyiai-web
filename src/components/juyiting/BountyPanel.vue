@@ -758,7 +758,9 @@ const matterAgent = computed(() => {
   const { state, result } = props.recommendationState
   if (!props.embeddedHall || result?.taskId !== detailTask.value?.id || result?.taskVersion !== detailTask.value?.taskVersion ||
       !(state === 'READY' || (state === 'DEGRADED' && result?.retrievalMode === 'LEXICAL_ONLY'))) return null
-  return assignableRecommendedAgents.value.find(agent => agent.recommendationEvidence?.length) || null
+  return assignableRecommendedAgents.value.find(agent => agent.recommendationEvidence?.length &&
+    (detailTask.value?.funding?.mode === 'FUNDED_SINGLE_AGENT' ||
+      (currentBudget.value?.state === 'READY' && isAvailableTaskQuote(currentBudget.value.quotesByAgentId?.get(agent.agentId))))) || null
 })
 const showMatterCandidates = computed({
   get: () => matterCandidateExpansion.value ?? (!matterAgent.value && props.recommendationState.state !== 'LOADING'),
@@ -825,9 +827,6 @@ const requirementSaved = view => {
 }
 watch(() => [props.identityScope, props.authorizationGeneration, detailTask.value?.id], () => { requirementEditBusy.value = false }, { flush: 'sync' })
 
-watch(matterAgent, (agent, previous) => {
-  if (!agent && previous) matterCandidateExpansion.value = null
-})
 
 const fundedRecoveryAbilities = computed(() => {
   const abilities = props.fundedCreateRecovery?.body?.requiredAbilities
@@ -844,6 +843,10 @@ const currentBudget = computed(() => props.taskBudget.idsKey === budgetSetKey.va
   props.taskBudget.scope === `${props.authorizationGeneration}\u0000${props.identityScope}` &&
   props.taskBudget.taskId === detailTask.value?.id && props.taskBudget.taskVersion === detailTask.value?.taskVersion ? props.taskBudget : null)
 const selectedQuote = computed(() => currentBudget.value?.quotesByAgentId?.get(budgetTarget.value) ?? null)
+watch(matterAgent, (agent, previous) => {
+  if (!agent && previous) matterCandidateExpansion.value = null
+})
+
 const budgetStatusText = computed(() => ({ LOADING: '正在估算预算…', ERROR: '预算暂不可用，可重试',
   REFRESHING: '事项已变化，正在核对', REFRESH_FAILED: '事项核对失败', STALE: '事项已变化，请重新取价', INACCESSIBLE: '当前不可取价，请核对访问权限' })[currentBudget.value?.state])
 const budgetAction = computed(() => ({ ERROR: { mode: 'retry', label: '重试预算' }, REFRESH_FAILED: { mode: 'refresh', label: '重新核对事项' },

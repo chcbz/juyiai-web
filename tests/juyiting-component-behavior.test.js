@@ -1688,6 +1688,7 @@ describe('JuyiHall component behavior', () => {
       await wrapper.setProps({ detailAllowed: true })
       expect(card.attributes('tabindex')).to.equal('0')
       await card.trigger('keydown.space')
+      await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, agents.slice(1)) })
       expect(wrapper.find('[aria-label="刷新承办候选"]').exists()).to.equal(false)
       expect(wrapper.get('.matter-selected-reason').text()).to.equal('理由1')
       expect(wrapper.get('.matter-advice-card').text()).to.include('默认推荐')
@@ -1714,7 +1715,7 @@ describe('JuyiHall component behavior', () => {
         await wrapper.get('.matter-recommendation button').trigger('click')
       }
       expect(wrapper.emitted('refresh-recommendation')).to.have.length(2)
-      await wrapper.setProps({ recommendationState: { state: 'NO_MATCH', result: { ...state.result, observedAt: 2 } }, recommendedAgents: agents.slice(2) })
+      await wrapper.setProps({ recommendationState: { state: 'NO_MATCH', result: { ...state.result, observedAt: 2 } }, recommendedAgents: agents.slice(2), taskBudget: { state: 'IDLE' } })
       expect(wrapper.find('.matter-recommendation').exists()).to.equal(false)
       expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
       await wrapper.findAll('.matter-candidate-card')[1].trigger('click')
@@ -1746,8 +1747,8 @@ describe('JuyiHall component behavior', () => {
       expect(wrapper.emitted('request-budgets')).to.deep.equal([[task, ['a','b']]])
       await wrapper.setProps({ recommendationState: { state: 'READY', result: { taskId: task.id, taskVersion: task.taskVersion } } })
       expect(wrapper.emitted('request-budgets')).to.deep.equal([[task, ['a','b']]])
-      expect(wrapper.get('.matter-selected-reason').text()).to.equal(a.recommendationReason)
-      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由林冲承办')
+      expect(wrapper.find('.matter-selected-reason').exists()).to.equal(false)
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('请选择承办人')
       expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
       // The open modal may itself consume the last navigation layer.
       await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, [a,b]), detailAllowed: false })
@@ -1755,8 +1756,9 @@ describe('JuyiHall component behavior', () => {
       // Subsequent identity transitions start a new navigation stack with room to open a detail.
       await wrapper.setProps({ detailAllowed: true })
       await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, [a,b], { a: { state: 'UNAVAILABLE', quoteId: null, recommendationId: 'r1', amount: null, unavailableReason: 'MODEL_PRICE_MISSING' } }) })
-      expect(wrapper.get('.matter-quote').text()).to.include('暂无法报价')
-      expect(wrapper.get('.matter-quote').text()).not.to.include('0文')
+      expect(wrapper.find('.matter-selected-reason').exists()).to.equal(false)
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('请选择承办人')
+      expect(wrapper.findAll('.matter-candidate-card')[0].text()).to.include('暂无法报价')
       expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
       await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, [a,b]) })
       await wrapper.get('.matter-primary-action').trigger('click')
@@ -1804,6 +1806,45 @@ describe('JuyiHall component behavior', () => {
         expect(wrapper.get('.matter-primary-action').text()).to.equal('请选择承办人')
         expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
       }
+    } finally { wrapper.unmount() }
+  })
+
+  it('defaults to a quoted recommendation, retains unavailable candidates and never replaces a manual choice', async () => {
+    const task = { id: 'quoted-default', status: 'open', taskVersion: '1' }
+    const agents = ['甲', '乙'].map((name, i) => ({ agentId: `a${i}`, displayName: name,
+      recommendationEvidence: [{ id: `skill${i}`, label: '已发布技能' }], taskQuote: syntheticTaskQuote() }))
+    const unavailable = { state: 'UNAVAILABLE', recommendationId: 'r1', unavailableReason: 'CAPABILITY_MISMATCH', amount: null, quoteId: null }
+    const wrapper = mount(BountyPanel, { global: { stubs }, props: {
+      embeddedHall: true, tasks: [task], selectedTask: task, recommendedAgents: agents,
+      recommendationState: { state: 'READY', result: { taskId: task.id, taskVersion: task.taskVersion } },
+      canAssign: () => true, abilityText: () => '', formatTime: v => v, portraitName: a => a.displayName,
+      portraitStyle: () => ({}), taskStateClass: () => '', taskStatusText: () => '', taskStatusCount: () => 1, taskStatusFilters: []
+    } })
+    try {
+      wrapper.vm.openTask(task); await Vue.nextTick()
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, agents, { a0: unavailable }) })
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由乙承办')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(false)
+      if (!wrapper.find('.matter-candidate-card').exists()) await wrapper.get('.matter-agent-toggle').trigger('click')
+      expect(wrapper.findAll('.matter-candidate-card')).to.have.length(2)
+      expect(wrapper.findAll('.matter-candidate-card')[0].text()).to.include('暂不能承办此事项')
+      const requests = wrapper.emitted('request-budgets').length
+      await wrapper.findAll('.matter-candidate-card')[0].trigger('click')
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由甲承办')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, agents) })
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('确认由甲承办')
+      expect(wrapper.emitted('request-budgets')).to.have.length(requests)
+      // A new version clears the explicit choice and may not reuse old prices.
+      const next = { ...task, taskVersion: '2' }
+      await wrapper.setProps({ selectedTask: next })
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      await wrapper.setProps({ recommendationState: { state: 'READY', result: { taskId: next.id, taskVersion: next.taskVersion } },
+        taskBudget: selectedBudget(wrapper, next, agents, { a0: unavailable, a1: unavailable }) })
+      expect(wrapper.get('.matter-primary-action').text()).to.equal('请选择承办人')
+      expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
+      expect(wrapper.emitted('assign-task')).to.equal(undefined)
     } finally { wrapper.unmount() }
   })
 
