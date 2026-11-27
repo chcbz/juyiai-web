@@ -162,20 +162,15 @@ describe('single-track model assignee recommendation R1', () => {
 
 describe('task quotation availability explanations', () => {
   const unavailable = reason => ({ state: 'UNAVAILABLE', quoteId: null, recommendationId: 'rec', amount: null, unavailableReason: reason })
-  for (const [reason, message] of Object.entries({
-    NO_BASELINE: '同类实测样本', OUT_OF_DISTRIBUTION: '超出已验证的预算范围',
-    USAGE_INCOMPLETE: '历史用量记录不完整', PRICE_MISSING: '参考单价不完整',
-    BILLING_ROUTE_MISSING: '计费配置尚未就绪', MODEL_PRICE_MISSING: '模型单价尚未登记',
-    TOKEN_PRICE_MISSING: '模型用量单价不完整', TOOL_PRICE_MISSING: '收费工具尚未登记单价',
-    QUOTE_AMOUNT_OVERFLOW: '预估费用超出支持范围'
-  })) it(`explains ${reason} without suggesting a paid retry or free assignment`, () => {
+  for (const reason of ['NO_BASELINE', 'OUT_OF_DISTRIBUTION', 'USAGE_INCOMPLETE', 'PRICE_MISSING',
+    'BILLING_ROUTE_MISSING', 'MODEL_PRICE_MISSING', 'TOKEN_PRICE_MISSING', 'TOOL_PRICE_MISSING',
+    'QUOTE_AMOUNT_OVERFLOW', 'CAPABILITY_MISMATCH']) it(`shows business status for ${reason} without technical details`, () => {
     const quote = unavailable(reason)
-    expect(taskQuoteText(quote)).to.include(message)
-    if (reason === 'BILLING_ROUTE_MISSING') {
-      expect(taskQuoteText(quote)).to.include('如有「查看首次交付方式」')
-      expect(taskQuoteText(quote)).to.include('配置就绪后点「重新取价」')
-      expect(taskQuoteText(quote)).to.include('仍无报价')
-    } else expect(taskQuoteText(quote)).not.to.include('首次交付方式')
+    expect(taskQuoteText(quote)).to.equal(reason === 'CAPABILITY_MISMATCH'
+      ? '暂不能承办此事项' : '暂无法报价，请重新取价或选择其他承办人。')
+    for (const technical of ['首次交付方式', '模型', 'token', '样本', '计费配置', '历史用量']) {
+      expect(taskQuoteText(quote)).not.to.include(technical)
+    }
     expect(taskQuoteText(quote)).not.to.include('稍后重试')
     expect(taskQuoteText(quote)).not.to.include('0文')
     expect(isAvailableTaskQuote(quote)).to.equal(false)
@@ -184,7 +179,7 @@ describe('task quotation availability explanations', () => {
   })
   for (const reason of ['NEW_REASON', 'constructor', '__proto__']) it(`keeps unknown reason ${reason} readable without rejecting the whole recommendation`, () => {
     const quote = unavailable(reason)
-    expect(taskQuoteText(quote)).to.equal('暂无法报价：费用信息未就绪，请联系平台核查。')
+    expect(taskQuoteText(quote)).to.equal('暂无法报价，请重新取价或选择其他承办人。')
     const response = result(); response.recommendations[0].quote = quote
     expect(parseAssigneeRecommendation(response, task())).to.equal(response)
   })
@@ -194,10 +189,10 @@ describe('task quotation availability explanations', () => {
     expect(isAvailableTaskQuote({ ...quote, quoteId: null })).to.equal(false)
   })
   it('keeps an absent quote distinct from an explicitly available zero or positive quote', () => {
-    expect(taskQuoteText(null)).to.equal('尚未取得独立报价')
+    expect(taskQuoteText(null)).to.equal('尚未取得报价')
     for (const amount of ['0', '1', '13']) {
       const quote = { state: 'AVAILABLE', quoteId: 'quote', recommendationId: 'rec', amount: { currency: 'WEN', amountMinor: amount } }
-      expect(taskQuoteText(quote)).to.equal(`事项报价 ${amount}文`)
+      expect(taskQuoteText(quote)).to.equal(`本次固定报价 ${amount}文`)
       expect(isAvailableTaskQuote(quote)).to.equal(true)
     }
   })

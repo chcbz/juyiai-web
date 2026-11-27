@@ -1751,7 +1751,7 @@ describe('JuyiHall component behavior', () => {
       expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
       // The open modal may itself consume the last navigation layer.
       await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, [a,b]), detailAllowed: false })
-      expect(wrapper.get('.matter-quote').text()).to.include('事项报价 13文')
+      expect(wrapper.get('.matter-quote').text()).to.include('本次固定报价 13文')
       // Subsequent identity transitions start a new navigation stack with room to open a detail.
       await wrapper.setProps({ detailAllowed: true })
       await wrapper.setProps({ taskBudget: selectedBudget(wrapper, task, [a,b], { a: { state: 'UNAVAILABLE', quoteId: null, recommendationId: 'r1', amount: null, unavailableReason: 'MODEL_PRICE_MISSING' } }) })
@@ -1861,7 +1861,7 @@ describe('JuyiHall component behavior', () => {
     await wrapper.get('.matter-agent-toggle').trigger('click')
     await wrapper.get('.matter-primary-action').trigger('click')
     expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)
-    expect(wrapper.text()).to.include('尚未取得独立报价')
+    expect(wrapper.text()).to.include('尚未取得报价')
     expect(wrapper.emitted('assign-task')).to.equal(undefined)
     await wrapper.setProps({ recommendationState: { state: 'LOADING' } })
     expect(wrapper.get('.matter-primary-action').element.disabled).to.equal(true)

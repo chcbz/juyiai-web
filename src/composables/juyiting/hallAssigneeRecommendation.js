@@ -3,23 +3,11 @@ import { isWenMoney, formatWenMoney } from '../../utils/wenAmount.js'
 const text = value => typeof value === 'string' && value.trim().length > 0
 export const isAvailableTaskQuote = quote => quote?.state === 'AVAILABLE' && text(quote.quoteId) && text(quote.recommendationId) && isWenMoney(quote.amount) && quote.unavailableReason == null
 export const isTaskQuote = quote => isAvailableTaskQuote(quote) || (quote?.state === 'UNAVAILABLE' && text(quote.recommendationId) && quote.quoteId == null && quote.amount == null && text(quote.unavailableReason))
-const unavailableQuoteText = {
-  NO_BASELINE: '暂不可估算：当前没有足够的同类实测样本。',
-  OUT_OF_DISTRIBUTION: '暂不可估算：本事项超出已验证的预算范围。',
-  USAGE_INCOMPLETE: '暂不可估算：历史用量记录不完整。',
-  PRICE_MISSING: '暂不可估算：本次所需的参考单价不完整。',
-  BILLING_ROUTE_MISSING: '暂无法报价：计费配置尚未就绪。如有「查看首次交付方式」，请先核对。配置就绪后点「重新取价」；仍无报价时可换人或联系平台。',
-  MODEL_PRICE_MISSING: '暂无法报价：模型单价尚未登记，请联系平台。',
-  TOKEN_PRICE_MISSING: '暂无法报价：模型用量单价不完整，请联系平台。',
-  TOOL_PRICE_MISSING: '暂无法报价：所需收费工具尚未登记单价，请联系平台。',
-  QUOTE_AMOUNT_OVERFLOW: '暂无法报价：预估费用超出支持范围，请缩小事项范围或联系平台。'
-}
 export const taskQuoteText = quote => {
-  if (isAvailableTaskQuote(quote) && quote.estimateSummary?.method === 'FIXED_FALLBACK') return `本次固定报价 ${formatWenMoney(quote.amount)}`
-  if (isAvailableTaskQuote(quote)) return `事项报价 ${formatWenMoney(quote.amount)}`
-  if (quote?.state === 'UNAVAILABLE') return Object.hasOwn(unavailableQuoteText, quote.unavailableReason)
-    ? unavailableQuoteText[quote.unavailableReason] : '暂无法报价：费用信息未就绪，请联系平台核查。'
-  return '尚未取得独立报价'
+  if (isAvailableTaskQuote(quote)) return `本次固定报价 ${formatWenMoney(quote.amount)}`
+  if (quote?.state === 'UNAVAILABLE') return quote.unavailableReason === 'CAPABILITY_MISMATCH'
+    ? '暂不能承办此事项' : '暂无法报价，请重新取价或选择其他承办人。'
+  return '尚未取得报价'
 }
 const strings = value => Array.isArray(value) && value.every(text)
 export const recommendationTaskKey = task => JSON.stringify([task?.id, task?.taskVersion])

@@ -370,7 +370,7 @@ describe('model recommendation actual matter UI', () => {
       await wrapper.get('.matter-candidates button').trigger('click')
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
       expect(wrapper.get('.matter-primary-action').attributes('disabled')).not.to.equal(undefined)
-      expect(wrapper.get('.matter-quote').text()).to.include('尚未取得独立报价')
+      expect(wrapper.get('.matter-quote').text()).to.include('尚未取得报价')
       await wrapper.get('.matter-primary-action').trigger('click')
       expect(wrapper.emitted('assign-task')).to.equal(undefined)
     } finally { wrapper.unmount() }
