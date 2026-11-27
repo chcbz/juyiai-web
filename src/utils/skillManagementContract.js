@@ -37,7 +37,12 @@ export const SKILL_REASON_LABELS = Object.freeze({ AGENT_OFFLINE: '好汉当前�
 const reason = nullable(one(Object.keys(SKILL_REASON_LABELS)))
 const packageFields = { productVersionId: skillId, skillVersion: version, packageSha256: sha, manifestSha256: nullable(sha), byteLength: positive, kind: one(['EXECUTABLE', 'INSTRUCTION']) }
 const kindMatches = v => v.kind === 'EXECUTABLE' ? sha(v.manifestSha256) : v.manifestSha256 === null
-const packageRef = v => shape({ skillInstallationId: skillId, ...packageFields })(v) && kindMatches(v)
+const quoteSpecBinding = shape({ capabilityId: v => text(v) && v.length > 0 && Array.from(v).length <= 128,
+  capabilityVersion: v => text(v) && v.length > 0 && Array.from(v).length <= 64, specSha: sha })
+const quoteSpecBindings = v => Array.isArray(v) && v.length > 0 && v.length <= 32 && v.every(quoteSpecBinding) &&
+  new Set(v.map(row => JSON.stringify([row.capabilityId, row.capabilityVersion, row.specSha]))).size === v.length
+const packageRef = v => object(v) && shape({ skillInstallationId: skillId, ...packageFields,
+  ...(Object.hasOwn(v, 'quoteSpecBindings') ? { quoteSpecBindings } : {}) })(v) && kindMatches(v)
 const details = v => shape({ ...packageFields, inputMimeTypes: list(text), requiredPermissions: permissions, requirements: list(text), changeSummary: text, executionCostDescription: nullable(text) })(v) && kindMatches(v)
 const installed = shape({ skillInstallationId: skillId, version: details })
 const positionSource = shape({ type: one(['POSITION']), grantId: skillId, grantRevision: positive, bindingId: positive })

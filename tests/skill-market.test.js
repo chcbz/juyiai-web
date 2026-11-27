@@ -35,6 +35,15 @@ describe('SM-C1 locked fixtures → actual Web parser', () => {
     expect(() => parseSkillManagement('SkillChange', marketWithoutOrder)).to.throw()
 
   })
+  it('accepts typed capability bindings in a package target without rendering pricing internals', () => {
+    const original = fixture('accepted-offline-install').data
+    const semantic = { capabilityId: 'document.export', capabilityVersion: '1', specSha: 'a'.repeat(64) }
+    const value = { ...original, target: { ...original.target, quoteSpecBindings: [semantic] } }
+    expect(parseSkillManagement('SkillChange', value)).to.deep.equal(value)
+    for (const invalid of [[], [{ ...semantic, specSha: 'broken' }], [{ ...semantic, capabilityVersion: 1 }], [semantic, semantic], Array(33).fill(semantic)]) {
+      expect(() => parseSkillManagement('SkillChange', { ...value, target: { ...value.target, quoteSpecBindings: invalid } })).to.throw()
+    }
+  })
   for (const example of fixtures.cases.filter(e => responseDefinitions[e.definition] || requestDefinitions[e.definition] || e.definition === 'HttpError')) {
     it(`${example.name}: ${example.valid ? 'accepts' : 'rejects'} complete shared wire`, () => {
       const execute = () => {
