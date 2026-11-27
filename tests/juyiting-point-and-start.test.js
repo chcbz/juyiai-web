@@ -100,6 +100,26 @@ describe('persisted exact point-and-start source contract', () => {
     expect(pointAndDeliberateBody({ ...shared, recommendationId: undefined })).to.equal(null)
   })
 
+  it('accepts the confirmed SCOPED revision without altering quote or assignment identity', async () => {
+    const h = harness({ api: { get: async path => {
+      if (path.endsWith('/requirements/current')) return { ...req(), source: 'SCOPED' }
+      return path.endsWith('/point-and-deliberate/request') ? projection() : task()
+    } } })
+    await h.flow.start(args())
+    const posts = h.calls.filter(call => call[0] === 'post')
+    expect(posts).to.have.length(1)
+    expect(posts[0][2]).to.deep.equal(record().body)
+    expect(posts[0][3]).to.equal('original-key')
+  })
+
+  it('unknown requirement source never creates an assignment intent or sends a POST', async () => {
+    const h = harness({ api: { get: async path => path.endsWith('/requirements/current')
+      ? { ...req(), source: 'UNKNOWN' } : task() } })
+    expect(await h.flow.start(args())).to.equal(false)
+    expect(h.calls.filter(call => call[0] === 'post')).to.have.length(0)
+    expect(createPointAndStartIntentStore({ storage: h.memory, scope: h.scope.value, taskId: 'task-1' }).read().state).to.equal('ABSENT')
+  })
+
   it('missing or unavailable quote never sends a new assignment', async () => {
     for (const taskQuote of [null, { ...quote(), state: 'UNAVAILABLE', amount: null }, { ...quote(), quoteId: null }]) {
       const h = harness()

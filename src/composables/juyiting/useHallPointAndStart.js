@@ -184,7 +184,7 @@ export const useHallPointAndStart = ({ agentApi, actorScopeKey, storage = null,
       if (requirement?.taskId !== taskId || !pointAndStartLong(requirement.taskVersion, true) ||
       !pointAndStartLong(requirement.requirementRevision) || typeof requirement.title !== 'string' || !requirement.title ||
       !(requirement.description === null || typeof requirement.description === 'string') ||
-      !/^[a-f0-9]{64}$/.test(requirement.contentSha256) || !['CREATE', 'RECONFIRM'].includes(requirement.source) ||
+      !/^[a-f0-9]{64}$/.test(requirement.contentSha256) || !['CREATE', 'RECONFIRM', 'SCOPED'].includes(requirement.source) ||
       canonical?.id !== taskId || canonical.taskVersion !== requirement.taskVersion ||
       canonical.status !== 'open' || canonical.funding?.mode === 'FUNDED_SINGLE_AGENT' || canAssign(canonical, agent) !== true) throw new Error('真实需求修订、榜文版本或目标准入未能核对')
       const body = pointAndDeliberateBody({ targetAgentId: targetId, expectedTaskVersion: requirement.taskVersion,
